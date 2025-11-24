@@ -23,12 +23,13 @@ dependencies = [
     "python-dotenv>=1.1.0",
     "pudb>=2025.1",
     "torch>=2.6.0",
-    "torchvision>=0.23.0,<0.24.0",
+    "torchvision>=0.24.0",
     "tensorboard>=2.19.0",
     "toml>=0.10.2",
     "umap-learn>=0.5.9.post2",
     "hdbscan>=0.8.40",
     "matplotlib>=3.10.7",
+    "click>=8.3.1",
 ]
 
 [tool.uv.sources]
@@ -37,7 +38,7 @@ torchvision = { index = "pytorch" }
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu126" # adjust for your CUDA version
+url = "https://download.pytorch.org/whl/cu130" # adjust for your CUDA version
 explicit = true
 
 [dependency-groups]
