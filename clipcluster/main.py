@@ -16,7 +16,8 @@ MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
 # actual dataset location
-IMAGE_DIR = "/mnt/ghentcdh/miepeete/shares/glashelder/assets"
+IMAGE_DIR = "/mnt/miepeete/shares/glashelder/assets"
+EMBEDDINGS_PATH = "embeddings.pkl"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ def cli():
 
 @click.command()
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
-def run_clip_with_clustering():
+def run_clip_with_clustering(image_dir):
     model = get_model()
     device = get_device()
 
@@ -230,7 +231,6 @@ def search(prompt, top_k, image_dir, output_dir, sample_size):
         logger.info(f"Embedding image {i}/{length}")
         return get_image_embedding(*args) 
 
-
     image_embeddings = torch.cat([
         embed(i, processor, model, device, path) 
         for (i, path) in enumerate(image_paths)
@@ -272,6 +272,39 @@ def search(prompt, top_k, image_dir, output_dir, sample_size):
     logger.info(f"\nTop {top_k} images saved to: {output_path}")
 
 
+@cli.command()
+@click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
+@click.option('--save-path', default=EMBEDDINGS_PATH, help='Embeddings pickle save path')
+@click.option('--count', default=10000, help='Amount of images to generate embeddings for')
+def generate_embeddings(image_dir, save_path, count):
+    model = get_model()
+    device = get_device()
+
+    # HMM: doesn't processor need to go to device too?
+    processor = get_processor()
+    model.to(device)
+
+    image_paths = sorted(glob.glob(f"{image_dir}/*"))[:count]
+
+    logger.info("Generating image embeddings...")
+    length = len(image_paths)
+    def embed(i, *args):
+        logger.info(f"Embedding image {i}/{length}")
+        return get_image_embedding(*args) 
+
+    embeddings = torch.cat([
+        embed(i, processor, model, device, path) 
+        for (i, path) in enumerate(image_paths)
+    ])
+
+    # write reduced to pickle file as a checkpoint
+    with open(save_path, "wb") as file:
+        data = {
+            "images": image_paths,
+            "embeddings": embeddings
+        }
+        pickle.dump(data, file)
+
+
 if __name__ == "__main__":
     cli()
-
