@@ -1,0 +1,47 @@
+[project]
+name = "clipcluster"
+version = "0.1.0"
+description = "Cluster images using CLIP embeddings."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "numpy>=2.2.3",
+    "opencv-python>=4.11.0.86",
+    "pandas>=2.2.3",
+    "pillow>=11.1.0",
+    "rich>=13.9.4",
+    "scikit-image>=0.25.2",
+    "scikit-learn>=1.6.1",
+    "transformers==4.47.0",
+    "accelerate>=1.5.2",
+    "evaluate>=0.4.3",
+    "jiwer>=3.1.0",
+    "requests>=2.32.3",
+    "geopy>=2.4.1",
+    "python-levenshtein>=0.27.1",
+    "label-studio-sdk>=1.0.13",
+    "python-dotenv>=1.1.0",
+    "pudb>=2025.1",
+    "torch>=2.6.0",
+    "torchvision>=0.23.0,<0.24.0",
+    "tensorboard>=2.19.0",
+    "toml>=0.10.2",
+    "umap-learn>=0.5.9.post2",
+    "hdbscan>=0.8.40",
+    "matplotlib>=3.10.7",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu126" # adjust for your CUDA version
+explicit = true
+
+[dependency-groups]
+dev = ["pyright>=1.1.406"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
