@@ -14,6 +14,9 @@ import click
 MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
+CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
+# actual dataset location
+IMAGE_DIR = "/mnt/ghentcdh/miepeete/shares/glashelder/assets"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,13 +30,25 @@ def get_processor():
     return CLIPProcessor.from_pretrained(MODEL)
 
 
-def get_device():
+def get_device() -> str:
     if torch.cuda.is_available():
         return 'cuda'
     elif torch.mps.is_available():
         return 'mps'
     else: 
         return 'cpu'
+
+
+def reduce_dimensions(embeddings, dimensions: int = 5):
+    umap_model = UMAP(n_components=5)
+    return umap_model.fit_transform(embeddings)
+
+
+def cluster(latent, min_cluster_size: int = 20):
+    clusterer = HDBSCAN(min_cluster_size=min_cluster_size)
+    clusterer.fit(latent)
+
+    return clusterer
 
 
 def get_image_embedding(processor, model, device: str, image_path: str):
@@ -47,46 +62,19 @@ def get_image_embedding(processor, model, device: str, image_path: str):
         return model.get_image_features(**inputs)
 
 
+def get_text_embedding(processor, model, device: str, text: str):
+    with torch.no_grad():
+        inputs = processor(text=[text], return_tensors="pt", padding=True).to(device)
+        return model.get_text_features(**inputs)
 
-@click.command()
-def run_clip_with_clustering():
-    model = get_model()
-    device = get_device()
 
-    # HMM: doesn't processor need to go to device too?
-    processor = get_processor()
-    model.to(device)
-
-    image_paths = sorted(glob.glob("./selected/*"))
-
-    print("generating embeddings")
-    embeddings = torch.cat([get_image_embedding(processor, model, device, path) for path in image_paths])
-    print("embeddings generated")
-
-    umap_model = UMAP(n_components=5)
-    reduced_embeddings = umap_model.fit_transform(embeddings.cpu().numpy())
-    print(reduced_embeddings.shape)
-    print(reduced_embeddings)
-
-    # write reduced to pickle file as a checkpoint
-    with open("reduced.pkl", "wb") as file:
-        pickle.dump(reduced_embeddings, file)
-
-    # with open('reduced.pkl', 'rb') as file:
-    # reduced_embeddings = pickle.load(file)
-
-    clusterer = HDBSCAN(min_cluster_size=20)
-    print(clusterer.fit(reduced_embeddings))
-
-    # Get cluster labels
-    labels = clusterer.labels_
-
+def create_scatter_plot(latent, labels, save_path: str = "clustering_results.png"):
     # Create a scatter plot
     plt.figure(figsize=(12, 8))
 
     # Use first 2 components for visualization
-    x = reduced_embeddings[:, 0]
-    y = reduced_embeddings[:, 1]
+    x = latent[:, 0]
+    y = latent[:, 1]
 
     # Create scatter plot with different colors for each cluster
     scatter = plt.scatter(x, y, c=labels, cmap="tab20", alpha=0.6, s=50)
@@ -105,28 +93,65 @@ def run_clip_with_clustering():
 
     plt.tight_layout()
     plt.savefig(
-        "clustering_results.png", dpi=300, bbox_inches="tight"
+        save_path, dpi=300, bbox_inches="tight"
     )  # Save instead of show
     plt.close()  # Close the figure to free memory
 
-    # Print cluster statistics
-    unique_labels = set(labels)
-    print(
-        f"\nNumber of clusters: {len(unique_labels) - (1 if -1 in unique_labels else 0)}"
-    )
-    print(f"Number of noise points: {sum(labels == -1)}")
-    print("\nCluster sizes:")
-    for label in sorted(unique_labels):
-        if label == -1:
-            print(f"  Noise: {sum(labels == label)} points")
-        else:
-            print(f"  Cluster {label}: {sum(labels == label)} points")
+
+@click.group()
+def cli():
+    pass
+
+
+@click.command()
+@click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
+def run_clip_with_clustering():
+    model = get_model()
+    device = get_device()
+
+    # HMM: doesn't processor need to go to device too?
+    processor = get_processor()
+    model.to(device)
+
+    image_paths = sorted(glob.glob(f"{image_dir}/*"))
+
+    logger.info("generating embeddings")
+    embeddings = torch.cat([get_image_embedding(processor, model, device, path) for path in image_paths])
+    logger.info("embeddings generated")
+
+    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
+    logger.info(reduced_embeddings.shape)
+    logger.info(reduced_embeddings)
+
+    # write reduced to pickle file as a checkpoint
+    with open("reduced.pkl", "wb") as file:
+        pickle.dump(reduced_embeddings, file)
+
+    # with open('reduced.pkl', 'rb') as file:
+    # reduced_embeddings = pickle.load(file)
+
+    clusterer = cluster(reduced_embeddings)
 
     # Get cluster labels
     labels = clusterer.labels_
 
+    create_scatter_plot(reduced_embeddings, labels)
+
+    # Print cluster statistics
+    unique_labels = set(labels)
+    logger.info(
+        f"Number of clusters: {len(unique_labels) - (1 if -1 in unique_labels else 0)}"
+    )
+    logger.info(f"Number of noise points: {sum(labels == -1)}")
+    logger.info("Cluster sizes:")
+    for label in sorted(unique_labels):
+        if label == -1:
+            logger.info(f"  Noise: {sum(labels == label)} points")
+        else:
+            logger.info(f"  Cluster {label}: {sum(labels == label)} points")
+
     # Create output directory
-    output_dir = Path("clustered_samples")
+    output_dir = Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
     output_dir.mkdir(exist_ok=True)
 
     # Get unique clusters (excluding noise)
@@ -173,3 +198,80 @@ def run_clip_with_clustering():
         )
 
     print(f"\nSamples saved to: {output_dir}")
+
+@cli.command()
+@click.argument('prompt')
+@click.option('--top-k', default=10, help='Number of top matching images to return')
+@click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
+@click.option('--output-dir', default='search_results', help='Directory to save matching images')
+@click.option('--sample-size', default=10000, help='The amount of images in the dataset to consider')
+def search(prompt, top_k, image_dir, output_dir, sample_size):
+    """Search for images matching a text prompt using CLIP similarity"""
+    logger.info(f"Searching for: '{prompt}'")
+    logger.info(f"Looking for top {top_k} matches")
+    
+    model = get_model()
+    device = get_device()
+    processor = get_processor()
+    model.to(device)
+
+    # Get all image paths
+    image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
+    logger.info(f"Found {len(image_paths)} images")
+
+    # Get text embedding for the prompt
+    logger.info("Generating text embedding...")
+    text_embedding = get_text_embedding(processor, model, device, prompt)
+
+    # Get image embeddings
+    logger.info("Generating image embeddings...")
+    length = len(image_paths)
+    def embed(i, *args):
+        logger.info(f"Embedding image {i}/{length}")
+        return get_image_embedding(*args) 
+
+
+    image_embeddings = torch.cat([
+        embed(i, processor, model, device, path) 
+        for (i, path) in enumerate(image_paths)
+    ])
+
+    # Normalize embeddings for cosine similarity
+    text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
+    image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
+
+    # Calculate cosine similarity
+    similarities = (text_embedding @ image_embeddings.T).squeeze(0)
+    
+    # Get top-k indices
+    top_k = min(top_k, len(image_paths))
+    top_indices = torch.topk(similarities, top_k).indices.cpu().numpy()
+    top_scores = torch.topk(similarities, top_k).values.cpu().numpy()
+
+    # Print results
+    logger.info(f"\nTop {top_k} matches for '{prompt}':")
+    for i, (idx, score) in enumerate(zip(top_indices, top_scores), 1):
+        logger.info(f"{i}. {Path(image_paths[idx]).name} (similarity: {score:.4f})")
+
+    # Create output directory and copy images
+    output_path = Path(output_dir)
+    output_path.mkdir(exist_ok=True)
+    
+    # Clear previous results
+    for old_file in output_path.glob("*"):
+        old_file.unlink()
+
+    for i, (idx, score) in enumerate(zip(top_indices, top_scores), 1):
+        src_path = image_paths[idx]
+        filename = Path(src_path).name
+        # Add rank and score to filename
+        dst_filename = f"{i:02d}_score{score:.3f}_{filename}"
+        dst_path = output_path / dst_filename
+        shutil.copy(src_path, dst_path)
+
+    logger.info(f"\nTop {top_k} images saved to: {output_path}")
+
+
+if __name__ == "__main__":
+    cli()
+
