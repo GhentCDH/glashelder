@@ -122,7 +122,7 @@ def make_embeddings(model, processor, image_paths, batch_size, device):
     return embeddings
 
 
-def perform_search(prompt, top_k, text_embedding, image_embeddings, image_paths):
+def perform_search(top_k, text_embedding, image_embeddings, image_paths):
     """Shared search logic"""
     # Normalize embeddings
     text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
@@ -135,6 +135,23 @@ def perform_search(prompt, top_k, text_embedding, image_embeddings, image_paths)
     top_k = min(top_k, len(image_paths))
     top_values, top_indices = torch.topk(similarities, top_k)
     
+    return top_indices, top_values
+
+
+def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self=True):
+    """Find images similar to a given image by index in the embedding space"""
+    query_embedding = image_embeddings[query_index].unsqueeze(0)
+    query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
+    image_embeddings_norm = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
+    similarities = (query_embedding @ image_embeddings_norm.T).squeeze(0)
+    
+    if exclude_self:
+        similarities[query_index] = -float('inf')
+        actual_top_k = min(top_k, len(image_paths) - 1)
+    else:
+        actual_top_k = min(top_k, len(image_paths))
+    
+    top_values, top_indices = torch.topk(similarities, actual_top_k)
     return top_indices, top_values
 
 
@@ -274,7 +291,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
         image_embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
         logger.info("Generating image embeddings...")
 
-    top_indices, top_scores = perform_search(prompt, top_k, text_embedding, image_embeddings, image_paths)
+    top_indices, top_scores = perform_search(top_k, text_embedding, image_embeddings, image_paths)
 
     # Print results
     logger.info(f"\nTop {top_k} matches for '{prompt}':")
@@ -356,16 +373,12 @@ def serve(embeddings, host, port):
         top_k = int(request.form.get('top_k', 12))
         
         if not prompt:
-            return render_template('results.html', error="Please enter a search prompt", results=[])
+            return render_template('results.html', error="Please enter a search prompt", results=[], query_type='text', query_value='')
         
         try:
-            # Generate text embedding
             text_embedding = get_text_embedding(processor, model, device, prompt)
+            top_indices, top_values = perform_search(top_k, text_embedding, image_embeddings, image_paths)
             
-            # Perform search
-            top_indices, top_values = perform_search(prompt, top_k, text_embedding, image_embeddings, image_paths)
-            
-            # Prepare results
             results = []
             for rank, (idx, score) in enumerate(zip(top_indices.cpu().numpy(), top_values.cpu().numpy()), 1):
                 results.append({
@@ -375,11 +388,38 @@ def serve(embeddings, host, port):
                     'filename': Path(image_paths[idx]).name
                 })
             
-            return render_template('results.html', results=results, error=None)
+            return render_template('results.html', results=results, error=None, query_type='text', query_value=prompt)
         
         except Exception as e:
             logger.error(f"Search error: {e}")
-            return render_template('results.html', error=f"Search failed: {str(e)}", results=[])
+            return render_template('results.html', error=f"Search failed: {str(e)}", results=[], query_type='text', query_value='')
+    
+    @app.route('/similar/<int:index>')
+    def similar_endpoint(index):
+        """Find images similar to the image at the given index"""
+        top_k = int(request.args.get('top_k', 12))
+        
+        if index < 0 or index >= len(image_paths):
+            return render_template('results.html', error="Image not found", results=[], query_type='similar', query_value=index)
+        
+        try:
+            top_indices, top_values = find_similar(index, top_k, image_embeddings, image_paths)
+            
+            results = []
+            for rank, (idx, score) in enumerate(zip(top_indices.cpu().numpy(), top_values.cpu().numpy()), 1):
+                results.append({
+                    'rank': rank,
+                    'index': int(idx),
+                    'score': float(score),
+                    'filename': Path(image_paths[idx]).name
+                })
+            
+            query_filename = Path(image_paths[index]).name
+            return render_template('results.html', results=results, error=None, query_type='similar', query_value=index, query_filename=query_filename)
+        
+        except Exception as e:
+            logger.error(f"Similar search error: {e}")
+            return render_template('results.html', error=f"Search failed: {str(e)}", results=[], query_type='similar', query_value=index)
     
     @app.route('/image/<int:index>')
     def serve_image(index):

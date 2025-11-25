@@ -1,17 +1,32 @@
 {% if error %}
 <div class="error">{{ error }}</div>
-{% else %}
+{% else %} {% if query_type == 'similar' %}
+<div class="query-info">
+  <p>Images similar to: <strong>{{ query_filename }}</strong></p>
+  <img
+    src="/image/{{ query_value }}"
+    alt="Query image"
+    style="max-width: 200px; max-height: 200px"
+  />
+</div>
+{% elif query_type == 'text' %}
+<div class="query-info">
+  <p>Results for: <strong>{{ query_value }}</strong></p>
+</div>
+{% endif %}
+
 <div class="results-grid">
   {% for result in results %}
-  <div class="result-item">
-    <img src="/image/{{ result.index }}" alt="Result {{ result.rank }}" />
+  <div class="result-card">
+    <img src="/image/{{ result.index }}" alt="{{ result.filename }}" />
     <div class="result-info">
-      <div class="result-rank">#{{ result.rank }}</div>
-      <div class="result-score">
-        Similarity: {{ "%.4f"|format(result.score) }}
-      </div>
-      <div class="result-filename">{{ result.filename }}</div>
+      <span class="rank">#{{ result.rank }}</span>
+      <span class="score">{{ "%.4f"|format(result.score) }}</span>
+      <span class="filename">{{ result.filename }}</span>
     </div>
+    <a href="/similar/{{ result.index }}?top_k=12" class="similar-btn"
+      >Find Similar</a
+    >
   </div>
   {% endfor %}
 </div>
