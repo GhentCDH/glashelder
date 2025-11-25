@@ -17,7 +17,7 @@ class ImageDataset(Dataset):
         return {k: v.squeeze(0) for k, v in inputs.items()}
 
 
-def get_data_loader(image_paths: list[str], processor, num_workers: int = 4, batch_size: int = 64):
+def get_dataloader(image_paths: list[str], processor, num_workers: int = 8, batch_size: int = 64):
     dataset = ImageDataset(image_paths, processor)
     return DataLoader(
         dataset,
