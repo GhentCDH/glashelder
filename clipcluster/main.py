@@ -11,6 +11,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import click
 
+from dataloader import get_dataloader
+
 MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
@@ -285,19 +287,16 @@ def generate_embeddings(image_dir, save_path, count, batch_size):
     
     image_paths = sorted(glob.glob(f"{image_dir}/*"))[:count]
     logger.info(f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}")
+
+    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
     
     all_embeddings = []
     
-    for i in range(0, len(image_paths), batch_size):
-        batch_paths = image_paths[i:i + batch_size]
-        logger.info(f"Processing batch {i // batch_size + 1}/{(len(image_paths) + batch_size - 1) // batch_size}")
+    for i, batch in enumerate(dataloader):
+        logger.info(f"Batch {i + 1}/{len(dataloader)}")
         
-        # Load all images in the batch
-        images = [Image.open(p).convert("RGB") for p in batch_paths]
-        
-        # Process entire batch at once
-        inputs = processor(images=images, return_tensors="pt", padding=True)
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+        # Move batch to GPU
+        inputs = {k: v.to(device) for k, v in batch.items()}
         
         with torch.no_grad():
             embeddings = model.get_image_features(**inputs)

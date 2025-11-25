@@ -1,0 +1,29 @@
+from torch.utils.data import Dataset, DataLoader
+from PIL import Image
+
+class ImageDataset(Dataset):
+    def __init__(self, image_paths, processor):
+        self.image_paths = image_paths
+        self.processor = processor
+    
+    def __len__(self):
+        return len(self.image_paths)
+    
+    def __getitem__(self, idx):
+        image = Image.open(self.image_paths[idx]).convert("RGB")
+        # Process returns dict with pixel_values, etc.
+        inputs = self.processor(images=image, return_tensors="pt")
+        # Squeeze out the batch dim since DataLoader will add it back
+        return {k: v.squeeze(0) for k, v in inputs.items()}
+
+
+def get_data_loader(image_paths: list[str], processor, num_workers: int = 4, batch_size: int = 64):
+    dataset = ImageDataset(image_paths, processor)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,  # Speeds up CPU->GPU transfer
+        prefetch_factor=2,  # Batches to prefetch per worker
+    )
