@@ -276,35 +276,39 @@ def search(prompt, top_k, image_dir, output_dir, sample_size):
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
 @click.option('--save-path', default=EMBEDDINGS_PATH, help='Embeddings pickle save path')
 @click.option('--count', default=10000, help='Amount of images to generate embeddings for')
-def generate_embeddings(image_dir, save_path, count):
+@click.option('--batch-size', default=64, help='Batch size for embedding generation')
+def generate_embeddings(image_dir, save_path, count, batch_size):
     model = get_model()
     device = get_device()
-
-    # HMM: doesn't processor need to go to device too?
     processor = get_processor()
     model.to(device)
-
+    
     image_paths = sorted(glob.glob(f"{image_dir}/*"))[:count]
-
-    logger.info("Generating image embeddings...")
-    length = len(image_paths)
-    def embed(i, *args):
-        logger.info(f"Embedding image {i}/{length}")
-        return get_image_embedding(*args) 
-
-    embeddings = torch.cat([
-        embed(i, processor, model, device, path) 
-        for (i, path) in enumerate(image_paths)
-    ])
-
-    # write reduced to pickle file as a checkpoint
+    logger.info(f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}")
+    
+    all_embeddings = []
+    
+    for i in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[i:i + batch_size]
+        logger.info(f"Processing batch {i // batch_size + 1}/{(len(image_paths) + batch_size - 1) // batch_size}")
+        
+        # Load all images in the batch
+        images = [Image.open(p).convert("RGB") for p in batch_paths]
+        
+        # Process entire batch at once
+        inputs = processor(images=images, return_tensors="pt", padding=True)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        
+        with torch.no_grad():
+            embeddings = model.get_image_features(**inputs)
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+        
+        all_embeddings.append(embeddings.cpu())
+    
+    embeddings = torch.cat(all_embeddings)
+    
     with open(save_path, "wb") as file:
-        data = {
-            "images": image_paths,
-            "embeddings": embeddings
-        }
-        pickle.dump(data, file)
-
+        pickle.dump({"images": image_paths, "embeddings": embeddings}, file)
 
 if __name__ == "__main__":
     cli()
