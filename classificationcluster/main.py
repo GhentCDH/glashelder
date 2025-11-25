@@ -5,9 +5,9 @@ from pathlib import Path
 from dataloader import get_dataloader
 import pickle
 
-MAX_BATCHES = 50
+MAX_BATCHES = 25
 DEV = True
-CONFIDENCE_THRESHOLD = 0.3
+CONFIDENCE_THRESHOLD = 0.4
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -32,8 +32,7 @@ with torch.no_grad():
 
 # Load images
 image_paths = list(Path("/mnt/UGent_Share/glashelder/assets").glob("*.jpg"))
-dataloader = get_dataloader(image_paths, processor, batch_size=64)
-
+dataloader = get_dataloader(image_paths, processor, batch_size=256)
 results = []
 
 
@@ -61,22 +60,38 @@ with torch.no_grad():
         labels = ["human", "animal", "plant", "object", "landscape", "architecture", "artwork"]
         for path, p in zip(paths, probs):
             p = p.detach().cpu()
-            idx = int(p.argmax().item())
-            weight = float(p[idx])
             
-            # Check if confidence meets threshold
-            if weight >= CONFIDENCE_THRESHOLD:
-                label = labels[idx]
+            # Get all labels above threshold
+            above_threshold = [(labels[i], float(p[i])) for i in range(len(labels)) if float(p[i]) >= CONFIDENCE_THRESHOLD]
+            
+            if above_threshold:
+                # Sort by weight (highest first)
+                above_threshold.sort(key=lambda x: x[1], reverse=True)
+                assigned_labels = [label for label, weight in above_threshold]
             else:
-                label = "unsure"
+                assigned_labels = ["unsure"]
 
             results.append({
                 "path": path,
-                "predicted": {"label": label, "weight": weight},
+                "predicted": {"labels": assigned_labels, "weights": {label: weight for label, weight in above_threshold} if above_threshold else {}},
             })
 
-pickle.dump(results, open("classification_results.pkl", "wb"))
-print("Classifycation complete. Results saved to classification_results.pkl")
+pickle.dump(results, open("classificationcluster/data/classification_results.pkl", "wb"))
+
+# Create JSON output
+import json
+json_output = {}
+for idx, result in enumerate(results, 1):
+    image_name = Path(result["path"]).name
+    json_output[f"id_{idx}"] = {
+        "path": result["path"],
+        "classes": result["predicted"]["weights"]
+    }
+
+with open("classificationcluster/data/classification_results.json", "w") as f:
+    json.dump(json_output, f, indent=2)
+
+print("Classification complete. Results saved to classification_results.pkl and classification_results.json")
 print("Now moving images to correct folders based on classification.")
 
 import shutil
@@ -105,10 +120,13 @@ else:
 
 for result in results:
     src_path = Path(result["path"])
-    label = result["predicted"]["label"]
-    dest_path = output_dirs[label] / src_path.name
-    print(f"Moving {src_path} to {label}")
-    shutil.copy2(src_path, dest_path)
+    assigned_labels = result["predicted"]["labels"]
+    
+    # Copy image to all matching label folders
+    for label in assigned_labels:
+        dest_path = output_dirs[label] / src_path.name
+        print(f"Moving {src_path.name} to {label}")
+        shutil.copy2(src_path, dest_path)
 
 print("Images moved to respective folders.")
 
