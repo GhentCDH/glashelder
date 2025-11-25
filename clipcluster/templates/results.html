@@ -1,0 +1,18 @@
+{% if error %}
+<div class="error">{{ error }}</div>
+{% else %}
+<div class="results-grid">
+  {% for result in results %}
+  <div class="result-item">
+    <img src="/image/{{ result.index }}" alt="Result {{ result.rank }}" />
+    <div class="result-info">
+      <div class="result-rank">#{{ result.rank }}</div>
+      <div class="result-score">
+        Similarity: {{ "%.4f"|format(result.score) }}
+      </div>
+      <div class="result-filename">{{ result.filename }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

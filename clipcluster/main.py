@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 import matplotlib.pyplot as plt
 import click
+from flask import Flask, render_template, request, send_from_directory
 
 from dataloader import get_dataloader
 
@@ -99,6 +100,42 @@ def create_scatter_plot(latent, labels, save_path: str = "clustering_results.png
         save_path, dpi=300, bbox_inches="tight"
     )  # Save instead of show
     plt.close()  # Close the figure to free memory
+
+
+def make_embeddings(model, processor, image_paths, batch_size, device):
+    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
+    all_embeddings = []
+    for i, batch in enumerate(dataloader):
+        logger.info(f"Batch {i + 1}/{len(dataloader)}")
+        
+        # Move batch to GPU
+        inputs = {k: v.to(device) for k, v in batch.items()}
+        
+        with torch.no_grad():
+            embeddings = model.get_image_features(**inputs)
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+        
+        all_embeddings.append(embeddings.cpu())
+    
+    embeddings = torch.cat(all_embeddings)
+
+    return embeddings
+
+
+def perform_search(prompt, top_k, text_embedding, image_embeddings, image_paths):
+    """Shared search logic"""
+    # Normalize embeddings
+    text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
+    image_embeddings_norm = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
+
+    # Calculate cosine similarity
+    similarities = (text_embedding @ image_embeddings_norm.T).squeeze(0)
+    
+    # Get top-k indices
+    top_k = min(top_k, len(image_paths))
+    top_values, top_indices = torch.topk(similarities, top_k)
+    
+    return top_indices, top_values
 
 
 @click.group()
@@ -202,6 +239,7 @@ def run_clip_with_clustering(image_dir):
 
     print(f"\nSamples saved to: {output_dir}")
 
+
 @cli.command()
 @click.argument('prompt')
 @click.option('--top-k', default=10, help='Number of top matching images to return')
@@ -236,21 +274,11 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
         image_embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
         logger.info("Generating image embeddings...")
 
-    # Normalize embeddings for cosine similarity
-    text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
-    image_embeddings = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
-
-    # Calculate cosine similarity
-    similarities = (text_embedding @ image_embeddings.T).squeeze(0)
-    
-    # Get top-k indices
-    top_k = min(top_k, len(image_paths))
-    top_indices = torch.topk(similarities, top_k).indices.cpu().numpy()
-    top_scores = torch.topk(similarities, top_k).values.cpu().numpy()
+    top_indices, top_scores = perform_search(prompt, top_k, text_embedding, image_embeddings, image_paths)
 
     # Print results
     logger.info(f"\nTop {top_k} matches for '{prompt}':")
-    for i, (idx, score) in enumerate(zip(top_indices, top_scores), 1):
+    for i, (idx, score) in enumerate(zip(top_indices.cpu().numpy(), top_scores.cpu().numpy()), 1):
         logger.info(f"{i}. {Path(image_paths[idx]).name} (similarity: {score:.4f})")
 
     # Create output directory and copy images
@@ -261,7 +289,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
     for old_file in output_path.glob("*"):
         old_file.unlink()
 
-    for i, (idx, score) in enumerate(zip(top_indices, top_scores), 1):
+    for i, (idx, score) in enumerate(zip(top_indices.cpu().numpy(), top_scores.cpu().numpy()), 1):
         src_path = image_paths[idx]
         filename = Path(src_path).name
         # Add rank and score to filename
@@ -270,26 +298,6 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
         shutil.copy(src_path, dst_path)
 
     logger.info(f"\nTop {top_k} images saved to: {output_path}")
-
-
-def make_embeddings(model, processor, image_paths, batch_size, device):
-    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
-    all_embeddings = []
-    for i, batch in enumerate(dataloader):
-        logger.info(f"Batch {i + 1}/{len(dataloader)}")
-        
-        # Move batch to GPU
-        inputs = {k: v.to(device) for k, v in batch.items()}
-        
-        with torch.no_grad():
-            embeddings = model.get_image_features(**inputs)
-            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-        
-        all_embeddings.append(embeddings.cpu())
-    
-    embeddings = torch.cat(all_embeddings)
-
-    return embeddings
 
 
 @cli.command()
@@ -310,6 +318,81 @@ def generate_embeddings(image_dir, save_path, count, batch_size):
     
     with open(save_path, "wb") as file:
         pickle.dump({"images": image_paths, "embeddings": embeddings}, file)
+
+
+@cli.command()
+@click.option('--embeddings', default=EMBEDDINGS_PATH, help='Path to embeddings pickle file')
+@click.option('--host', default='0.0.0.0', help='Host to bind to')
+@click.option('--port', default=5000, help='Port to bind to')
+def serve(embeddings, host, port):
+    """Start a web server for interactive image search"""
+    app = Flask(__name__)
+    
+    # Load model and embeddings once
+    logger.info("Loading model and processor...")
+    device = get_device()
+    logger.info(f"Using device: {device}")
+    
+    model = get_model()
+    processor = get_processor()
+    model.to(device)
+    model.eval()
+    
+    logger.info(f"Loading embeddings from {embeddings}...")
+    with open(embeddings, 'rb') as f:
+        data = pickle.load(f)
+        image_paths = data["images"]
+        image_embeddings = data["embeddings"].to(device)
+    
+    logger.info(f"Loaded {len(image_paths)} images")
+    
+    @app.route('/')
+    def index():
+        return render_template('index.html')
+    
+    @app.route('/search', methods=['POST'])
+    def search_endpoint():
+        prompt = request.form.get('prompt', '').strip()
+        top_k = int(request.form.get('top_k', 12))
+        
+        if not prompt:
+            return render_template('results.html', error="Please enter a search prompt", results=[])
+        
+        try:
+            # Generate text embedding
+            text_embedding = get_text_embedding(processor, model, device, prompt)
+            
+            # Perform search
+            top_indices, top_values = perform_search(prompt, top_k, text_embedding, image_embeddings, image_paths)
+            
+            # Prepare results
+            results = []
+            for rank, (idx, score) in enumerate(zip(top_indices.cpu().numpy(), top_values.cpu().numpy()), 1):
+                results.append({
+                    'rank': rank,
+                    'index': int(idx),
+                    'score': float(score),
+                    'filename': Path(image_paths[idx]).name
+                })
+            
+            return render_template('results.html', results=results, error=None)
+        
+        except Exception as e:
+            logger.error(f"Search error: {e}")
+            return render_template('results.html', error=f"Search failed: {str(e)}", results=[])
+    
+    @app.route('/image/<int:index>')
+    def serve_image(index):
+        """Serve image by index"""
+        if index < 0 or index >= len(image_paths):
+            return "Image not found", 404
+        
+        image_path = Path(image_paths[index])
+        return send_from_directory(image_path.parent, image_path.name)
+    
+    logger.info(f"Starting Flask server on {host}:{port}...")
+    app.run(host=host, port=port, debug=False)
+
 
 if __name__ == "__main__":
     cli()
