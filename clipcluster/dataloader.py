@@ -25,5 +25,5 @@ def get_dataloader(image_paths: list[str], processor, num_workers: int = 8, batc
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,  # Speeds up CPU->GPU transfer
-        prefetch_factor=2,  # Batches to prefetch per worker
+        prefetch_factor=8,  # Batches to prefetch per worker
     )

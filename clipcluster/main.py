@@ -328,7 +328,7 @@ def generate_embeddings(image_dir, save_path, count, batch_size):
     processor = get_processor()
     model.to(device)
     
-    image_paths = sorted(glob.glob(f"{image_dir}/*"))[:count]
+    image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
     logger.info(f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}")
 
     embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
@@ -393,8 +393,35 @@ def serve(embeddings, host, port):
         except Exception as e:
             logger.error(f"Search error: {e}")
             return render_template('results.html', error=f"Search failed: {str(e)}", results=[], query_type='text', query_value='')
-    
+
     @app.route('/similar/<int:index>')
+    def similar_fullpage(index):
+        """Find images similar to the image at the given index"""
+        top_k = int(request.args.get('top_k', 12))
+        
+        if index < 0 or index >= len(image_paths):
+            return render_template('results.html', error="Image not found", results=[], query_type='similar', query_value=index)
+        
+        try:
+            top_indices, top_values = find_similar(index, top_k, image_embeddings, image_paths)
+            
+            results = []
+            for rank, (idx, score) in enumerate(zip(top_indices.cpu().numpy(), top_values.cpu().numpy()), 1):
+                results.append({
+                    'rank': rank,
+                    'index': int(idx),
+                    'score': float(score),
+                    'filename': Path(image_paths[idx]).name
+                })
+            
+            query_filename = Path(image_paths[index]).name
+            return render_template('similar.html', results=results, error=None, query_type='similar', query_value=index, query_filename=query_filename)
+        
+        except Exception as e:
+            logger.error(f"Similar search error: {e}")
+            return render_template('similar.html', error=f"Search failed: {str(e)}", results=[], query_type='similar', query_value=index)
+    
+    @app.route('/api/similar/<int:index>')
     def similar_endpoint(index):
         """Find images similar to the image at the given index"""
         top_k = int(request.args.get('top_k', 12))
@@ -431,7 +458,7 @@ def serve(embeddings, host, port):
         return send_from_directory(image_path.parent, image_path.name)
     
     logger.info(f"Starting Flask server on {host}:{port}...")
-    app.run(host=host, port=port, debug=False)
+    app.run(host=host, port=port, debug=True)
 
 
 if __name__ == "__main__":
