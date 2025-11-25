@@ -229,7 +229,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
         with open(embeddings, 'rb') as file:
             data = pickle.load(file)
             image_paths = data["images"]
-            image_embeddings = data["embeddings"]
+            image_embeddings = data["embeddings"].to(device)
     else:
         # Get all image paths
         image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
