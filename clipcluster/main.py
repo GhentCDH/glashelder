@@ -208,7 +208,9 @@ def run_clip_with_clustering(image_dir):
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
 @click.option('--output-dir', default='search_results', help='Directory to save matching images')
 @click.option('--sample-size', default=10000, help='The amount of images in the dataset to consider')
-def search(prompt, top_k, image_dir, output_dir, sample_size):
+@click.option('--embeddings', default=None, help='The path to a embeddings pickle file')
+@click.option('--batch-size', default=64, help='Batch size for embedding generation')
+def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_size):
     """Search for images matching a text prompt using CLIP similarity"""
     logger.info(f"Searching for: '{prompt}'")
     logger.info(f"Looking for top {top_k} matches")
@@ -218,25 +220,21 @@ def search(prompt, top_k, image_dir, output_dir, sample_size):
     processor = get_processor()
     model.to(device)
 
-    # Get all image paths
-    image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
-    logger.info(f"Found {len(image_paths)} images")
-
     # Get text embedding for the prompt
     logger.info("Generating text embedding...")
     text_embedding = get_text_embedding(processor, model, device, prompt)
 
     # Get image embeddings
-    logger.info("Generating image embeddings...")
-    length = len(image_paths)
-    def embed(i, *args):
-        logger.info(f"Embedding image {i}/{length}")
-        return get_image_embedding(*args) 
-
-    image_embeddings = torch.cat([
-        embed(i, processor, model, device, path) 
-        for (i, path) in enumerate(image_paths)
-    ])
+    if embeddings is not None:
+        with open(embeddings, 'rb') as file:
+            data = pickle.load(file)
+            image_paths = data["images"]
+            image_embeddings = data["embeddings"]
+    else:
+        # Get all image paths
+        image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
+        image_embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
+        logger.info("Generating image embeddings...")
 
     # Normalize embeddings for cosine similarity
     text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
@@ -274,6 +272,26 @@ def search(prompt, top_k, image_dir, output_dir, sample_size):
     logger.info(f"\nTop {top_k} images saved to: {output_path}")
 
 
+def make_embeddings(model, processor, image_paths, batch_size, device):
+    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
+    all_embeddings = []
+    for i, batch in enumerate(dataloader):
+        logger.info(f"Batch {i + 1}/{len(dataloader)}")
+        
+        # Move batch to GPU
+        inputs = {k: v.to(device) for k, v in batch.items()}
+        
+        with torch.no_grad():
+            embeddings = model.get_image_features(**inputs)
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+        
+        all_embeddings.append(embeddings.cpu())
+    
+    embeddings = torch.cat(all_embeddings)
+
+    return embeddings
+
+
 @cli.command()
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
 @click.option('--save-path', default=EMBEDDINGS_PATH, help='Embeddings pickle save path')
@@ -288,23 +306,7 @@ def generate_embeddings(image_dir, save_path, count, batch_size):
     image_paths = sorted(glob.glob(f"{image_dir}/*"))[:count]
     logger.info(f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}")
 
-    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
-    
-    all_embeddings = []
-    
-    for i, batch in enumerate(dataloader):
-        logger.info(f"Batch {i + 1}/{len(dataloader)}")
-        
-        # Move batch to GPU
-        inputs = {k: v.to(device) for k, v in batch.items()}
-        
-        with torch.no_grad():
-            embeddings = model.get_image_features(**inputs)
-            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-        
-        all_embeddings.append(embeddings.cpu())
-    
-    embeddings = torch.cat(all_embeddings)
+    embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
     
     with open(save_path, "wb") as file:
         pickle.dump({"images": image_paths, "embeddings": embeddings}, file)
