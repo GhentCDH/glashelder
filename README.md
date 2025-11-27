@@ -1,5 +1,22 @@
 # Glashelder AI Experiments
 
+## Install
+
+To use this code, you should have `uv`, the python dependency manager installed.
+
+If you have a Nvidia GPU, check which CUDA version you are running (e.g. through `nvidia-smi`).
+Modify the following lines in `pyproject.toml` to reflect your cuda version:
+
+```toml
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu130" # CUDA 13.0
+# url = "https://download.pytorch.org/whl/cu126" # CUDA 12.6
+explicit = true
+```
+
+The example in this repo uses CUDA 13.0
+
 ## CLI
 
 Use the CLI to run experimenst through:
@@ -14,22 +31,7 @@ get an overview of available experiments / commands using `--help`:
 uv run glashelder --help
 ```
 
-## Adding new commands to the CLI
+## Adding a new experiment
 
-to add a new subgroup to the CLI, make a `@click.group()` function in your code,
-and register the commands in the subgroup in your code. e.g.:
-
-```py
-# ./newexperiment/src/newexperiment/cli.py
-import click
-
-@click.group()
-def newexperiment():
-    pass
-
-
-@newexperiment.command()
-@click.option(...)
-def experiment_1(...):
-    pass
-```
+Make sure you have the command runner `just` installed, and run `just new <experiment_name>`.
+This will add a new directory and workspace member named `experiment_name`.
