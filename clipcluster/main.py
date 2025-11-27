@@ -126,7 +126,9 @@ def cli():
 @click.option('--embeddings', default=EMBEDDINGS_PATH, help='The path to a embeddings pickle file')
 @click.option('--sample-size', default=100000, help='The amount of images to cluster')
 @click.option('--batch-size', default=64, help='The batch size for embeddings generation')
-def cluster(image_dir, embeddings, sample_size, batch_size):
+@click.option('-o', '--output-files', is_flag=True, help='Whether or not to write example images to files')
+@click.option('--count', default=15000, help='How many points to log to rerun')
+def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count):
     init_rerun(os.getenv("RERUN_ADDR"))
     model = get_model()
     device = get_device()
@@ -138,6 +140,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size):
     image_paths = sorted(glob.glob(f"{image_dir}/*"))
 
     if embeddings is not None:
+        logger.info("Loading embeddings")
         with open(embeddings, 'rb') as file:
             data = pickle.load(file)
             image_paths = data["images"]
@@ -148,14 +151,15 @@ def cluster(image_dir, embeddings, sample_size, batch_size):
         logger.info("Generating image embeddings...")
         embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
 
+    logger.info("Reducing dimensions")
     reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
 
-    logger.info("reduced embeddings shape: ", reduced_embeddings.shape)
-
+    logger.info("cluster points")
     clusterer = create_clusterer(reduced_embeddings)
 
     # log to rerun
-    log_clustered_points(reduced_embeddings, clusterer.labels_, count=5000)
+    logger.info("logging clustered points to rerun")
+    log_clustered_points(reduced_embeddings, clusterer.labels_, count=count)
 
     # Get cluster labels
     labels = clusterer.labels_
@@ -173,6 +177,9 @@ def cluster(image_dir, embeddings, sample_size, batch_size):
         else:
             logger.info(f"  Cluster {label}: {sum(labels == label)} points")
 
+    if not output_files:
+        return
+
     # Create output directory
     output_dir = Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
     output_dir.mkdir(exist_ok=True)
@@ -180,10 +187,12 @@ def cluster(image_dir, embeddings, sample_size, batch_size):
     # Get unique clusters (excluding noise)
     unique_clusters = sorted([label for label in set(labels) if label != -1])
 
-    # For each cluster, copy 2 sample images
+    # For each cluster, copy 3 sample images
     for cluster_id in unique_clusters:
         # Create cluster directory
         cluster_dir = output_dir / f"cluster_{cluster_id}"
+        # remove the directory if it already exists
+        shutil.rmtree(cluster_dir)
         cluster_dir.mkdir(exist_ok=True)
 
         # Get indices of images in this cluster

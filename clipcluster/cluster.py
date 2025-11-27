@@ -10,12 +10,12 @@ import matplotlib.pyplot as plt
 logger = logging.getLogger(__name__)
 
 
-def reduce_dimensions(embeddings, dimensions: int = 5):
+def reduce_dimensions(embeddings, dimensions: int = 6):
     umap_model = UMAP(n_components=5)
     return umap_model.fit_transform(embeddings)
 
 
-def create_clusterer(latent, min_cluster_size: int = 20):
+def create_clusterer(latent, min_cluster_size: int = 50):
     clusterer = HDBSCAN(min_cluster_size=min_cluster_size)
     clusterer.fit(latent)
 
