@@ -1,18 +1,19 @@
+import os
+from rr import init_rerun
 import torch
 import glob
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
-from umap import UMAP
 import logging
 import pickle
-from hdbscan import HDBSCAN
 import shutil
 from pathlib import Path
-import matplotlib.pyplot as plt
 import click
 from flask import Flask, render_template, request, send_from_directory
+from dotenv import load_dotenv
 
 from dataloader import get_dataloader
+from cluster import create_clusterer, reduce_dimensions
 
 MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 # TODO: put some default images in `./images/` as exampels
@@ -43,18 +44,6 @@ def get_device() -> str:
         return 'cpu'
 
 
-def reduce_dimensions(embeddings, dimensions: int = 5):
-    umap_model = UMAP(n_components=5)
-    return umap_model.fit_transform(embeddings)
-
-
-def cluster(latent, min_cluster_size: int = 20):
-    clusterer = HDBSCAN(min_cluster_size=min_cluster_size)
-    clusterer.fit(latent)
-
-    return clusterer
-
-
 def get_image_embedding(processor, model, device: str, image_path: str):
     image = Image.open(image_path)
 
@@ -71,35 +60,6 @@ def get_text_embedding(processor, model, device: str, text: str):
         inputs = processor(text=[text], return_tensors="pt", padding=True).to(device)
         return model.get_text_features(**inputs)
 
-
-def create_scatter_plot(latent, labels, save_path: str = "clustering_results.png"):
-    # Create a scatter plot
-    plt.figure(figsize=(12, 8))
-
-    # Use first 2 components for visualization
-    x = latent[:, 0]
-    y = latent[:, 1]
-
-    # Create scatter plot with different colors for each cluster
-    scatter = plt.scatter(x, y, c=labels, cmap="tab20", alpha=0.6, s=50)
-
-    # Add colorbar
-    plt.colorbar(scatter, label="Cluster")
-
-    plt.xlabel("UMAP Component 1")
-    plt.ylabel("UMAP Component 2")
-    plt.title(
-        f"HDBSCAN Clustering Results\n({len(set(labels)) - (1 if -1 in labels else 0)} clusters, {sum(labels == -1)} noise points)"
-    )
-
-    # Add grid
-    plt.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(
-        save_path, dpi=300, bbox_inches="tight"
-    )  # Save instead of show
-    plt.close()  # Close the figure to free memory
 
 
 def make_embeddings(model, processor, image_paths, batch_size, device):
@@ -157,12 +117,14 @@ def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self
 
 @click.group()
 def cli():
+    load_dotenv()
     pass
 
 
-@click.command()
+@cli.command()
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
-def run_clip_with_clustering(image_dir):
+def cluster(image_dir):
+    init_rerun(os.getenv("RERUN_ADDR"))
     model = get_model()
     device = get_device()
 
@@ -187,12 +149,12 @@ def run_clip_with_clustering(image_dir):
     # with open('reduced.pkl', 'rb') as file:
     # reduced_embeddings = pickle.load(file)
 
-    clusterer = cluster(reduced_embeddings)
+    clusterer = create_clusterer(reduced_embeddings)
+
+    # log to rerun
 
     # Get cluster labels
     labels = clusterer.labels_
-
-    create_scatter_plot(reduced_embeddings, labels)
 
     # Print cluster statistics
     unique_labels = set(labels)
@@ -255,7 +217,6 @@ def run_clip_with_clustering(image_dir):
         )
 
     print(f"\nSamples saved to: {output_dir}")
-
 
 @cli.command()
 @click.argument('prompt')
