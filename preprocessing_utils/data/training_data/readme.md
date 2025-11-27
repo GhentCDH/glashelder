@@ -1,1 +1,0 @@
-This is normally the training dataset, but is not copied into GitHub
