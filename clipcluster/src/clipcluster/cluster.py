@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def reduce_dimensions(embeddings, dimensions: int = 3):
-    umap_model = UMAP(n_components=dimensions)
+    umap_model = UMAP(n_components=dimensions, n_neighbors=20, min_dist=0.01)
     return umap_model.fit_transform(embeddings)
 
 

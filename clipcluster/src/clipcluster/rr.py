@@ -14,6 +14,24 @@ def init_rerun(address: Optional[str]):
         rr.init(RERUN_ID, spawn=True)
 
 
+def log_reduced(latent: np.ndarray, count: Optional[int] = None, base_path: str = "latent"):
+    """
+    Log 3D points to Rerun
+
+    Args:
+        latent: The reduced embeddings, shape (N, D) where D >= 3.
+        count: Number of points to sample. If None, logs all points.
+        base_path: The base Rerun entity path. Clusters logged as {base_path}/{cluster_id}.
+    """
+    n_points = len(latent)
+
+    if count is not None and count < n_points:
+        indices = np.random.choice(n_points, size=count, replace=False)
+        latent = latent[indices]
+
+    rr.log(base_path, rr.Points3D(latent, radii=0.02))
+
+
 def log_clustered_points(
     latent: np.ndarray,
     labels: np.ndarray,
