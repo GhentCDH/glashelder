@@ -2,6 +2,7 @@ new name:
     #!/usr/bin/env bash
     uv init --lib {{name}}
     uv add --package {{name}} click
+    uv add {{name}} --workspace
 
     cat << EOF > {{name}}/src/{{name}}/cli.py
     import click

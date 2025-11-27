@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 # export the main CLI interface
 __all__ = ["main"]
 
+
 @click.group()
 def main():
     """
@@ -18,7 +19,7 @@ def register_commands():
     # register cli commands defined in other files
     from clipcluster.cli import clipcluster
     from classification.cli import classification
-    
+
     main.add_command(clipcluster)
     main.add_command(classification)
 

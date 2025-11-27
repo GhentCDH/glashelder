@@ -21,6 +21,7 @@ def create_clusterer(latent, min_cluster_size: int = 50):
 
     return clusterer
 
+
 def create_scatter_plot(latent, labels, save_path: str = "clustering_results.png"):
     # Create a scatter plot
     plt.figure(figsize=(12, 8))
@@ -45,7 +46,5 @@ def create_scatter_plot(latent, labels, save_path: str = "clustering_results.png
     plt.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(
-        save_path, dpi=300, bbox_inches="tight"
-    )  # Save instead of show
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")  # Save instead of show
     plt.close()  # Close the figure to free memory
