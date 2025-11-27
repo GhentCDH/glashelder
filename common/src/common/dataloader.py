@@ -19,10 +19,34 @@ class ImageDataset(Dataset):
         return {k: v.squeeze(0) for k, v in inputs.items()}
 
 
+class ImagePathDataset(Dataset):
+    def __init__(self, image_paths, processor):
+        self.image_paths = image_paths
+        self.processor = processor
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        image_path = self.image_paths[idx]
+        image = Image.open(self.image_paths[idx]).convert("RGB")
+
+        inputs = self.processor(images=image, return_tensors="pt")
+        inputs = {k: v.squeeze(0) for k, v in inputs.items()}
+        
+        inputs["path"] = str(image_path)
+        return inputs
+
+
 def get_dataloader(
-    image_paths: list[str], processor, num_workers: int = 8, batch_size: int = 64
+        image_paths: list[str], processor, num_workers: int = 8, batch_size: int = 64, dataset_type: str = "image"
 ):
-    dataset = ImageDataset(image_paths, processor)
+    datasets = {
+        "image": ImageDataset,
+        "imagepath": ImagePathDataset,
+    }
+
+    dataset = datasets[dataset_type](image_paths, processor)
     return DataLoader(
         dataset,
         batch_size=batch_size,
