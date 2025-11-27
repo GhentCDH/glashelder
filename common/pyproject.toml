@@ -1,0 +1,29 @@
+[project]
+name = "common"
+version = "0.1.0"
+description = "Common reusable code for glashelder experiments"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "rich>=13.9.4",
+    "python-dotenv>=1.1.0",
+    "torch>=2.6.0",
+    "rerun-sdk>=0.27.2",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu130" # adjust for your CUDA version
+explicit = true
+
+[dependency-groups]
+dev = ["pyright>=1.1.406"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+venv = ".venv"
+venvPath = "."

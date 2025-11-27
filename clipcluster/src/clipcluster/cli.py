@@ -1,19 +1,17 @@
 import os
-from rr import init_rerun, log_clustered_points
-import torch
 import glob
-from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
 import logging
 import pickle
 import shutil
 from pathlib import Path
-import click
-from flask import Flask, render_template, request, send_from_directory
-from dotenv import load_dotenv
 
-from dataloader import get_dataloader
-from cluster import create_clusterer, reduce_dimensions
+# local source
+from common import PROJECT_ROOT
+
+# installed packages
+import click
+from dotenv import load_dotenv
+from PIL import Image
 
 MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 # TODO: put some default images in `./images/` as exampels
@@ -21,21 +19,25 @@ DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
 # actual dataset location
 IMAGE_DIR = "/mnt/miepeete/shares/glashelder/assets"
-EMBEDDINGS_PATH = "embeddings.pkl"
+EMBEDDINGS_PATH = PROJECT_ROOT / "clipcluster" / "embeddings.pkl"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 def get_model():
+    from transformers import CLIPModel
+
     return CLIPModel.from_pretrained(MODEL)
 
 
 def get_processor():
+    from transformers import CLIPProcessor
+
     return CLIPProcessor.from_pretrained(MODEL)
 
 
 def get_device() -> str:
+    import torch
     if torch.cuda.is_available():
         return 'cuda'
     elif torch.mps.is_available():
@@ -45,6 +47,7 @@ def get_device() -> str:
 
 
 def get_image_embedding(processor, model, device: str, image_path: str):
+    import torch
     image = Image.open(image_path)
 
     with torch.no_grad():
@@ -56,6 +59,7 @@ def get_image_embedding(processor, model, device: str, image_path: str):
 
 
 def get_text_embedding(processor, model, device: str, text: str):
+    import torch
     with torch.no_grad():
         inputs = processor(text=[text], return_tensors="pt", padding=True).to(device)
         return model.get_text_features(**inputs)
@@ -63,6 +67,8 @@ def get_text_embedding(processor, model, device: str, text: str):
 
 
 def make_embeddings(model, processor, image_paths, batch_size, device):
+    import torch
+    from .dataloader import get_dataloader
     dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
     all_embeddings = []
     for i, batch in enumerate(dataloader):
@@ -84,6 +90,7 @@ def make_embeddings(model, processor, image_paths, batch_size, device):
 
 def perform_search(top_k, text_embedding, image_embeddings, image_paths):
     """Shared search logic"""
+    import torch
     # Normalize embeddings
     text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
     image_embeddings_norm = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
@@ -100,6 +107,7 @@ def perform_search(top_k, text_embedding, image_embeddings, image_paths):
 
 def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self=True):
     """Find images similar to a given image by index in the embedding space"""
+    import torch
     query_embedding = image_embeddings[query_index].unsqueeze(0)
     query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
     image_embeddings_norm = image_embeddings / image_embeddings.norm(dim=-1, keepdim=True)
@@ -116,12 +124,12 @@ def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self
 
 
 @click.group()
-def cli():
+def clipcluster():
     load_dotenv()
     pass
 
 
-@cli.command()
+@clipcluster.command()
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
 @click.option('--embeddings', default=EMBEDDINGS_PATH, help='The path to a embeddings pickle file')
 @click.option('--sample-size', default=100000, help='The amount of images to cluster')
@@ -129,23 +137,26 @@ def cli():
 @click.option('-o', '--output-files', is_flag=True, help='Whether or not to write example images to files')
 @click.option('--count', default=15000, help='How many points to log to rerun')
 def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count):
-    init_rerun(os.getenv("RERUN_ADDR"))
-    model = get_model()
+    from .cluster import create_clusterer, reduce_dimensions
+    from .rr import init_rerun, log_clustered_points
+
     device = get_device()
 
-    # HMM: doesn't processor need to go to device too?
-    processor = get_processor()
-    model.to(device)
+    init_rerun(os.getenv("RERUN_ADDR"))
 
     image_paths = sorted(glob.glob(f"{image_dir}/*"))
 
-    if embeddings is not None:
+    if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
         with open(embeddings, 'rb') as file:
             data = pickle.load(file)
             image_paths = data["images"]
             embeddings = data["embeddings"].to(device)
     else:
+        logger.info("Getting ML models for embedding generation")
+        model = get_model()
+        processor = get_processor()
+        model.to(device)
         # Get all image paths
         image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
         logger.info("Generating image embeddings...")
@@ -231,7 +242,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count)
 
     print(f"\nSamples saved to: {output_dir}")
 
-@cli.command()
+@clipcluster.command()
 @click.argument('prompt')
 @click.option('--top-k', default=10, help='Number of top matching images to return')
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
@@ -291,7 +302,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
     logger.info(f"\nTop {top_k} images saved to: {output_path}")
 
 
-@cli.command()
+@clipcluster.command()
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
 @click.option('--save-path', default=EMBEDDINGS_PATH, help='Embeddings pickle save path')
 @click.option('--count', default=10000, help='Amount of images to generate embeddings for')
@@ -310,13 +321,14 @@ def generate_embeddings(image_dir, save_path, count, batch_size):
     with open(save_path, "wb") as file:
         pickle.dump({"images": image_paths, "embeddings": embeddings}, file)
 
-
-@cli.command()
+@clipcluster.command()
 @click.option('--embeddings', default=EMBEDDINGS_PATH, help='Path to embeddings pickle file')
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
 @click.option('--port', default=5000, help='Port to bind to')
 def serve(embeddings, host, port):
     """Start a web server for interactive image search"""
+    from flask import Flask, render_template, request, send_from_directory
+
     app = Flask(__name__)
     
     # Load model and embeddings once
@@ -433,7 +445,3 @@ def serve(embeddings, host, port):
     
     logger.info(f"Starting Flask server on {host}:{port}...")
     app.run(host=host, port=port, debug=True)
-
-
-if __name__ == "__main__":
-    cli()
