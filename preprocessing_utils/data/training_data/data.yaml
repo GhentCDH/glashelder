@@ -1,6 +1,0 @@
-names:
-- image
-nc: 1
-path: /home/bas/Documents/Visual Code Repos/glashelder/preprocessing_utils/data/training_data
-train: images/train
-val: images/val

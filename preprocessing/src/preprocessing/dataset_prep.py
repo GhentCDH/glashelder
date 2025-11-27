@@ -3,33 +3,29 @@ Script to create YOLO training and validation dataset split.
 Assumes images and labels are already in YOLO format.
 """
 
-from pathlib import Path
 import shutil
 import random
 import yaml
+from pathlib import Path
 
-# Configuration
-GT_DIR = Path("preprocessing_utils/data/GT")
-OUTPUT_DIR = Path("preprocessing_utils/data/training_data")
-TRAIN_SPLIT = 0.8  # 80% train, 20% validation
-RANDOM_SEED = 42
-
-# Set random seed for reproducibility
-random.seed(RANDOM_SEED)
-
-def create_yolo_dataset():
+def create_yolo_dataset(ground_truth_folder, output_folder, train_split, seed):
+    random.seed(seed)
     """Create YOLO dataset structure with train/val split."""
-    
+    # Ensure inputs are Path objects so Path methods work
+    ground_truth_folder = Path(ground_truth_folder)
+    output_folder = Path(output_folder)
+
     # Define paths
-    images_dir = GT_DIR / "images"
-    labels_dir = GT_DIR / "labels"
-    classes_file = GT_DIR / "classes.txt"
+    images_dir = ground_truth_folder / "images"
+    labels_dir = ground_truth_folder / "labels"
+    classes_file = ground_truth_folder / "classes.txt"
     
     # Create output directories
-    train_images_dir = OUTPUT_DIR / "images" / "train"
-    val_images_dir = OUTPUT_DIR / "images" / "val"
-    train_labels_dir = OUTPUT_DIR / "labels" / "train"
-    val_labels_dir = OUTPUT_DIR / "labels" / "val"
+    train_images_dir = output_folder / "images" / "train"
+    val_images_dir = output_folder / "images" / "val"
+    train_labels_dir = output_folder / "labels" / "train"
+    val_labels_dir = output_folder / "labels" / "val"
+    val_labels_dir = output_folder / "labels" / "val"
     
     for dir_path in [train_images_dir, val_images_dir, train_labels_dir, val_labels_dir]:
         dir_path.mkdir(parents=True, exist_ok=True)
@@ -51,13 +47,13 @@ def create_yolo_dataset():
     
     # Shuffle and split
     random.shuffle(valid_pairs)
-    split_idx = int(len(valid_pairs) * TRAIN_SPLIT)
+    split_idx = int(len(valid_pairs) * train_split)
     train_pairs = valid_pairs[:split_idx]
     val_pairs = valid_pairs[split_idx:]
     
     print(f"\nSplitting dataset:")
-    print(f"  Training: {len(train_pairs)} samples ({TRAIN_SPLIT*100:.0f}%)")
-    print(f"  Validation: {len(val_pairs)} samples ({(1-TRAIN_SPLIT)*100:.0f}%)")
+    print(f"  Training: {len(train_pairs)} samples ({train_split*100:.0f}%)")
+    print(f"  Validation: {len(val_pairs)} samples ({(1-train_split)*100:.0f}%)")
     
     # Copy training files
     print("\nCopying training files...")
@@ -79,18 +75,15 @@ def create_yolo_dataset():
     
     # Create data.yaml for YOLO
     data_yaml = {
-        'path': str(OUTPUT_DIR.absolute()),
+        'path': str(output_folder.absolute()),
         'train': 'images/train',
         'val': 'images/val',
         'nc': len(class_names),
         'names': class_names
     }
     
-    yaml_path = OUTPUT_DIR / "data.yaml"
+    yaml_path = output_folder / "data.yaml"
     with open(yaml_path, 'w') as f:
         yaml.dump(data_yaml, f, default_flow_style=False)
     
     return data_yaml
-
-if __name__ == "__main__":
-    create_yolo_dataset()

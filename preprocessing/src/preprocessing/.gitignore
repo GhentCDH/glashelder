@@ -1,0 +1,9 @@
+*.jpg
+*.jpeg
+*.png
+*.txt
+*.pt
+results.csv
+args.yaml
+data.yaml
+*.cache
