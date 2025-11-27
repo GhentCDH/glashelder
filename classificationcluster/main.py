@@ -5,7 +5,7 @@ from pathlib import Path
 from dataloader import get_dataloader
 import pickle
 
-MAX_BATCHES = 25
+MAX_BATCHES = 50
 DEV = True
 CONFIDENCE_THRESHOLD = 0.4
 
@@ -57,7 +57,7 @@ with torch.no_grad():
         probs = logits_per_image.softmax(dim=-1)
 
 
-        labels = ["human", "animal", "plant", "object", "landscape", "architecture", "artwork"]
+        labels = ["human", "animal", "plant", "object", "landscape", "architecture", "artwork", "ugly"]
         for path, p in zip(paths, probs):
             p = p.detach().cpu()
             
