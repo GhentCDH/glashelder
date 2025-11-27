@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 # local source
+from clipcluster.rr import log_reduced
 from common import PROJECT_ROOT
 
 # installed packages
@@ -157,7 +158,8 @@ def clipcluster():
     help="Whether or not to write example images to files",
 )
 @click.option("--count", default=15000, help="How many points to log to rerun")
-def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count):
+@click.option("-r", "--reduce", is_flag=True, help="Whether or not to stop after reducing dimensions")
+def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count, reduce):
     from .cluster import create_clusterer, reduce_dimensions
     from .rr import init_rerun, log_clustered_points
 
@@ -185,6 +187,11 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count)
 
     logger.info("Reducing dimensions")
     reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
+
+    log_reduced(reduced_embeddings, count=20000)
+
+    if reduce:
+        return
 
     logger.info("cluster points")
     clusterer = create_clusterer(reduced_embeddings)
