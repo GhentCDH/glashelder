@@ -3,6 +3,7 @@ from typing import Optional
 
 MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 
+
 def get_model(model: Optional[str] = None):
     if model is None:
         model = MODEL
@@ -25,10 +26,8 @@ def get_device() -> str:
     import torch
 
     if torch.cuda.is_available():
-        return 'cuda'
+        return "cuda"
     elif torch.mps.is_available():
-        return 'mps'
-    else: 
-        return 'cpu'
-
-
+        return "mps"
+    else:
+        return "cpu"
