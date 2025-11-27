@@ -17,8 +17,10 @@ def main():
 def register_commands():
     # register cli commands defined in other files
     from clipcluster.cli import clipcluster
+    from classification.cli import classification
     
     main.add_command(clipcluster)
+    main.add_command(classification)
 
 
 if __name__ == "glashelder":

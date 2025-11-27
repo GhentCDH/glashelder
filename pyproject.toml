@@ -20,6 +20,13 @@ build-backend = "uv_build"
 [tool.uv.sources]
 common = { workspace = true }
 clipcluster = { workspace = true }
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
 
 [tool.uv.workspace]
-members = ["clipcluster", "common"]
+members = ["clipcluster", "common", "classification"]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu130" # adjust for your CUDA version
+explicit = true
