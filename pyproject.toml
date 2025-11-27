@@ -8,7 +8,7 @@ authors = [
     { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
     { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
 ]
-dependencies = ["common", "clipcluster", "click>=8.3.1", "python-dotenv>=1.1.0"]
+dependencies = ["common", "clipcluster", "classification", "click>=8.3.1", "python-dotenv>=1.1.0"]
 
 [project.scripts]
 glashelder = "glashelder:main"
@@ -20,6 +20,7 @@ build-backend = "uv_build"
 [tool.uv.sources]
 common = { workspace = true }
 clipcluster = { workspace = true }
+classification = { workspace = true }
 torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 
