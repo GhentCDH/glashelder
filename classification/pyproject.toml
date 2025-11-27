@@ -1,0 +1,24 @@
+[project]
+name = "classification"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
+    { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
+]
+requires-python = "==3.13.*"
+dependencies = [
+    "common",
+    "click>=8.3.1",
+    "torch>=2.9.1",
+    "transformers>=4.47.0",
+    "pillow>=12.0.0",
+]
+
+[tool.uv.sources]
+common = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.9.10,<0.10.0"]
+build-backend = "uv_build"

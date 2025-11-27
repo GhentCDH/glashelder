@@ -10,11 +10,15 @@ class ImageDataset(Dataset):
         return len(self.image_paths)
     
     def __getitem__(self, idx):
+        image_path = self.image_paths[idx]
         image = Image.open(self.image_paths[idx]).convert("RGB")
+
         # Process returns dict with pixel_values, etc.
         inputs = self.processor(images=image, return_tensors="pt")
-        # Squeeze out the batch dim since DataLoader will add it back
-        return {k: v.squeeze(0) for k, v in inputs.items()}
+        inputs = {k: v.squeeze(0) for k, v in inputs.items()}
+    
+        inputs["path"] = str(image_path)
+        return inputs
 
 
 def get_dataloader(image_paths: list[str], processor, num_workers: int = 8, batch_size: int = 64):
