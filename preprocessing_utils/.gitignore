@@ -1,2 +1,5 @@
 *.txt
 *.jpg
+*.png
+*.pt
+*.cache
