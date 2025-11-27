@@ -6,7 +6,6 @@ import shutil
 from pathlib import Path
 
 # local source
-from clipcluster.rr import log_reduced
 from common import PROJECT_ROOT
 
 # installed packages
@@ -157,11 +156,11 @@ def clipcluster():
     is_flag=True,
     help="Whether or not to write example images to files",
 )
-@click.option("--count", default=15000, help="How many points to log to rerun")
+@click.option("--count", default=40000, help="How many points to log to rerun")
 @click.option("-r", "--reduce", is_flag=True, help="Whether or not to stop after reducing dimensions")
 def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count, reduce):
     from .cluster import create_clusterer, reduce_dimensions
-    from .rr import init_rerun, log_clustered_points
+    from .rr import init_rerun, log_clustered_points, log_images_3d
 
     device = get_device()
 
@@ -188,9 +187,8 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
     logger.info("Reducing dimensions")
     reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
 
-    log_reduced(reduced_embeddings, count=20000)
-
     if reduce:
+        log_reduced(reduced_embeddings, count=20000)
         return
 
     logger.info("cluster points")
@@ -199,6 +197,8 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
     # log to rerun
     logger.info("logging clustered points to rerun")
     log_clustered_points(reduced_embeddings, clusterer.labels_, count=count)
+
+    log_images_3d(reduced_embeddings, image_paths, 200)
 
     # Get cluster labels
     labels = clusterer.labels_
