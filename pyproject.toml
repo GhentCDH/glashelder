@@ -6,7 +6,7 @@ description = "Experiments for the glashelder AI workflows"
 requires-python = ">=3.13,<3.14"
 authors = [
     { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
-    { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" }
+    { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
 ]
 dependencies = ["common", "clipcluster", "click>=8.3.1", "python-dotenv>=1.1.0"]
 
