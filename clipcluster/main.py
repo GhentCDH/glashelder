@@ -1,5 +1,5 @@
 import os
-from rr import init_rerun
+from rr import init_rerun, log_clustered_points
 import torch
 import glob
 from PIL import Image
@@ -123,7 +123,10 @@ def cli():
 
 @cli.command()
 @click.option('--image-dir', default=IMAGE_DIR, help='Directory containing images to search')
-def cluster(image_dir):
+@click.option('--embeddings', default=EMBEDDINGS_PATH, help='The path to a embeddings pickle file')
+@click.option('--sample-size', default=100000, help='The amount of images to cluster')
+@click.option('--batch-size', default=64, help='The batch size for embeddings generation')
+def cluster(image_dir, embeddings, sample_size, batch_size):
     init_rerun(os.getenv("RERUN_ADDR"))
     model = get_model()
     device = get_device()
@@ -134,24 +137,25 @@ def cluster(image_dir):
 
     image_paths = sorted(glob.glob(f"{image_dir}/*"))
 
-    logger.info("generating embeddings")
-    embeddings = torch.cat([get_image_embedding(processor, model, device, path) for path in image_paths])
-    logger.info("embeddings generated")
+    if embeddings is not None:
+        with open(embeddings, 'rb') as file:
+            data = pickle.load(file)
+            image_paths = data["images"]
+            embeddings = data["embeddings"].to(device)
+    else:
+        # Get all image paths
+        image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
+        logger.info("Generating image embeddings...")
+        embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
 
     reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
-    logger.info(reduced_embeddings.shape)
-    logger.info(reduced_embeddings)
 
-    # write reduced to pickle file as a checkpoint
-    with open("reduced.pkl", "wb") as file:
-        pickle.dump(reduced_embeddings, file)
-
-    # with open('reduced.pkl', 'rb') as file:
-    # reduced_embeddings = pickle.load(file)
+    logger.info("reduced embeddings shape: ", reduced_embeddings.shape)
 
     clusterer = create_clusterer(reduced_embeddings)
 
     # log to rerun
+    log_clustered_points(reduced_embeddings, clusterer.labels_, count=5000)
 
     # Get cluster labels
     labels = clusterer.labels_
