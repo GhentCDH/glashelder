@@ -19,7 +19,9 @@ DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
 # actual dataset location
 IMAGE_DIR = "/mnt/miepeete/shares/glashelder/assets"
-EMBEDDINGS_PATH = PROJECT_ROOT / "clipcluster" / "embeddings.pkl"
+PACKAGE_ROOT = PROJECT_ROOT / "clipcluster"
+EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -69,7 +71,7 @@ def get_text_embedding(processor, model, device: str, text: str):
 
 def make_embeddings(model, processor, image_paths, batch_size, device):
     import torch
-    from .dataloader import get_dataloader
+    from common.dataloader import get_dataloader
 
     dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
     all_embeddings = []
@@ -376,7 +378,7 @@ def serve(embeddings, host, port):
     """Start a web server for interactive image search"""
     from flask import Flask, render_template, request, send_from_directory
 
-    app = Flask(__name__)
+    app = Flask(__name__, template_folder=PACKAGE_ROOT / "templates", static_folder=PACKAGE_ROOT / "static")
 
     # Load model and embeddings once
     logger.info("Loading model and processor...")

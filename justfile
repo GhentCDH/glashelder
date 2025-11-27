@@ -20,3 +20,6 @@ new name:
 
     sed -i '/from.*cli import/a\    from {{name}}.cli import {{name}}' src/glashelder/__init__.py
     sed -i '/main.add_command/a\    main.add_command({{name}})' src/glashelder/__init__.py
+
+jupyter experiment:
+    uv run --package {{experiment}} --with jupyter jupyter lab --no-browser
