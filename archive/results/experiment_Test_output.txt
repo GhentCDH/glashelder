@@ -1,0 +1,21 @@
+Total time: 26.539019107818604
+Qwen time: 9.436529874801636
+Pixtral time: 17.102489233016968
+
+<><><><><><><><><><><><><><><>
+IMAGE_NAME:dataset_images/Test/istockphoto-465377790-612x612.png
+----PIXTRAL----
+Explain in detail what is happening in this image.:
+This image depicts a white puppy running or playing in a grassy field. The puppy appears to be in motion, with its front legs extended forward and its hind legs pushed back, suggesting it is either running or about to jump. The puppy's ears are perked up, and its eyes are focused on something in the distance, indicating that it is attentive and possibly chasing after something or simply enjoying its playtime.
+
+The background of the image is blurred, which helps to draw attention to the puppy as the main subject. The out-of-focus background suggests that the photo was taken with a shallow depth of field, which is commonly achieved using a wide aperture on a camera lens. This technique is often used to create a visually appealing effect by isolating the subject from the background.
+
+The grass in the field is lush and green, indicating that the photo was likely taken during spring or summer. The overall lighting in the image is soft and natural, suggesting that the photo was taken during daylight hours, possibly in the early morning or late afternoon when the sunlight is less harsh.
+
+In summary, the image captures a lively and playful moment of a white puppy running in a grassy field, with a blurred background that emphasizes the puppy as the main subject. The natural lighting and the vibrant green grass add to the overall cheerful and lively atmosphere of the scene.
+<><><><><><><><><><><><><><><>
+
+----QWEN----
+"The image depicts a young puppy, likely a Golden Retriever, running energetically across a grassy field. The puppy has a light golden coat and is captured mid-stride, with one front paw raised and the other paw touching the ground. The puppy's ears are perked up, and it appears to be focused on something ahead of it. The background is blurred, emphasizing the motion of the puppy and creating a sense of depth. The grass is green and dotted with small flowers, suggesting a natural, outdoor setting. The overall scene conveys a sense of playfulness and joy."
+<><><><><><><><><><><><><><><>
+
