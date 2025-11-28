@@ -1,8 +1,7 @@
 import click
 
-IMAGE_DIR = "/mnt/UGent_Share/glashelder/assets"
-
 from .main import classify as cf
+from common import ASSETS_DIR
 
 
 @click.group()
@@ -12,7 +11,7 @@ def classification():
 
 @classification.command()
 @click.option(
-    "--image_dir", default=IMAGE_DIR, help="Directory where the images reside"
+    "--image_dir", default=ASSETS_DIR, help="Directory where the images reside"
 )
 def classify(image_dir):
     cf(image_dir)
