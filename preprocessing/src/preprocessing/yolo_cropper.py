@@ -48,7 +48,7 @@ def run_crop_on_batch_of_images(model_path, image_folder, output_folder, device=
     image_paths = list(
         chain.from_iterable(image_folder.glob(ext) for ext in ("*.jpg", "*.jpeg", "*.png", "*.tiff"))
     )
-    for image_path in tqdm(image_paths, desc="Processing images"):
+    for image_path in tqdm(image_paths, desc="Processing images", unit="image"):
         with Image.open(image_path).convert("RGB") as img:
             cropped_img = cropper.crop(img)
             cropped_img.save(output_folder / image_path.name)
