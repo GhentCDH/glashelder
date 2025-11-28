@@ -1,5 +1,10 @@
 from ultralytics import YOLO
 import numpy as np
+from pathlib import Path
+from PIL import Image
+import os
+from tqdm import tqdm
+from itertools import chain
 
 class YOLOCropper:
     def __init__(self, model_path, device="gpu"):
@@ -33,17 +38,17 @@ class YOLOCropper:
 
 
 def run_crop_on_batch_of_images(model_path, image_folder, output_folder, device="cpu"):
-    from pathlib import Path
-    from PIL import Image
-    import os
+
 
     cropper = YOLOCropper(model_path, device=device)
     image_folder = Path(image_folder)
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    for ext in ("*.jpg", "*.jpeg", "*.png", "*.tiff"):
-        for image_path in image_folder.glob(ext):
-            with Image.open(image_path).convert("RGB") as img:
-                cropped_img = cropper.crop(img)
-                cropped_img.save(output_folder / image_path.name)
+    image_paths = list(
+        chain.from_iterable(image_folder.glob(ext) for ext in ("*.jpg", "*.jpeg", "*.png", "*.tiff"))
+    )
+    for image_path in tqdm(image_paths, desc="Processing images"):
+        with Image.open(image_path).convert("RGB") as img:
+            cropped_img = cropper.crop(img)
+            cropped_img.save(output_folder / image_path.name)
