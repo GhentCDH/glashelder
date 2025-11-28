@@ -6,7 +6,8 @@ import shutil
 from pathlib import Path
 
 # local source
-from common import PROJECT_ROOT
+from clipcluster.rr import log_reduced
+from common import PROJECT_ROOT, ASSETS_DIR
 
 # installed packages
 import click
@@ -17,8 +18,6 @@ MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
-# actual dataset location
-IMAGE_DIR = "/mnt/miepeete/shares/glashelder/assets"
 PACKAGE_ROOT = PROJECT_ROOT / "clipcluster"
 EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 
@@ -141,7 +140,7 @@ def clipcluster():
 
 @clipcluster.command()
 @click.option(
-    "--image-dir", default=IMAGE_DIR, help="Directory containing images to search"
+    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
 @click.option(
     "--embeddings", default=EMBEDDINGS_PATH, help="The path to a embeddings pickle file"
@@ -275,7 +274,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
 @click.argument("prompt")
 @click.option("--top-k", default=10, help="Number of top matching images to return")
 @click.option(
-    "--image-dir", default=IMAGE_DIR, help="Directory containing images to search"
+    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
 @click.option(
     "--output-dir", default="search_results", help="Directory to save matching images"
@@ -349,7 +348,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
 
 @clipcluster.command()
 @click.option(
-    "--image-dir", default=IMAGE_DIR, help="Directory containing images to search"
+    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
 @click.option(
     "--save-path", default=EMBEDDINGS_PATH, help="Embeddings pickle save path"
