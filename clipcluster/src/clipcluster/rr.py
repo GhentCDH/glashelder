@@ -11,7 +11,13 @@ image_count = 0
 def init_rerun(address: Optional[str]):
     if address:
         rr.init(RERUN_ID, spawn=False)
-        rr.connect_grpc(address)
+        if address.startswith("rerun+http"):
+            # connect to runnin rerun instance
+            rr.connect_grpc(address)
+        else:
+            # save to a file
+            rr.save(address)
+
     else:
         rr.init(RERUN_ID, spawn=True)
 
