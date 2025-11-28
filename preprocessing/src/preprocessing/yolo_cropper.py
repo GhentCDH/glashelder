@@ -25,7 +25,6 @@ class YOLOCropper:
         )[0]
 
         if len(results.boxes) == 0:
-            print("nothing")
             return pil_image
 
         x1, y1, x2, y2 = map(int, results.boxes[0].xyxy[0].tolist())
