@@ -94,7 +94,6 @@ def log_image_3d(
         entity_path: The Rerun entity path for this image.
         size: Half-width/height of the image rectangle in 3D space.
     """
-    from PIL import Image
 
     img = Image.open(image_path).convert("RGB")
     ratio = 150 / img.width
@@ -166,27 +165,6 @@ def log_images_3d(
         log_image_3d(position, image_path, entity_path, size=size)
 
 
-# def log_images_3d(
-#         latent: np.ndarray,
-#         count: Optional[int] = None,
-#         ):
-#     ...
-
-
-# def log_image_3d(
-#     latent: np.ndarray,
-#     image_path: str
-# ):
-#     global image_count
-
-#     image_count += 1
-     
-#     image = Image.open(image_path).convert("RGB")
-
-#     rr.log(f"img{image_count}", rr.Transform3D(translation = latent[:3]))
-#     rr.log(f"img{image_count}/image", rr.Image(image))
-
-
 def _generate_colormap(n: int) -> np.ndarray:
     """Generate n distinct colours using HSV."""
     if n == 0:
@@ -198,60 +176,6 @@ def _generate_colormap(n: int) -> np.ndarray:
         r, g, b = _hsv_to_rgb(hue, 0.8, 0.9)
         colors.append([int(r * 255), int(g * 255), int(b * 255)])
     return np.array(colors, dtype=np.uint8)
-
-
-def log_image_3d(
-    position: np.ndarray,
-    image_path: str,
-    entity_path: str,
-    size: float = 0.5,
-):
-    """
-    Log an image as a textured rectangle at a 3D position in Rerun.
-
-    Args:
-        position: 3D coordinates [x, y, z] where the image should appear.
-        image_path: Path to the image file.
-        entity_path: The Rerun entity path for this image.
-        size: Half-width/height of the image rectangle in 3D space.
-    """
-    from PIL import Image
-
-    img = Image.open(image_path).convert("RGB")
-    img_array = np.array(img)
-
-    # Create a flat rectangle at the position, facing the camera (z-axis)
-    x, y, z = position[:3]
-    half = size
-
-    # Define rectangle corners (in XY plane, centered at position)
-    positions = np.array([
-        [x - half, y - half, z],
-        [x + half, y - half, z],
-        [x + half, y + half, z],
-        [x - half, y + half, z],
-    ], dtype=np.float32)
-
-    # Two triangles to form a quad
-    indices = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32)
-
-    # UV coordinates for texture mapping
-    texcoords = np.array([
-        [0.0, 1.0],  # bottom-left
-        [1.0, 1.0],  # bottom-right
-        [1.0, 0.0],  # top-right
-        [0.0, 0.0],  # top-left
-    ], dtype=np.float32)
-
-    rr.log(
-        entity_path,
-        rr.Mesh3D(
-            vertex_positions=positions,
-            triangle_indices=indices,
-            vertex_texcoords=texcoords,
-            albedo_texture=img_array,
-        ),
-    )
 
 
 def log_images_3d(
