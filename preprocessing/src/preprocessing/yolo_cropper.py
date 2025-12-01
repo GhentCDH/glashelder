@@ -10,6 +10,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
 from queue import Queue
 import threading
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 class YOLOCropper:
     def __init__(self, model_path, device="gpu"):
@@ -60,14 +64,17 @@ def run_crop_on_batch_of_images(model_path, image_folder, output_folder, device=
             img = Image.open(image_path).convert("RGB")
             return img, image_path.name
         except Exception as e:
-            print(f"Error loading {image_path.name}: {e}")
+            logger.error(f"Error loading {image_path.name}: {e}")
             return None, None
     
     def save_batch(batch_items):
         """Save a batch of images to disk in parallel."""
         def save_single(item):
             cropped, name = item
-            cropped.save(output_folder / name, optimize=False)
+            try:
+                cropped.save(output_folder / name, optimize=False)
+            except Exception as e:
+                logger.error(f"Error saving {name}: {e}")
         
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             list(executor.map(save_single, batch_items))
