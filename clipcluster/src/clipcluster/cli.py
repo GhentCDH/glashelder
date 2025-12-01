@@ -198,7 +198,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
-    image_paths = sorted(glob.glob(f"{image_dir}/*"))
+    image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))
 
     if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
@@ -218,20 +218,20 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
 
     logger.info("Reducing dimensions")
     # reduced_embeddings = embeddings.cpu().numpy()
-    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
+    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 30)
+    visualization_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 3)
 
     if reduce:
-        log_reduced(reduced_embeddings, count=20000)
+        log_reduced(visualization_embeddings, count=20000)
         return
 
     logger.info("cluster points")
-    clusterer = create_clusterer(embeddings.cpu().numpy())
+    clusterer = create_clusterer(reduced_embeddings)
 
     # log to rerun
     logger.info("logging clustered points to rerun")
-    log_clustered_points(reduced_embeddings, clusterer.labels_, count=count)
-
-    log_images_3d(reduced_embeddings, image_paths, 200)
+    log_clustered_points(visualization_embeddings, clusterer.labels_, count=count)
+    log_images_3d(visualization_embeddings, image_paths, 300)
 
     # Get cluster labels
     labels = clusterer.labels_

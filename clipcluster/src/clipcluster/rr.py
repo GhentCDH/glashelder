@@ -140,7 +140,7 @@ def log_images_3d(
     image_paths: list[str],
     count: int,
     base_path: str = "images",
-    size: float = 0.3,
+    size: float = 0.15,
 ):
     """
     Log `count` random images at their 3D positions in Rerun.
