@@ -12,29 +12,15 @@ from common import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
-MAX_BATCHES = 50
-DEV = True
-CONFIDENCE_THRESHOLD = 0.4
-MODEL = "openai/clip-vit-large-patch14"
-CLASSIFICATION_CACHE_FILE = (
-    PROJECT_ROOT / "classification" / "data" / "classification_results.pkl"
-)
+def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, prompts : list = ['a photo of a human'], labels : list = ['human'], confidence=0.4 , output_folder=None):
 
-
-def classify(image_dir):
     device = get_device()
-    model = get_model(MODEL).to(device)
-    processor = get_processor(MODEL)
+    model = get_model(model).to(device)
+    processor = get_processor(model)
 
-    prompts = [
-        "a photo of a human",
-        "a photo of an animal",
-        "a photo of a plant",
-        "a photo of an object",
-        "a photo of a landscape",
-        "a photo of architecture or buildings",
-        "a photo of an artwork",
-    ]
+    if len(prompts) != len(labels):
+        logger.error("Invalid configuration: number of prompts must match number of labels!")
+        raise ValueError("Number of prompts must match number of labels!")
 
     # Encode text once
     text_inputs = processor(text=prompts, return_tensors="pt", padding=True).to(device)
@@ -44,17 +30,17 @@ def classify(image_dir):
 
     # Load images
     image_paths = list(Path(image_dir).glob("*.jpg"))
-    dataloader = get_dataloader(image_paths, processor, batch_size=256)
+    dataloader = get_dataloader(image_paths, processor, batch_size=256, dataset_type="imagepath")
     results = []
 
     model.eval()
     with torch.no_grad():
         for batch_idx, batch in enumerate(dataloader):
-            if MAX_BATCHES is not None and batch_idx >= MAX_BATCHES:
+            if max_batches is not None and batch_idx >= max_batches:
                 break
 
             logger.info(
-                f"Processing batch {batch_idx + 1} of {min(len(dataloader), MAX_BATCHES)}"
+                f"Processing batch {batch_idx + 1} of {min(len(dataloader), max_batches)}"
             )
 
             paths = batch.pop("path")
@@ -68,32 +54,29 @@ def classify(image_dir):
             logits_per_image = logit_scale * (image_embeds @ text_embeds.T)
             probs = logits_per_image.softmax(dim=-1)
 
-            labels = [
-                "human",
-                "animal",
-                "plant",
-                "object",
-                "landscape",
-                "architecture",
-                "artwork",
-                "ugly",
-            ]
             for path, p in zip(paths, probs):
                 p = p.detach().cpu()
+                
+                # Debug: log the probabilities
+                logger.debug(f"Image: {Path(path).name}, Probs: {[float(p[i]) for i in range(len(labels))]}")
 
                 # Get all labels above threshold
                 above_threshold = [
                     (labels[i], float(p[i]))
                     for i in range(len(labels))
-                    if float(p[i]) >= CONFIDENCE_THRESHOLD
+                    if float(p[i]) >= confidence
                 ]
+                
+                logger.debug(f"Above threshold ({confidence}): {above_threshold}")
 
                 if above_threshold:
                     # Sort by weight (highest first)
                     above_threshold.sort(key=lambda x: x[1], reverse=True)
                     assigned_labels = [label for label, weight in above_threshold]
                 else:
-                    assigned_labels = ["unsure"]
+                    assigned_labels = ["not_classified"]
+                
+                logger.debug(f"Assigned labels: {assigned_labels}")
 
                 results.append(
                     {
@@ -109,9 +92,6 @@ def classify(image_dir):
                     }
                 )
 
-    with open(CLASSIFICATION_CACHE_FILE, "wb") as f:
-        pickle.dump(results, f)
-
     # Create JSON output
     json_output = {}
     for idx, result in enumerate(results, 1):
@@ -120,44 +100,29 @@ def classify(image_dir):
             "classes": result["predicted"]["weights"],
         }
 
-    with open(CLASSIFICATION_CACHE_FILE.with_suffix(".json"), "w") as f:
-        json.dump(json_output, f, indent=2)
-
-    logger.info(
-        "Classification complete. Results saved to classification_results.pkl and classification_results.json"
-    )
     logger.info("Now moving images to correct folders based on classification.")
 
-    output_dirs = {
-        "human": PROJECT_ROOT / "data" / "classification" / "human",
-        "animal": PROJECT_ROOT / "data" / "classification" / "animal",
-        "plant": PROJECT_ROOT / "data" / "classification" / "plant",
-        "object": PROJECT_ROOT / "data" / "classification" / "object",
-        "landscape": PROJECT_ROOT / "data" / "classification" / "landscape",
-        "architecture": PROJECT_ROOT / "data" / "classification" / "architecture",
-        "artwork": PROJECT_ROOT / "data" / "classification" / "artwork",
-        "unsure": PROJECT_ROOT / "data" / "classification" / "unsure",
-    }
-
-    if DEV:
-        for dir_path in output_dirs.values():
-            if dir_path.exists():
-                if dir_path.is_dir():
-                    shutil.rmtree(dir_path)
-                else:
-                    dir_path.unlink()
-            dir_path.mkdir(parents=True, exist_ok=True)
-    else:
-        for dir_path in output_dirs.values():
-            dir_path.mkdir(parents=True, exist_ok=True)
+    # Ensure output directories exist and collect their paths
+    output_dirs = {}
+    for label in list(labels) + ["not_classified"]:
+        if not output_folder:
+            dest_dir = PROJECT_ROOT / "data" / "classification" / label
+        else:
+            dest_dir = Path(output_folder) / label
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        output_dirs[label] = dest_dir
 
     for result in results:
         src_path = Path(result["path"])
         assigned_labels = result["predicted"]["labels"]
 
+        # If nothing was assigned, treat as not_classified
+        if not assigned_labels:
+            assigned_labels = ["not_classified"]
+
         # Copy image to all matching label folders
         for label in assigned_labels:
-            dest_path = output_dirs[label] / src_path.name
+            dest_path = output_dirs.get(label, output_dirs["not_classified"]) / src_path.name
             logger.info(f"Moving {src_path.name} to {label}")
             shutil.copy2(src_path, dest_path)
 
