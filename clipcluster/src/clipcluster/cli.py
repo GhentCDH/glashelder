@@ -25,6 +25,39 @@ EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+DINO_MODEL = "facebook/dinov2-large"
+
+
+def get_dino_model():
+    from transformers import Dinov2Model
+    return Dinov2Model.from_pretrained(DINO_MODEL)
+
+
+def get_dino_processor():
+    from transformers import AutoImageProcessor
+    return AutoImageProcessor.from_pretrained(DINO_MODEL)
+
+
+def make_dino_embeddings(model, processor, image_paths, batch_size, device):
+    import torch
+    from common.dataloader import get_dataloader
+
+    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
+    all_embeddings = []
+    
+    for i, batch in enumerate(dataloader):
+        logger.info(f"Batch {i + 1}/{len(dataloader)}")
+        inputs = {k: v.to(device) for k, v in batch.items()}
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+            # Use CLS token embedding
+            embeddings = outputs.last_hidden_state[:, 0]
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+
+        all_embeddings.append(embeddings.cpu())
+
+    return torch.cat(all_embeddings)
 
 def get_model():
     from transformers import CLIPModel
@@ -184,6 +217,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
         embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
 
     logger.info("Reducing dimensions")
+    # reduced_embeddings = embeddings.cpu().numpy()
     reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
 
     if reduce:
@@ -191,7 +225,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
         return
 
     logger.info("cluster points")
-    clusterer = create_clusterer(reduced_embeddings)
+    clusterer = create_clusterer(embeddings.cpu().numpy())
 
     # log to rerun
     logger.info("logging clustered points to rerun")
@@ -358,9 +392,9 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
 )
 @click.option("--batch-size", default=64, help="Batch size for embedding generation")
 def generate_embeddings(image_dir, save_path, count, batch_size):
-    model = get_model()
+    model = get_dino_model()
     device = get_device()
-    processor = get_processor()
+    processor = get_dino_processor()
     model.to(device)
 
     image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
@@ -368,7 +402,7 @@ def generate_embeddings(image_dir, save_path, count, batch_size):
         f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}"
     )
 
-    embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
+    embeddings = make_dino_embeddings(model, processor, image_paths, batch_size, device)
 
     with open(save_path, "wb") as file:
         pickle.dump({"images": image_paths, "embeddings": embeddings}, file)
