@@ -23,7 +23,9 @@ dependencies = [
     "matplotlib>=3.10.7",
     "click>=8.3.1",
     "flask>=3.1.2",
-    "rerun-sdk>=0.27.2",
+    "anywidget[dev]>=0.9.21",
+    "jupyter>=1.1.1",
+    "rerun-sdk[notebook]>=0.27.2",
 ]
 
 [tool.uv.sources]
