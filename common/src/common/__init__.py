@@ -1,5 +1,8 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # for defining paths relative to project root
 PROJECT_ROOT: Path = Path(__file__).parent.parent.parent.parent

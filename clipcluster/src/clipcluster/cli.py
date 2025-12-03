@@ -392,9 +392,9 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
 )
 @click.option("--batch-size", default=64, help="Batch size for embedding generation")
 def generate_embeddings(image_dir, save_path, count, batch_size):
-    model = get_dino_model()
+    model = get_model()
     device = get_device()
-    processor = get_dino_processor()
+    processor = get_processor()
     model.to(device)
 
     image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
@@ -402,7 +402,7 @@ def generate_embeddings(image_dir, save_path, count, batch_size):
         f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}"
     )
 
-    embeddings = make_dino_embeddings(model, processor, image_paths, batch_size, device)
+    embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
 
     with open(save_path, "wb") as file:
         pickle.dump({"images": image_paths, "embeddings": embeddings}, file)
