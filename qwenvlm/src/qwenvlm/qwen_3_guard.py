@@ -14,7 +14,7 @@ def qwen_guard(input):
     )
     def extract_label_and_categories(content):
         safe_pattern = r"Safety: (Safe|Unsafe|Controversial)"
-        category_pattern = r"(Disturbing|Violent|Nudity|Culturally Sensitive Topics|Privacy|None)"
+        category_pattern = r"(Violent|Non-violent Illegal Acts|Sexual Content or Sexual Acts|PII|Suicide & Self-Harm|Unethical Acts|Politically Sensitive Topics|Copyright Violation|None)"
         safe_label_match = re.search(safe_pattern, content)
         label = safe_label_match.group(1) if safe_label_match else None
         categories = re.findall(category_pattern, content)
