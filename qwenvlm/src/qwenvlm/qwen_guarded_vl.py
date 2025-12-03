@@ -11,7 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def process_and_guard_image_folder(folder_path, prompt, results_path):
+def process_and_guard_image_folder(folder_path, prompt, results_path, tokens=128):
 
     df = pd.DataFrame(columns=["image_name", "safety_label", "safety_type", "color" , "generated_description"])
     
@@ -24,7 +24,7 @@ def process_and_guard_image_folder(folder_path, prompt, results_path):
             image_path = folder_path / image_file
             logger.info(f"Generating description for image: {image_path}")
 
-            description = qwen_use(str(image_path), prompt)
+            description = qwen_use(str(image_path), prompt, tokens)
 
 
             # Normalize and strip common Markdown artifacts (Thanks Claude)

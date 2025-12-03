@@ -19,8 +19,9 @@ def describe_image(image_path, prompt):
 @click.option("-i", "--input-folder", required=True, help="This is the path to the folder containing the images to be processed.")
 @click.option("-o", "--output-folder", default="guarded_output", help="This is the path to the folder where the guarded results will be saved. Default: guarded_output")
 @click.option("-p", "--prompt", required=True, help="This is the prompt to use for generating descriptions.")
-def guard_image_folder(input_folder, prompt, output_folder):
-    pgif(input_folder, prompt, output_folder)
+@click.option("-t", "--tokens", default=128, help="This is the max amount of tokens to generate. Default: 128")
+def guard_image_folder(input_folder, prompt, output_folder, tokens):
+    pgif(input_folder, prompt, output_folder, tokens)
 
 
 
