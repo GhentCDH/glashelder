@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 logger = logging.getLogger(__name__)
 
 
-def reduce_dimensions(embeddings, dimensions: int = 3):
-    umap_model = UMAP(n_components=dimensions, n_neighbors=15, min_dist=0.20)
+def reduce_dimensions(embeddings, dimensions: int = 30):
+    umap_model = UMAP(n_components=dimensions, n_neighbors=15, min_dist=0.05)
     return umap_model.fit_transform(embeddings)
 
 

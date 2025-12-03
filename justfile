@@ -23,3 +23,6 @@ new name:
 
 jupyter experiment:
     uv run --package {{experiment}} --with jupyter jupyter lab --no-browser
+
+docker:
+    docker run -d --name glashelder -it --rm --gpus all -p 5000:5000 -p 8888:8888 --shm-size=3g --ulimit memlock=-1 --ulimit stack=67108864 --privileged -v .:/workspace -v ./.docker-cache:/root/.cache debian:trixie

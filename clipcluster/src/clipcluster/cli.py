@@ -25,6 +25,39 @@ EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+DINO_MODEL = "facebook/dinov2-large"
+
+
+def get_dino_model():
+    from transformers import Dinov2Model
+    return Dinov2Model.from_pretrained(DINO_MODEL)
+
+
+def get_dino_processor():
+    from transformers import AutoImageProcessor
+    return AutoImageProcessor.from_pretrained(DINO_MODEL)
+
+
+def make_dino_embeddings(model, processor, image_paths, batch_size, device):
+    import torch
+    from common.dataloader import get_dataloader
+
+    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
+    all_embeddings = []
+    
+    for i, batch in enumerate(dataloader):
+        logger.info(f"Batch {i + 1}/{len(dataloader)}")
+        inputs = {k: v.to(device) for k, v in batch.items()}
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+            # Use CLS token embedding
+            embeddings = outputs.last_hidden_state[:, 0]
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+
+        all_embeddings.append(embeddings.cpu())
+
+    return torch.cat(all_embeddings)
 
 def get_model():
     from transformers import CLIPModel
@@ -165,7 +198,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
-    image_paths = sorted(glob.glob(f"{image_dir}/*"))
+    image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))
 
     if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
@@ -184,10 +217,12 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
         embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
 
     logger.info("Reducing dimensions")
-    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy())
+    # reduced_embeddings = embeddings.cpu().numpy()
+    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 30)
+    visualization_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 3)
 
     if reduce:
-        log_reduced(reduced_embeddings, count=20000)
+        log_reduced(visualization_embeddings, count=20000)
         return
 
     logger.info("cluster points")
@@ -195,9 +230,8 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
 
     # log to rerun
     logger.info("logging clustered points to rerun")
-    log_clustered_points(reduced_embeddings, clusterer.labels_, count=count)
-
-    log_images_3d(reduced_embeddings, image_paths, 200)
+    log_clustered_points(visualization_embeddings, clusterer.labels_, count=count)
+    log_images_3d(visualization_embeddings, image_paths, 300)
 
     # Get cluster labels
     labels = clusterer.labels_
