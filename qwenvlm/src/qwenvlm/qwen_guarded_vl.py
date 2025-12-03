@@ -58,7 +58,7 @@ def process_and_guard_image_folder(folder_path, prompt, results_path):
             if safety_label == "Safe":
                 row = [image_file, "Safe", "", "🟢", description ]
             elif safety_label == "Controversial":
-                row = [image_file, "Controversial", ", ".join(categories), "🟠", description]
+                row = [image_file, "Controversial", ", ".join(categories), "🟡", description]
             else:
                 row = [image_file, "Unsafe", ", ".join(categories), "🔴", description]
             
