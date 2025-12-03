@@ -2,6 +2,9 @@ from qwenvlm.qwen_3_guard import qwen_guard
 from qwenvlm.qwen_3_vl import qwen_use
 import pandas as pd
 import os 
+from pathlib import Path
+from PIL import Image
+import re
 
 import logging
 
@@ -9,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 def process_and_guard_image_folder(folder_path, prompt, results_path):
-    from pathlib import Path
-    from PIL import Image
 
     df = pd.DataFrame(columns=["image_name", "safety_label", "safety_type", "color" , "generated_description"])
     
@@ -24,7 +25,32 @@ def process_and_guard_image_folder(folder_path, prompt, results_path):
             logger.info(f"Generating description for image: {image_path}")
 
             description = qwen_use(str(image_path), prompt)
-            description = description.strip().replace('\n', ' ')
+
+
+            # Normalize and strip common Markdown artifacts (Thanks Claude)
+
+            description = description or ""
+            # remove fenced code blocks ```...```
+            description = re.sub(r'```.*?```', ' ', description, flags=re.DOTALL)
+            # replace newlines with space
+            description = description.replace('\r', ' ').replace('\n', ' ')
+            # inline code `code` -> code
+            description = re.sub(r'`([^`]*)`', r'\1', description)
+            # images ![alt](url) -> alt
+            description = re.sub(r'!\[([^\]]*)\]\([^\)]*\)', r'\1', description)
+            # links [text](url) -> text
+            description = re.sub(r'\[([^\]]+)\]\([^\)]*\)', r'\1', description)
+            # headings like ## Heading -> remove leading hashes
+            description = re.sub(r'(^|\s)#{1,6}\s*', ' ', description)
+            # emphasis and bold markers *text* **text** _text_ -> text
+            description = re.sub(r'(\*\*|\*|__|_)(.*?)\1', r'\2', description)
+            # remove HTML tags
+            description = re.sub(r'<[^>]+>', ' ', description)
+            # remove stray backticks, tildes, and bullets
+            description = description.replace('`', '').replace('~', '')
+            description = re.sub(r'(^|\s)[\-\*\+]\s+', ' ', description)
+            # collapse multiple spaces and trim
+            description = re.sub(r'\s+', ' ', description).strip()
 
             logger.info(f"Evaluating safety for image: {image_path}")
             safety_label, categories = qwen_guard(description)
