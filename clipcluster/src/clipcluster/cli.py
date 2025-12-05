@@ -21,8 +21,6 @@ CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
 PACKAGE_ROOT = PROJECT_ROOT / "clipcluster"
 EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DINO_MODEL = "facebook/dinov2-large"
@@ -212,7 +210,7 @@ def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count,
         processor = get_processor()
         model.to(device)
         # Get all image paths
-        image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
+        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
         logger.info("Generating image embeddings...")
         embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
 
@@ -342,7 +340,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
             image_embeddings = data["embeddings"].to(device)
     else:
         # Get all image paths
-        image_paths = list(glob.glob(f"{image_dir}/*"))[:sample_size]
+        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
         image_embeddings = make_embeddings(
             model, processor, image_paths, batch_size, device
         )
