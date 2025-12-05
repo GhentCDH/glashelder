@@ -7,24 +7,13 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "common",
     "numpy>=2.2.3",
-    "opencv-python>=4.11.0.86",
-    "pillow>=11.1.0",
-    "rich>=13.9.4",
     "scikit-image>=0.25.2",
     "scikit-learn>=1.6.1",
-    "python-dotenv>=1.1.0",
-    "torch>=2.6.0",
-    "torchvision>=0.24.0",
-    "tensorboard>=2.19.0",
-    "toml>=0.10.2",
     "umap-learn>=0.5.9.post2",
     "hdbscan>=0.8.40",
     "matplotlib>=3.10.7",
-    "click>=8.3.1",
     "flask>=3.1.2",
     "anywidget[dev]>=0.9.21",
-    "jupyter>=1.1.1",
-    "rerun-sdk[notebook]>=0.27.2",
 ]
 
 [tool.uv.sources]
