@@ -10,7 +10,6 @@ authors = [
 requires-python = "==3.13.*"
 dependencies = [
     "common",
-    "click>=8.3.1",
     "torch>=2.9.1",
     "transformers>=4.47.0",
     "pillow>=12.0.0",
