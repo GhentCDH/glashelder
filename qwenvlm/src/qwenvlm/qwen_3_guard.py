@@ -3,7 +3,7 @@ import re
 
 
 def qwen_guard(input):
-    model_name = "Qwen/Qwen3Guard-Gen-4B"
+    model_name = "Qwen/Qwen3Guard-Gen-8B"
 
     # load the tokenizer and the model
     tokenizer = AutoTokenizer.from_pretrained(model_name)

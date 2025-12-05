@@ -4,7 +4,7 @@ from PIL import Image
 def qwen_use(image_path, prompt, tokens):
     # default: Load the model on the available device(s)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
-        "Qwen/Qwen3-VL-4B-Instruct", dtype="auto", device_map="auto"
+        "Qwen/Qwen3-VL-8B-Instruct", dtype="auto", device_map="auto"
     )
 
     processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
