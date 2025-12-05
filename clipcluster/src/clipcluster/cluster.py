@@ -2,7 +2,7 @@ import logging
 
 # installed packages
 from umap import UMAP
-from sklearn.cluster import OPTICS
+from hdbscan import HDBSCAN
 import matplotlib.pyplot as plt
 
 # local source
@@ -16,9 +16,8 @@ def reduce_dimensions(embeddings, dimensions: int = 30):
 
 
 def create_clusterer(latent, min_cluster_size: int = 50):
-    # clusterer = HDBSCAN(min_cluster_size=min_cluster_size)
-    # clusterer.fit(latent)
-    clusterer = OPTICS(min_samples=min_cluster_size).fit(latent)
+    clusterer = HDBSCAN(min_cluster_size=min_cluster_size)
+    clusterer.fit(latent)
 
     return clusterer
 
