@@ -16,7 +16,10 @@ class ImageDataset(Dataset):
 
         # Process returns dict with pixel_values, etc.
         inputs = self.processor(images=image, return_tensors="pt")
-        return {k: v.squeeze(0) for k, v in inputs.items()}
+        inputs = {k: v.squeeze(0) for k, v in inputs.items()}
+
+        inputs["path"] = str(image_path)
+        return inputs
 
 
 class ImagePathDataset(Dataset):

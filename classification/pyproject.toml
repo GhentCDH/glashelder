@@ -7,7 +7,7 @@ authors = [
     { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
     { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
 ]
-requires-python = "==3.13.*"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "common",
     "torch>=2.9.1",
@@ -19,5 +19,5 @@ dependencies = [
 common = { workspace = true }
 
 [build-system]
-requires = ["uv_build>=0.9.10,<0.10.0"]
+requires = ["uv_build>=0.9.14,<0.10.0"]
 build-backend = "uv_build"
