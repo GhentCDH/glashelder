@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 class YOLOCropper:
     def __init__(self, model_path, device="gpu"):
+        from ultralytics import YOLO
+
         self.model_path = model_path
         self.device = device
-        self.model = None
+        self.model: YOLO = None
 
     def _load_if_needed(self):
         from ultralytics import YOLO
@@ -37,7 +39,7 @@ class YOLOCropper:
             device=self.device,
         )[0]
 
-        if len(results.boxes) == 0:
+        if results.boxes is None or len(results.boxes) == 0:
             return pil_image
 
         x1, y1, x2, y2 = map(int, results.boxes[0].xyxy[0].tolist())

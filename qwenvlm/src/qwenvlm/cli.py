@@ -22,7 +22,7 @@ def qwenvlm():
 def describe_image(image_path, prompt):
     from qwenvlm.qwen_3_vl import qwen_use
 
-    results = qwen_use(image_path, prompt)
+    results = qwen_use(image_path, prompt, None)
     print(results)
 
 
