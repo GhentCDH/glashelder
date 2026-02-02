@@ -4,8 +4,6 @@ import logging
 from pathlib import Path
 import pickle
 
-import torch
-
 from common.clipmodel import get_model, get_processor, get_device
 from common.dataloader import get_dataloader
 from common import PROJECT_ROOT
@@ -13,6 +11,7 @@ from common import PROJECT_ROOT
 logger = logging.getLogger(__name__)
 
 def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, prompts : list = ['a photo of a human'], labels : list = ['human'], confidence=0.4 , output_folder=None):
+    import torch
 
     device = get_device()
     model = get_model(model).to(device)

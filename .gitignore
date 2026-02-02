@@ -15,3 +15,18 @@ wheels/
 # Node
 node_modules
 classification/data
+
+# Cache and data files
+*.pkl
+*.rrd
+clipcluster/clustered.png
+
+# Development tool caches
+.ruff_cache/
+.pyright_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Environment variables
+*.env
+!example.env
