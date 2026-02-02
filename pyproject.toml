@@ -14,7 +14,8 @@ dependencies = [
     "click>=8.3.1",
     "python-dotenv>=1.1.0",
     "classification",
-    "preprocessing"
+    "preprocessing",
+    "risk-assessment",
 ]
 
 [project.scripts]
@@ -31,6 +32,7 @@ torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 classification = { workspace = true }
 preprocessing = { workspace = true }
+risk-assessment = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -38,6 +40,7 @@ members = [
     "common",
     "classification",
     "preprocessing",
+    "risk_assessment",
 ]
 
 [[tool.uv.index]]

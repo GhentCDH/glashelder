@@ -18,14 +18,22 @@ def main():
 def register_commands():
     # register cli commands defined in other files
     from clipcluster.cli import clipcluster
+    from risk_assessment.cli import risk_assessment
     from preprocessing.cli import preprocessing
+    from risk_assessment.cli import risk_assessment
     from classification.cli import classification
+    from risk_assessment.cli import risk_assessment
     from preprocessing.cli import preprocessing
+    from risk_assessment.cli import risk_assessment
 
     main.add_command(clipcluster)
+    main.add_command(risk_assessment)
     main.add_command(preprocessing)
+    main.add_command(risk_assessment)
     main.add_command(classification)
+    main.add_command(risk_assessment)
     main.add_command(preprocessing)
+    main.add_command(risk_assessment)
 
 
 if __name__ == "glashelder":
