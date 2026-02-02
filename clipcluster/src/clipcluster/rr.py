@@ -1,12 +1,11 @@
-from typing import Optional
-
-from PIL import Image
 import numpy as np
 import rerun as rr
+from PIL import Image
 
 RERUN_ID = "clipcluster"
 
-def init_rerun(address: Optional[str]):
+
+def init_rerun(address: str | None):
     if address:
         rr.init(RERUN_ID, spawn=False)
         if address.startswith("rerun+http"):
@@ -20,7 +19,9 @@ def init_rerun(address: Optional[str]):
         rr.init(RERUN_ID, spawn=True)
 
 
-def log_reduced(latent: np.ndarray, count: Optional[int] = None, base_path: str = "latent"):
+def log_reduced(
+    latent: np.ndarray, count: int | None = None, base_path: str = "latent"
+):
     """
     Log 3D points to Rerun
 
@@ -41,7 +42,7 @@ def log_reduced(latent: np.ndarray, count: Optional[int] = None, base_path: str 
 def log_clustered_points(
     latent: np.ndarray,
     labels: np.ndarray,
-    count: Optional[int] = None,
+    count: int | None = None,
     base_path: str = "clusters",
 ):
     """
@@ -77,6 +78,7 @@ def log_clustered_points(
 
         rr.log(path, rr.Points3D(positions, colors=color, radii=0.02))
 
+
 def log_image_3d(
     position: np.ndarray,
     image_path: str,
@@ -104,23 +106,29 @@ def log_image_3d(
     half = size
 
     # Define rectangle corners (in XY plane, centered at position)
-    positions = np.array([
-        [x - half, y - half, z],
-        [x + half, y - half, z],
-        [x + half, y + half, z],
-        [x - half, y + half, z],
-    ], dtype=np.float32)
+    positions = np.array(
+        [
+            [x - half, y - half, z],
+            [x + half, y - half, z],
+            [x + half, y + half, z],
+            [x - half, y + half, z],
+        ],
+        dtype=np.float32,
+    )
 
     # Two triangles to form a quad
     indices = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32)
 
     # UV coordinates for texture mapping
-    texcoords = np.array([
-        [0.0, 1.0],  # bottom-left
-        [1.0, 1.0],  # bottom-right
-        [1.0, 0.0],  # top-right
-        [0.0, 0.0],  # top-left
-    ], dtype=np.float32)
+    texcoords = np.array(
+        [
+            [0.0, 1.0],  # bottom-left
+            [1.0, 1.0],  # bottom-right
+            [1.0, 0.0],  # top-right
+            [0.0, 0.0],  # top-left
+        ],
+        dtype=np.float32,
+    )
 
     rr.log(
         entity_path,

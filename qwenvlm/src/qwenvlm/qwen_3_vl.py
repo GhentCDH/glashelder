@@ -1,7 +1,8 @@
 from PIL import Image
 
+
 def qwen_use(image_path, prompt, tokens):
-    from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
+    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
     # default: Load the model on the available device(s)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
@@ -33,16 +34,19 @@ def qwen_use(image_path, prompt, tokens):
         tokenize=True,
         add_generation_prompt=True,
         return_dict=True,
-        return_tensors="pt"
+        return_tensors="pt",
     )
     inputs = inputs.to(model.device)
 
     # Inference: Generation of the output
     generated_ids = model.generate(**inputs, max_new_tokens=tokens)
     generated_ids_trimmed = [
-        out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        out_ids[len(in_ids) :]
+        for in_ids, out_ids in zip(inputs.input_ids, generated_ids, strict=False)
     ]
     output_text = processor.batch_decode(
-        generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        generated_ids_trimmed,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
     )
     return output_text[0]

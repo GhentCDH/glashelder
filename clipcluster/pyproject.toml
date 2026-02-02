@@ -5,15 +5,15 @@ description = "Cluster images using CLIP embeddings."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "common",
-    "numpy>=2.2.3",
-    "scikit-image>=0.25.2",
-    "scikit-learn>=1.6.1",
-    "umap-learn>=0.5.9.post2",
-    "hdbscan>=0.8.40",
-    "matplotlib>=3.10.7",
-    "flask>=3.1.2",
-    "anywidget[dev]>=0.9.21",
+  "common",
+  "numpy>=2.2.3",
+  "scikit-image>=0.25.2",
+  "scikit-learn>=1.6.1",
+  "umap-learn>=0.5.9.post2",
+  "hdbscan>=0.8.40",
+  "matplotlib>=3.10.7",
+  "flask>=3.1.2",
+  "anywidget[dev]>=0.9.21",
 ]
 
 [tool.uv.sources]

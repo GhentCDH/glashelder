@@ -1,18 +1,18 @@
-import os
 import glob
 import logging
+import os
 import pickle
 import shutil
 from pathlib import Path
-
-# local source
-from common import PROJECT_ROOT, ASSETS_DIR
-from common.clipmodel import get_model, get_processor, get_device
 
 # installed packages
 import click
 from dotenv import load_dotenv
 from PIL import Image
+
+# local source
+from common import ASSETS_DIR, PROJECT_ROOT
+from common.clipmodel import get_device, get_model, get_processor
 
 MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 # TODO: put some default images in `./images/` as exampels
@@ -28,21 +28,24 @@ DINO_MODEL = "facebook/dinov2-large"
 
 def get_dino_model():
     from transformers import Dinov2Model
+
     return Dinov2Model.from_pretrained(DINO_MODEL)
 
 
 def get_dino_processor():
     from transformers import AutoImageProcessor
+
     return AutoImageProcessor.from_pretrained(DINO_MODEL)
 
 
 def make_dino_embeddings(model, processor, image_paths, batch_size, device):
     import torch
+
     from common.dataloader import get_dataloader
 
     dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
     all_embeddings = []
-    
+
     for i, batch in enumerate(dataloader):
         logger.info(f"Batch {i + 1}/{len(dataloader)}")
         inputs = {k: v.to(device) for k, v in batch.items()}
@@ -56,6 +59,7 @@ def make_dino_embeddings(model, processor, image_paths, batch_size, device):
         all_embeddings.append(embeddings.cpu())
 
     return torch.cat(all_embeddings)
+
 
 def get_image_embedding(processor, model, device: str, image_path: str):
     import torch
@@ -78,6 +82,7 @@ def get_text_embedding(processor, model, device: str, text: str):
 
 def make_embeddings(model, processor, image_paths, batch_size, device):
     import torch
+
     from common.dataloader import get_dataloader
 
     dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
@@ -164,8 +169,15 @@ def clipcluster():
     help="Whether or not to write example images to files",
 )
 @click.option("--count", default=40000, help="How many points to log to rerun")
-@click.option("-r", "--reduce", is_flag=True, help="Whether or not to stop after reducing dimensions")
-def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count, reduce):
+@click.option(
+    "-r",
+    "--reduce",
+    is_flag=True,
+    help="Whether or not to stop after reducing dimensions",
+)
+def cluster(
+    image_dir, embeddings, sample_size, batch_size, output_files, count, reduce
+):
     from .cluster import create_clusterer, reduce_dimensions
     from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
 
@@ -330,7 +342,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
     # Print results
     logger.info(f"\nTop {top_k} matches for '{prompt}':")
     for i, (idx, score) in enumerate(
-        zip(top_indices.cpu().numpy(), top_scores.cpu().numpy()), 1
+        zip(top_indices.cpu().numpy(), top_scores.cpu().numpy(), strict=False), 1
     ):
         logger.info(f"{i}. {Path(image_paths[idx]).name} (similarity: {score:.4f})")
 
@@ -343,7 +355,7 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
         old_file.unlink()
 
     for i, (idx, score) in enumerate(
-        zip(top_indices.cpu().numpy(), top_scores.cpu().numpy()), 1
+        zip(top_indices.cpu().numpy(), top_scores.cpu().numpy(), strict=False), 1
     ):
         src_path = image_paths[idx]
         filename = Path(src_path).name
@@ -393,7 +405,11 @@ def serve(embeddings, host, port):
     """Start a web server for interactive image search"""
     from flask import Flask, render_template, request, send_from_directory
 
-    app = Flask(__name__, template_folder=PACKAGE_ROOT / "templates", static_folder=PACKAGE_ROOT / "static")
+    app = Flask(
+        __name__,
+        template_folder=PACKAGE_ROOT / "templates",
+        static_folder=PACKAGE_ROOT / "static",
+    )
 
     # Load model and embeddings once
     logger.info("Loading model and processor...")
@@ -439,7 +455,8 @@ def serve(embeddings, host, port):
 
             results = []
             for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy()), 1
+                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
+                1,
             ):
                 results.append(
                     {
@@ -462,7 +479,7 @@ def serve(embeddings, host, port):
             logger.error(f"Search error: {e}")
             return render_template(
                 "results.html",
-                error=f"Search failed: {str(e)}",
+                error=f"Search failed: {e!s}",
                 results=[],
                 query_type="text",
                 query_value="",
@@ -489,7 +506,8 @@ def serve(embeddings, host, port):
 
             results = []
             for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy()), 1
+                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
+                1,
             ):
                 results.append(
                     {
@@ -514,7 +532,7 @@ def serve(embeddings, host, port):
             logger.error(f"Similar search error: {e}")
             return render_template(
                 "similar.html",
-                error=f"Search failed: {str(e)}",
+                error=f"Search failed: {e!s}",
                 results=[],
                 query_type="similar",
                 query_value=index,
@@ -541,7 +559,8 @@ def serve(embeddings, host, port):
 
             results = []
             for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy()), 1
+                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
+                1,
             ):
                 results.append(
                     {
@@ -566,7 +585,7 @@ def serve(embeddings, host, port):
             logger.error(f"Similar search error: {e}")
             return render_template(
                 "results.html",
-                error=f"Search failed: {str(e)}",
+                error=f"Search failed: {e!s}",
                 results=[],
                 query_type="similar",
                 query_value=index,
