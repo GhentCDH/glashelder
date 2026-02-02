@@ -6,8 +6,6 @@ import rerun as rr
 
 RERUN_ID = "clipcluster"
 
-image_count = 0
-
 def init_rerun(address: Optional[str]):
     if address:
         rr.init(RERUN_ID, spawn=False)
@@ -140,7 +138,7 @@ def log_images_3d(
     image_paths: list[str],
     count: int,
     base_path: str = "images",
-    size: float = 0.15,
+    size: float = 0.3,
 ):
     """
     Log `count` random images at their 3D positions in Rerun.
@@ -176,36 +174,6 @@ def _generate_colormap(n: int) -> np.ndarray:
         r, g, b = _hsv_to_rgb(hue, 0.8, 0.9)
         colors.append([int(r * 255), int(g * 255), int(b * 255)])
     return np.array(colors, dtype=np.uint8)
-
-
-def log_images_3d(
-    latent: np.ndarray,
-    image_paths: list[str],
-    count: int,
-    base_path: str = "images",
-    size: float = 0.3,
-):
-    """
-    Log `count` random images at their 3D positions in Rerun.
-
-    Args:
-        latent: The reduced embeddings, shape (N, D) where D >= 3.
-        image_paths: List of paths to images, corresponding to latent rows.
-        count: Number of random images to log.
-        base_path: The base Rerun entity path.
-        size: Size of each image in 3D space.
-    """
-    n_points = len(latent)
-    count = min(count, n_points)
-
-    indices = np.random.choice(n_points, size=count, replace=False)
-
-    for i, idx in enumerate(indices):
-        position = latent[idx]
-        image_path = image_paths[idx]
-        entity_path = f"{base_path}/{i}"
-
-        log_image_3d(position, image_path, entity_path, size=size)
 
 
 def _hsv_to_rgb(h: float, s: float, v: float) -> tuple[float, float, float]:
