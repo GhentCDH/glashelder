@@ -5,34 +5,30 @@ readme = "README.md"
 description = "Experiments for the glashelder AI workflows"
 requires-python = ">=3.13,<3.14"
 authors = [
-    { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
-    { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
+  { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
+  { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
 ]
 dependencies = [
-    "common",
-    "clipcluster",
-    "click>=8.3.1",
-    "python-dotenv>=1.1.0",
-    "opencv-python>=4.11.0.86",
-    "rich>=13.9.4",
-    "classification",
-    "preprocessing",
-    "qwenvlm",
-    "workspace>=0.3.1",
-    "transformers>=4.57.0",
-    "pillow>=12.0.0",
-    "torch>=2.6.0",
-    "torchvision>=0.24.0",
-    "rerun-sdk>=0.27.2",
-    "jupyter>=1.1.1",
+  "common",
+  "clipcluster",
+  "click>=8.3.1",
+  "python-dotenv>=1.1.0",
+  "opencv-python>=4.11.0.86",
+  "rich>=13.9.4",
+  "classification",
+  "preprocessing",
+  "qwenvlm",
+  "workspace>=0.3.1",
+  "transformers>=4.57.0",
+  "pillow>=12.0.0",
+  "torch>=2.6.0",
+  "torchvision>=0.24.0",
+  "rerun-sdk>=0.27.2",
+  "jupyter>=1.1.1",
 ]
 
 [project.scripts]
 glashelder = "glashelder:main"
-
-[build-system]
-requires = ["uv_build>=0.9.14,<0.10.0"]
-build-backend = "uv_build"
 
 [tool.uv.sources]
 common = { workspace = true }
@@ -45,14 +41,55 @@ qwenvlm = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "clipcluster",
-    "common",
-    "classification",
-    "preprocessing",
-    "qwenvlm",
+  "clipcluster",
+  "common",
+  "classification",
+  "preprocessing",
+  "qwenvlm",
 ]
 
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu130" # adjust for your CUDA version
 explicit = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # Pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "RUF", # ruff-specific rules
+]
+ignore = [
+  "E501", # line too long (ruff format handles this)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+known-first-party = [
+  "glashelder",
+  "common",
+  "clipcluster",
+  "classification",
+  "preprocessing",
+  "qwenvlm",
+]
+
+[tool.ty.environment]
+root = ["common", "clipcluster", "classification", "preprocessing", "qwenvlm"]
+
+[build-system]
+requires = ["uv_build>=0.9.14,<0.10.0"]
+build-backend = "uv_build"

@@ -1,5 +1,5 @@
-from torch.utils.data import Dataset, DataLoader
 from PIL import Image
+from torch.utils.data import DataLoader, Dataset
 
 
 class ImageDataset(Dataset):
@@ -36,13 +36,17 @@ class ImagePathDataset(Dataset):
 
         inputs = self.processor(images=image, return_tensors="pt")
         inputs = {k: v.squeeze(0) for k, v in inputs.items()}
-        
+
         inputs["path"] = str(image_path)
         return inputs
 
 
 def get_dataloader(
-        image_paths: list[str], processor, num_workers: int = 8, batch_size: int = 64, dataset_type: str = "image"
+    image_paths: list[str],
+    processor,
+    num_workers: int = 8,
+    batch_size: int = 64,
+    dataset_type: str = "image",
 ):
     datasets = {
         "image": ImageDataset,

@@ -1,9 +1,10 @@
 import logging
 
+import matplotlib.pyplot as plt
+from hdbscan import HDBSCAN
+
 # installed packages
 from umap import UMAP
-from hdbscan import HDBSCAN
-import matplotlib.pyplot as plt
 
 # local source
 

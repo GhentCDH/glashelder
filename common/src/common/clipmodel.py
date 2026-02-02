@@ -1,10 +1,7 @@
-from typing import Optional
-
-
 MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 
 
-def get_model(model: Optional[str] = None):
+def get_model(model: str | None = None):
     if model is None:
         model = MODEL
 
@@ -13,7 +10,7 @@ def get_model(model: Optional[str] = None):
     return CLIPModel.from_pretrained(MODEL)
 
 
-def get_processor(model: Optional[str] = None):
+def get_processor(model: str | None = None):
     if model is None:
         model = MODEL
 
