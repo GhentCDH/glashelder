@@ -6,8 +6,8 @@ import shutil
 from pathlib import Path
 
 # local source
-from clipcluster.rr import log_reduced
 from common import PROJECT_ROOT, ASSETS_DIR
+from common.clipmodel import get_model, get_processor, get_device
 
 # installed packages
 import click
@@ -56,29 +56,6 @@ def make_dino_embeddings(model, processor, image_paths, batch_size, device):
         all_embeddings.append(embeddings.cpu())
 
     return torch.cat(all_embeddings)
-
-def get_model():
-    from transformers import CLIPModel
-
-    return CLIPModel.from_pretrained(MODEL)
-
-
-def get_processor():
-    from transformers import CLIPProcessor
-
-    return CLIPProcessor.from_pretrained(MODEL)
-
-
-def get_device() -> str:
-    import torch
-
-    if torch.cuda.is_available():
-        return "cuda"
-    elif torch.mps.is_available():
-        return "mps"
-    else:
-        return "cpu"
-
 
 def get_image_embedding(processor, model, device: str, image_path: str):
     import torch
@@ -190,7 +167,7 @@ def clipcluster():
 @click.option("-r", "--reduce", is_flag=True, help="Whether or not to stop after reducing dimensions")
 def cluster(image_dir, embeddings, sample_size, batch_size, output_files, count, reduce):
     from .cluster import create_clusterer, reduce_dimensions
-    from .rr import init_rerun, log_clustered_points, log_images_3d
+    from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
 
     device = get_device()
 

@@ -1,8 +1,9 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import re
 
 
 def qwen_guard(input):
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
     model_name = "Qwen/Qwen3Guard-Gen-8B"
 
     # load the tokenizer and the model

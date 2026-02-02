@@ -1,7 +1,6 @@
 import click
 import logging
 
-from .main import classify as cf
 from common import ASSETS_DIR
 
 @click.group()
@@ -43,7 +42,7 @@ def classification():
     default=0.4,
     type=float,
     help="Confidence threshold for classification. Default is 0.4",
-)  
+)
 @click.option(
     "-o", "--output_folder",
     required=True,
@@ -52,4 +51,5 @@ def classification():
 
 
 def classify_images(image_dir, model, max_batches, prompts, labels, confidence, output_folder=None):
+    from .main import classify as cf
     cf(image_dir, model, max_batches, prompts, labels, confidence, output_folder)
