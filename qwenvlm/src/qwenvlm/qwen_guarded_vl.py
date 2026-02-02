@@ -13,13 +13,15 @@ logger = logging.getLogger(__name__)
 
 def process_and_guard_image_folder(folder_path, prompt, results_path, tokens=128):
     df = pd.DataFrame(
-        columns=[
-            "image_name",
-            "safety_label",
-            "safety_type",
-            "color",
-            "generated_description",
-        ]
+        columns=pd.Index(
+            [
+                "image_name",
+                "safety_label",
+                "safety_type",
+                "color",
+                "generated_description",
+            ]
+        )
     )
 
     folder_path = Path(folder_path)
@@ -80,7 +82,7 @@ def process_and_guard_image_folder(folder_path, prompt, results_path, tokens=128
 
     for row in df.itertuples():
         logger.info(
-            f"{row.color} {row.image_name} - {row.safety_label} ({row.safety_type}) : {row.generated_description}"
+            f"{row.color} {row.image_name} - {row.safety_label} ({row.safety_type}) : {row.generated_description}"  # ty:ignore
         )
 
     df.to_csv(results_path / "image_safety_report.csv", index=False)
