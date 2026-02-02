@@ -1,4 +1,3 @@
-from ultralytics import YOLO
 import numpy as np
 from pathlib import Path
 from PIL import Image
@@ -17,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 class YOLOCropper:
     def __init__(self, model_path, device="gpu"):
+        from ultralytics import YOLO
+
         self.model_path = model_path
         self.device = device
         self.model = None

@@ -1,7 +1,8 @@
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 from PIL import Image
 
 def qwen_use(image_path, prompt, tokens):
+    from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
+
     # default: Load the model on the available device(s)
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         "Qwen/Qwen3-VL-8B-Instruct", dtype="auto", device_map="auto"
