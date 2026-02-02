@@ -15,7 +15,7 @@ url = "https://download.pytorch.org/whl/cu130" # CUDA 13.0
 explicit = true
 ```
 
-The example in this repo uses CUDA 13.0
+The example in this repo uses CUDA 13.0.
 
 ## Jupyter Notebooks
 
