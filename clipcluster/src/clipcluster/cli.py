@@ -602,3 +602,140 @@ def serve(embeddings, host, port):
 
     logger.info(f"Starting Flask server on {host}:{port}...")
     app.run(host=host, port=port, debug=True)
+
+
+@clipcluster.command()
+@click.option(
+    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
+)
+@click.option(
+    "--embeddings", default=EMBEDDINGS_PATH, help="Path to embeddings pickle file"
+)
+@click.option("--sample-size", default=100000, help="Amount of images to cluster")
+@click.option("--batch-size", default=64, help="Batch size for embeddings generation")
+@click.option(
+    "--output-dir",
+    default=None,
+    help="Directory to save analysis results (default: cluster_analysis_YYYYMMDD_HHMMSS)",
+)
+@click.option("--min-cluster-size", default=50, help="Minimum cluster size for HDBSCAN")
+def analyze(
+    image_dir, embeddings, sample_size, batch_size, output_dir, min_cluster_size
+):
+    """Analyze clustering results and generate statistics and visualizations."""
+    from datetime import datetime
+
+    from .cluster import (
+        calculate_cluster_statistics,
+        create_2d_visualization,
+        create_3d_visualization,
+        create_clusterer,
+        reduce_dimensions,
+        save_cluster_statistics,
+    )
+
+    device = get_device()
+
+    # Add timestamp to output directory if not explicitly specified
+    if output_dir is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = f"cluster_analysis_{timestamp}"
+
+    output_path = Path(output_dir)
+    output_path.mkdir(exist_ok=True, parents=True)
+
+    # Load or generate embeddings
+    if embeddings is not None and os.path.exists(embeddings):
+        logger.info("Loading embeddings")
+        with open(embeddings, "rb") as file:
+            data = pickle.load(file)
+            image_paths = data["images"]
+            embeddings_tensor = data["embeddings"].to(device)
+    else:
+        logger.info("Getting ML models for embedding generation")
+        model = get_model()
+        processor = get_processor()
+        model.to(device)
+        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        logger.info("Generating image embeddings...")
+        embeddings_tensor = make_embeddings(
+            model, processor, image_paths, batch_size, device
+        )
+
+    logger.info(f"Processing {len(image_paths)} images")
+
+    # Reduce dimensions for clustering (30D) and visualization (2D and 3D)
+    logger.info("Reducing dimensions for clustering (30D)...")
+    reduced_embeddings_30d = reduce_dimensions(embeddings_tensor.cpu().numpy(), 30)
+
+    logger.info("Reducing dimensions for 2D visualization...")
+    reduced_embeddings_2d = reduce_dimensions(embeddings_tensor.cpu().numpy(), 2)
+
+    logger.info("Reducing dimensions for 3D visualization...")
+    reduced_embeddings_3d = reduce_dimensions(embeddings_tensor.cpu().numpy(), 3)
+
+    # Perform clustering
+    logger.info(f"Clustering with min_cluster_size={min_cluster_size}...")
+    clusterer = create_clusterer(
+        reduced_embeddings_30d, min_cluster_size=min_cluster_size
+    )
+    labels = clusterer.labels_
+
+    # Calculate statistics
+    logger.info("Calculating cluster statistics...")
+    stats = calculate_cluster_statistics(reduced_embeddings_30d, labels, clusterer)
+
+    # Define output paths
+    json_path = output_path / "cluster_stats.json"
+    plot_2d_path = output_path / "clusters_2d.png"
+    plot_3d_path = output_path / "clusters_3d.png"
+
+    # Create visualizations
+    logger.info("\nGenerating visualizations...")
+    create_2d_visualization(reduced_embeddings_2d, labels, str(plot_2d_path))
+    create_3d_visualization(reduced_embeddings_3d, labels, str(plot_3d_path))
+
+    # Add metadata to stats (including visualization paths)
+    stats["metadata"] = {
+        "timestamp": datetime.now().isoformat(),
+        "n_samples": len(image_paths),
+        "min_cluster_size": min_cluster_size,
+        "embedding_model": MODEL,
+        "reduction_dims": 30,
+        "output_directory": str(output_path.resolve()),
+        "visualizations": {
+            "plot_2d": str(plot_2d_path.resolve()),
+            "plot_3d": str(plot_3d_path.resolve()),
+        },
+    }
+
+    # Print summary
+    logger.info("\n" + "=" * 60)
+    logger.info("CLUSTERING ANALYSIS SUMMARY")
+    logger.info("=" * 60)
+    logger.info(f"Total samples: {stats['overall']['n_samples']}")
+    logger.info(f"Number of clusters: {stats['overall']['n_clusters']}")
+    logger.info(
+        f"Noise points: {stats['overall']['n_noise']} ({stats['overall']['noise_ratio'] * 100:.2f}%)"
+    )
+    if stats["overall"]["silhouette_score"] is not None:
+        logger.info(f"Silhouette score: {stats['overall']['silhouette_score']:.4f}")
+
+    logger.info("\nTop 10 clusters by size:")
+    for i, cluster in enumerate(stats["clusters"][:10], 1):
+        logger.info(
+            f"  {i}. Cluster {cluster['cluster_id']}: "
+            f"{cluster['size']} points ({cluster['percentage']:.2f}%), "
+            f"compactness={cluster['compactness']:.4f}, "
+            f"density={cluster['density']:.4f}"
+        )
+
+    # Save statistics to JSON (after adding visualization paths)
+    save_cluster_statistics(stats, json_path)
+
+    logger.info("\n" + "=" * 60)
+    logger.info(f"Analysis complete! Results saved to: {output_path}")
+    logger.info(f"  - Statistics: {json_path}")
+    logger.info(f"  - 2D plot: {output_path / 'clusters_2d.png'}")
+    logger.info(f"  - 3D plot: {output_path / 'clusters_3d.png'}")
+    logger.info("=" * 60)
