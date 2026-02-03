@@ -270,7 +270,7 @@ def create_3d_visualization(embeddings_3d, labels, save_path: str = "clusters_3d
     logger.info(f"Saved 3D visualization to {save_path}")
 
 
-def save_cluster_statistics(stats, save_path: str = "cluster_stats.json"):
+def save_cluster_statistics(stats, save_path: str | Path = "cluster_stats.json"):
     """Save cluster statistics to a JSON file."""
     output_path = Path(save_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
