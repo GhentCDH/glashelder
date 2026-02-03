@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -12,6 +13,17 @@ from umap import UMAP
 # local source
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class HierarchicalConfig:
+    """Configuration for hierarchical clustering."""
+
+    enabled: bool = False
+    density_threshold: float = 1.0
+    min_size_for_reclustering: int = 500
+    max_depth: int = 2
+    min_cluster_size: int = 50
 
 
 def reduce_dimensions(embeddings, dimensions: int = 30):
@@ -60,16 +72,31 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
 
     Args:
         embeddings: The reduced embeddings used for clustering
-        labels: Cluster labels from HDBSCAN
+        labels: Cluster labels from HDBSCAN (can be numeric or string)
         clusterer: The fitted HDBSCAN clusterer object
 
     Returns:
         Dictionary containing overall and per-cluster statistics
     """
-    unique_labels = sorted(set(labels))
-    n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+    # Convert all labels to strings for consistent handling
+    labels_str = np.array([str(label) for label in labels])
+    unique_labels = sorted(
+        set(labels_str), key=lambda x: (x.count("."), x)
+    )  # Sort by depth, then name
+
+    # Count noise (both "-1" and labels ending with ".noise")
+    n_noise = int(
+        sum(
+            (labels_str == "-1")
+            | np.array([str(label).endswith(".noise") for label in labels_str])
+        )
+    )
+    n_clusters = (
+        len(unique_labels)
+        - int("-1" in unique_labels)
+        - int(any(label.endswith(".noise") for label in unique_labels))
+    )
     n_samples = len(labels)
-    n_noise = int(sum(labels == -1))
 
     # Overall statistics (ensure all values are native Python types for JSON serialization)
     overall_stats = {
@@ -85,10 +112,20 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
             from sklearn.metrics import silhouette_score
 
             # Only calculate silhouette for non-noise points
-            non_noise_mask = labels != -1
+            non_noise_mask = (labels_str != "-1") & ~np.array(
+                [str(label).endswith(".noise") for label in labels_str]
+            )
             if sum(non_noise_mask) > 0:
+                # Create numeric labels for silhouette calculation
+                non_noise_labels = labels_str[non_noise_mask]
+                unique_non_noise = sorted(set(non_noise_labels))
+                label_to_int = {label: i for i, label in enumerate(unique_non_noise)}
+                numeric_labels = np.array(
+                    [label_to_int[label] for label in non_noise_labels]
+                )
+
                 silhouette = silhouette_score(
-                    embeddings[non_noise_mask], labels[non_noise_mask]
+                    embeddings[non_noise_mask], numeric_labels
                 )
                 overall_stats["silhouette_score"] = float(silhouette)
         except Exception as e:
@@ -101,10 +138,10 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
     cluster_stats = []
 
     for label in unique_labels:
-        if label == -1:
+        if label == "-1" or label.endswith(".noise"):
             continue  # Skip noise in per-cluster stats
 
-        cluster_mask = labels == label
+        cluster_mask = labels_str == label
         cluster_points = embeddings[cluster_mask]
         cluster_size = int(sum(cluster_mask))
 
@@ -140,16 +177,23 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
         # Get cluster persistence from HDBSCAN (if available)
         # This indicates how stable/prominent the cluster is
         persistence = None
-        if hasattr(clusterer, "cluster_persistence_"):
+        if clusterer and hasattr(clusterer, "cluster_persistence_"):
             try:
-                cluster_id = label
-                if cluster_id < len(clusterer.cluster_persistence_):
-                    persistence = float(clusterer.cluster_persistence_[cluster_id])
+                # Try to extract numeric ID from label for persistence lookup
+                if label.replace(".", "").replace("-", "").isdigit():
+                    # For hierarchical labels like "2.0", use the last numeric part
+                    numeric_parts = [int(x) for x in label.split(".") if x.isdigit()]
+                    if numeric_parts and numeric_parts[-1] < len(
+                        clusterer.cluster_persistence_
+                    ):
+                        persistence = float(
+                            clusterer.cluster_persistence_[numeric_parts[-1]]
+                        )
             except Exception:
                 pass
 
         stats = {
-            "cluster_id": int(label),
+            "cluster_id": label,  # Keep as string to support hierarchical labels
             "size": cluster_size,
             "percentage": float(cluster_size / n_samples * 100),
             "compactness": compactness,
@@ -279,3 +323,200 @@ def save_cluster_statistics(stats, save_path: str | Path = "cluster_stats.json")
         json.dump(stats, f, indent=2)
 
     logger.info(f"Saved cluster statistics to {save_path}")
+
+
+def should_recluster(cluster_stats: dict, config: HierarchicalConfig) -> bool:
+    """
+    Determine if a cluster needs refinement.
+
+    Returns True if cluster is both large and vague.
+    """
+    return (
+        cluster_stats["density"] < config.density_threshold
+        and cluster_stats["size"] >= config.min_size_for_reclustering
+    )
+
+
+def extract_cluster_embeddings(
+    embeddings: np.ndarray, labels: np.ndarray, cluster_id: str | int
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Extract original embeddings and indices for a specific cluster.
+
+    Handles both numeric (0, 1, 2) and hierarchical ("2.0", "2.1") labels.
+    Returns: (cluster_embeddings, cluster_indices)
+    """
+    # Handle string comparison for hierarchical labels
+    if isinstance(cluster_id, str):
+        mask = np.array([str(label) == cluster_id for label in labels])
+    else:
+        mask = labels == cluster_id
+
+    indices = np.where(mask)[0]
+    cluster_embeddings = embeddings[indices]
+    return cluster_embeddings, indices
+
+
+def refine_cluster(
+    original_embeddings: np.ndarray,
+    cluster_indices: np.ndarray,
+    parent_label: str,
+    config: HierarchicalConfig,
+    depth: int,
+) -> tuple[np.ndarray, np.ndarray] | tuple[None, None]:
+    """
+    Sub-cluster a problematic cluster.
+
+    Steps:
+    1. Extract embeddings for cluster members
+    2. Run UMAP (30D) on subset
+    3. Run HDBSCAN with adaptive min_cluster_size
+    4. Create hierarchical labels
+    5. Handle failure cases (no clusters, only noise)
+
+    Returns: (sub_labels, sub_reduced_embeddings) or (None, None) if refinement fails
+    """
+    # Extract subset embeddings
+    subset_embeddings = original_embeddings[cluster_indices]
+
+    # Re-run UMAP on subset
+    logger.info(f"  Running UMAP on {len(cluster_indices)} points...")
+    subset_reduced = reduce_dimensions(subset_embeddings, dimensions=30)
+
+    # Adaptive min_cluster_size
+    adaptive_min_size = max(config.min_cluster_size, int(len(cluster_indices) * 0.05))
+    logger.info(f"  Running HDBSCAN with min_cluster_size={adaptive_min_size}...")
+
+    # Re-run HDBSCAN
+    clusterer = create_clusterer(subset_reduced, min_cluster_size=adaptive_min_size)
+    sub_labels = clusterer.labels_
+
+    # Check for valid splits
+    n_clusters = len(set(sub_labels)) - (1 if -1 in sub_labels else 0)
+    if n_clusters <= 1:
+        # No meaningful split found
+        logger.info(f"  No meaningful split found (got {n_clusters} clusters)")
+        return None, None
+
+    # Create hierarchical labels
+    hierarchical_labels = []
+    for label in sub_labels:
+        if label == -1:
+            hierarchical_labels.append(f"{parent_label}.noise")
+        else:
+            hierarchical_labels.append(f"{parent_label}.{label}")
+
+    logger.info(f"  Successfully split into {n_clusters} sub-clusters")
+    return np.array(hierarchical_labels), subset_reduced
+
+
+def hierarchical_cluster(
+    original_embeddings: np.ndarray,
+    initial_labels: np.ndarray,
+    initial_reduced_embeddings: np.ndarray,
+    config: HierarchicalConfig,
+    depth: int = 0,
+) -> tuple[np.ndarray, np.ndarray, dict]:
+    """
+    Recursively refine clusters that meet criteria.
+
+    Returns: (hierarchical_labels, hierarchical_reduced_embeddings, refinement_tree)
+    """
+    # Calculate statistics for current clustering
+    stats = calculate_cluster_statistics(
+        initial_reduced_embeddings, initial_labels, None
+    )
+
+    # Initialize refinement tree
+    refinement_tree = {}
+
+    # Base case: max depth reached
+    if depth >= config.max_depth:
+        logger.info(f"Max depth {config.max_depth} reached, stopping refinement")
+        return initial_labels, initial_reduced_embeddings, refinement_tree
+
+    # Convert numeric labels to strings for consistency
+    current_labels = np.array([str(label) for label in initial_labels])
+    current_reduced = initial_reduced_embeddings.copy()
+
+    # Identify clusters to refine
+    clusters_to_refine = []
+    for cluster_stat in stats["clusters"]:
+        if should_recluster(cluster_stat, config):
+            clusters_to_refine.append(cluster_stat["cluster_id"])
+
+    if not clusters_to_refine:
+        # No clusters need refinement
+        logger.info(f"No clusters meet refinement criteria at depth {depth}")
+        return current_labels, current_reduced, refinement_tree
+
+    logger.info(f"\n{'=' * 60}")
+    logger.info(f"REFINEMENT ITERATION {depth + 1}")
+    logger.info(f"{'=' * 60}")
+    logger.info(f"Clusters to refine: {len(clusters_to_refine)}")
+
+    # Refine each problematic cluster
+    for cluster_id in clusters_to_refine:
+        cluster_id_str = str(cluster_id)
+
+        # Get original stats for this cluster
+        original_stats = next(
+            c for c in stats["clusters"] if c["cluster_id"] == cluster_id
+        )
+        logger.info(
+            f"\nCluster {cluster_id_str} ({original_stats['size']} pts, density {original_stats['density']:.2f}):"
+        )
+
+        # Extract cluster embeddings
+        _cluster_embeddings, cluster_indices = extract_cluster_embeddings(
+            original_embeddings, current_labels, cluster_id_str
+        )
+
+        # Attempt refinement
+        sub_labels, sub_reduced = refine_cluster(
+            original_embeddings, cluster_indices, cluster_id_str, config, depth
+        )
+
+        if sub_labels is None or sub_reduced is None:
+            # Refinement failed, keep original cluster
+            logger.info(f"  Keeping cluster {cluster_id_str} as-is")
+            continue
+
+        # Update labels for refined cluster
+        for i, idx in enumerate(cluster_indices):
+            current_labels[idx] = sub_labels[i]
+            current_reduced[idx] = sub_reduced[i]
+
+        # Record refinement
+        unique_sub_labels = sorted(set(sub_labels))
+        refinement_tree[cluster_id_str] = {
+            "original_size": int(original_stats["size"]),
+            "original_density": float(original_stats["density"]),
+            "refined_into": [str(label) for label in unique_sub_labels],
+            "depth": depth,
+        }
+
+        # Log sub-cluster breakdown
+        for sub_label in unique_sub_labels:
+            count = int(np.sum(sub_labels == sub_label))
+            logger.info(f"  └─ {sub_label}: {count} pts")
+
+    # Recurse on new sub-clusters
+    if depth + 1 < config.max_depth:
+        logger.info("\nChecking sub-clusters for further refinement...")
+        current_labels, current_reduced, sub_tree = hierarchical_cluster(
+            original_embeddings, current_labels, current_reduced, config, depth + 1
+        )
+
+        # Merge refinement trees
+        for key, value in sub_tree.items():
+            if "." in key:  # It's a sub-cluster
+                parent = key.rsplit(".", 1)[0]
+                if parent in refinement_tree:
+                    if "sub_clusters" not in refinement_tree[parent]:
+                        refinement_tree[parent]["sub_clusters"] = {}
+                    refinement_tree[parent]["sub_clusters"][key] = value
+            else:
+                refinement_tree[key] = value
+
+    return current_labels, current_reduced, refinement_tree
