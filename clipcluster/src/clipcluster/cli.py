@@ -695,6 +695,56 @@ def analyze(
     create_2d_visualization(reduced_embeddings_2d, labels, str(plot_2d_path))
     create_3d_visualization(reduced_embeddings_3d, labels, str(plot_3d_path))
 
+    # Save sample images for each cluster
+    logger.info("Saving sample images for each cluster...")
+    samples_dir = output_path / "cluster_samples"
+    samples_dir.mkdir(exist_ok=True)
+
+    # Get unique clusters (excluding noise)
+    unique_clusters = sorted([label for label in set(labels) if label != -1])
+
+    # For each cluster, copy sample images
+    for cluster_id in unique_clusters:
+        # Create cluster directory
+        cluster_dir = samples_dir / f"cluster_{cluster_id}"
+        if cluster_dir.exists():
+            shutil.rmtree(cluster_dir)
+        cluster_dir.mkdir(exist_ok=True)
+
+        # Get indices of images in this cluster
+        cluster_indices = [i for i, label in enumerate(labels) if label == cluster_id]
+
+        # Select up to 4 samples
+        sample_indices = cluster_indices[:4]
+
+        # Copy images
+        for idx in sample_indices:
+            src_path = image_paths[idx]
+            filename = Path(src_path).name
+            dst_path = cluster_dir / filename
+            shutil.copy(src_path, dst_path)
+
+        logger.info(
+            f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
+        )
+
+    # Optionally handle noise points
+    noise_indices = [i for i, label in enumerate(labels) if label == -1]
+    if noise_indices:
+        noise_dir = samples_dir / "noise"
+        noise_dir.mkdir(exist_ok=True)
+
+        # Save up to 2 noise samples
+        for idx in noise_indices[:2]:
+            src_path = image_paths[idx]
+            filename = Path(src_path).name
+            dst_path = noise_dir / filename
+            shutil.copy(src_path, dst_path)
+
+        logger.info(
+            f"Noise: {len(noise_indices)} total images, saved {min(2, len(noise_indices))} samples"
+        )
+
     # Add metadata to stats (including visualization paths)
     stats["metadata"] = {
         "timestamp": datetime.now().isoformat(),
@@ -707,6 +757,7 @@ def analyze(
             "plot_2d": str(plot_2d_path.resolve()),
             "plot_3d": str(plot_3d_path.resolve()),
         },
+        "sample_images": str(samples_dir.resolve()),
     }
 
     # Print summary
@@ -738,4 +789,5 @@ def analyze(
     logger.info(f"  - Statistics: {json_path}")
     logger.info(f"  - 2D plot: {output_path / 'clusters_2d.png'}")
     logger.info(f"  - 3D plot: {output_path / 'clusters_3d.png'}")
+    logger.info(f"  - Sample images: {samples_dir}")
     logger.info("=" * 60)
