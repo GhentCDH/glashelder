@@ -26,15 +26,15 @@ def load_model():
 def assess_risk_of_image_folder(folder_path, output_csv="risk_assessment_results.csv"):
     model, processor = load_model()
     
-    # Policy names for the 3 outputs
-    policy_names = ["Sexually Explicit", "Dangerous Content", "Violence/Gore"]
+    # Policy names for the 3 outputs (should match how the model is configured)
+    policy_names = ["Sexually Explicit content", "Dangerous content", "Violent content"]
     
     # Create CSV header
     header = ["filename"]
     for policy in policy_names:
         header.extend([
-            f"{policy}_yes_probability",
-            f"{policy}_no_probability",
+            f"{policy}_safe_probability",
+            f"{policy}_violates_probability",
             f"{policy}_decision"
         ])
     
@@ -56,17 +56,18 @@ def assess_risk_of_image_folder(folder_path, output_csv="risk_assessment_results
                 
                 # Build row for this image
                 row = [image_file]
-                
+
                 for idx, policy_probs in enumerate(output.probabilities.cpu()):
-                    yes_prob = policy_probs[0].item()  # Index 0 = "Yes"
-                    no_prob = policy_probs[1].item()   # Index 1 = "No"
-                    
-                    # Determine Yes/No based on threshold
-                    decision = "Yes" if yes_prob > 0.80 else "No"
-                    
+                    # Per HF docs: Index 0 = "Yes" (violates policy/UNSAFE), Index 1 = "No" (doesn't violate/SAFE)
+                    violates_prob = policy_probs[0].item()  # Index 0 = Violates policy (unsafe)
+                    safe_prob = policy_probs[1].item()      # Index 1 = Doesn't violate (safe)
+
+                    # Decision: "Safe" if safe_prob > threshold, else "Unsafe"
+                    decision = "Safe" if safe_prob > 0.80 else "Unsafe"
+
                     row.extend([
-                        f"{yes_prob:.4f}",
-                        f"{no_prob:.4f}",
+                        f"{safe_prob:.4f}",
+                        f"{violates_prob:.4f}",
                         decision
                     ])
                 
@@ -85,39 +86,58 @@ def assess_risk_of_image_folder(folder_path, output_csv="risk_assessment_results
     print(f"\nResults saved to {output_csv}")
     print(f"Total images processed: {len(results)}")
 
-def assess_risk_of_image(image_path):
+def assess_risk_of_image(image_path, use_default_policies=True):
     model, processor = load_model()
     image = Image.open(image_path)
-    process_image(image, model, processor, os.path.basename(image_path))
+    process_image(image, model, processor, os.path.basename(image_path), use_default_policies)
 
-def process_image(image, model, processor, image_name=""):
-    inputs = processor(
-        images=[image],
-        return_tensors="pt",
-    ).to(model.device)
+def process_image(image, model, processor, image_name="", use_default_policies=True):
+
+    if use_default_policies:
+        # Use default ShieldGemma policies
+        policies = ["sexual", "dangerous", "violence"]
+        inputs = processor(
+            images=[image],
+            policies=policies,
+            return_tensors="pt",
+        ).to(model.device)
+        policy_names = ["Sexually Explicit content", "Dangerous content", "Violent content"]
+    else:
+        # Use custom policies
+        custom_policies = {"Sexually Explicit content": "No Sexually Explicit content: The image shall not contain content that depicts explicit or graphic sexual acts (e.g., pornography, erotic nudity, depictions of rape or sexual assault).",
+                         "Dangerous content": "No Dangerous Content: The image shall not contain content that facilitates or encourages activities that could cause real-world harm (e.g., building firearms and explosive devices, promotion of terrorism, instructions for suicide).",
+                         "Violent content": "No Violence/Gore content: The image shall not contain content that depicts shocking, sensational, or gratuitous violence (e.g., excessive blood and gore, gratuitous violence against animals, extreme injury or moment of death)."}
+        policies = list(custom_policies.keys())
+        inputs = processor(
+            images=[image],
+            custom_policies=custom_policies,
+            policies=policies,
+            return_tensors="pt",
+        ).to(model.device)
+        policy_names = list(custom_policies.keys())
+
+    print(processor.batch_decode(inputs['input_ids'])[0])
     
     with torch.inference_mode():
         output = model(**inputs)
     
     print(f"Image: {image_name}")
     print(f"Raw probabilities: {output.probabilities}")
-    
-    # Policy names for the 3 outputs
-    policy_names = ["No Sexually Explicit", "No Dangerous Content", "No Violence/Gore"]
-    
+
     outs = {}
     for idx, policy_probs in enumerate(output.probabilities.cpu()):
-        yes_prob = policy_probs[0].item()  # Index 0 = "Yes"
-        no_prob = policy_probs[1].item()   # Index 1 = "No"
-        
-        # Determine Yes/No based on threshold
-        decision = "Yes" if yes_prob > 0.80 else "No"
-        
+        # Per HF docs: Index 0 = "Yes" (violates policy/UNSAFE), Index 1 = "No" (doesn't violate/SAFE)
+        violates_prob = policy_probs[0].item()  # Index 0 = Violates policy (unsafe)
+        safe_prob = policy_probs[1].item()      # Index 1 = Doesn't violate (safe)
+
+        # Decision: "Safe" if safe_prob > threshold, else "Unsafe"
+        decision = "Safe" if safe_prob > 0.80 else "Unsafe"
+
         policy_name = policy_names[idx] if idx < len(policy_names) else f"Policy {idx}"
         outs[policy_name] = {
             "decision": decision,
-            "yes_probability": f"{yes_prob:.4f}",
-            "no_probability": f"{no_prob:.4f}"
+            "safe_probability": f"{safe_prob:.4f}",
+            "violates_probability": f"{violates_prob:.4f}"
         }
     
     print(outs)
@@ -126,4 +146,6 @@ def process_image(image, model, processor, image_name=""):
 
 
 if __name__ == "__main__":
-    assess_risk_of_image_folder("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set")
+    #assess_risk_of_image_folder("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set")
+    # Test with default policies first
+    assess_risk_of_image("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set/test.png")
