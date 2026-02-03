@@ -1,3 +1,5 @@
+"""Python CLI runs all of the glashelder experiments."""
+
 import logging
 
 import click
@@ -30,10 +32,7 @@ logging.basicConfig(
 
 @click.group()
 def main():
-    """
-    The glashelder CLI interface
-    """
-
+    """Run the full glashelder CLI interface."""
     # load .env file
     load_dotenv()
 
