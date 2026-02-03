@@ -69,14 +69,14 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
     unique_labels = sorted(set(labels))
     n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
     n_samples = len(labels)
-    n_noise = sum(labels == -1)
+    n_noise = int(sum(labels == -1))
 
-    # Overall statistics
+    # Overall statistics (ensure all values are native Python types for JSON serialization)
     overall_stats = {
-        "n_clusters": n_clusters,
-        "n_samples": n_samples,
-        "n_noise": n_noise,
-        "noise_ratio": n_noise / n_samples if n_samples > 0 else 0,
+        "n_clusters": int(n_clusters),
+        "n_samples": int(n_samples),
+        "n_noise": int(n_noise),
+        "noise_ratio": float(n_noise / n_samples) if n_samples > 0 else 0.0,
     }
 
     # Calculate silhouette score if we have more than 1 cluster and less than all noise
@@ -130,10 +130,12 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
 
             pairwise_distances = pdist(sample_points)
             avg_pairwise_distance = float(np.mean(pairwise_distances))
-            density = 1.0 / avg_pairwise_distance if avg_pairwise_distance > 0 else 0
+            density = (
+                float(1.0 / avg_pairwise_distance) if avg_pairwise_distance > 0 else 0.0
+            )
         else:
-            avg_pairwise_distance = 0
-            density = 0
+            avg_pairwise_distance = 0.0
+            density = 0.0
 
         # Get cluster persistence from HDBSCAN (if available)
         # This indicates how stable/prominent the cluster is
