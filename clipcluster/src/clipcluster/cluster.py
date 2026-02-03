@@ -21,7 +21,6 @@ class HierarchicalConfig:
 
     enabled: bool = False
     density_threshold: float = 1.0
-    min_size_for_reclustering: int = 500
     max_depth: int = 2
     min_cluster_size: int = 50
 
@@ -332,10 +331,7 @@ def should_recluster(cluster_stats: dict, config: HierarchicalConfig) -> bool:
 
     Returns True if cluster is both large and vague.
     """
-    return (
-        cluster_stats["density"] < config.density_threshold
-        and cluster_stats["size"] >= config.min_size_for_reclustering
-    )
+    return cluster_stats["density"] < config.density_threshold
 
 
 def extract_cluster_embeddings(

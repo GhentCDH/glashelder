@@ -658,9 +658,6 @@ def serve(embeddings, host, port):
     default=1.0,
     help="Density threshold for identifying vague clusters",
 )
-@click.option(
-    "--min-size-for-reclustering", default=500, help="Minimum cluster size to refine"
-)
 @click.option("--max-depth", default=2, help="Maximum recursion depth for refinement")
 def analyze(
     image_dir,
@@ -671,7 +668,6 @@ def analyze(
     min_cluster_size,
     hierarchical,
     density_threshold,
-    min_size_for_reclustering,
     max_depth,
 ):
     """Analyze clustering results and generate statistics and visualizations."""
@@ -740,7 +736,6 @@ def analyze(
         config = HierarchicalConfig(
             enabled=True,
             density_threshold=density_threshold,
-            min_size_for_reclustering=min_size_for_reclustering,
             max_depth=max_depth,
             min_cluster_size=min_cluster_size,
         )
@@ -750,7 +745,6 @@ def analyze(
         logger.info("=" * 60)
         logger.info("Configuration:")
         logger.info(f"  Density threshold: {density_threshold}")
-        logger.info(f"  Min size for reclustering: {min_size_for_reclustering}")
         logger.info(f"  Max depth: {max_depth}")
         logger.info(f"  Min cluster size: {min_cluster_size}")
 
@@ -768,7 +762,6 @@ def analyze(
         stats["metadata_hierarchical"] = {
             "enabled": True,
             "density_threshold": density_threshold,
-            "min_size_for_reclustering": min_size_for_reclustering,
             "max_depth": max_depth,
         }
 
