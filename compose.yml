@@ -1,0 +1,30 @@
+services:
+  glashelder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UID: ${UID:-1005}
+        GID: ${GID:-1005}
+    container_name: glashelder
+    # user set in entrypoint after mounting
+    volumes:
+      - .:/workspace
+    stdin_open: true
+    tty: true
+    ports:
+      - "5000:5000"
+      - "8888:8888"
+    shm_size: 3g
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    privileged: true
+    env_file: .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
