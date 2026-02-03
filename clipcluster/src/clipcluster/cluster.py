@@ -79,7 +79,8 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
         Dictionary containing overall and per-cluster statistics
     """
     # Convert all labels to strings for consistent handling
-    labels_str = np.array([str(label) for label in labels])
+    # Use object dtype to avoid string truncation issues
+    labels_str = np.array([str(label) for label in labels], dtype=object)
     unique_labels = sorted(
         set(labels_str), key=lambda x: (x.count("."), x)
     )  # Sort by depth, then name
@@ -441,7 +442,8 @@ def hierarchical_cluster(
         return initial_labels, initial_reduced_embeddings, refinement_tree
 
     # Convert numeric labels to strings for consistency
-    current_labels = np.array([str(label) for label in initial_labels])
+    # Use object dtype to avoid string truncation issues with hierarchical labels
+    current_labels = np.array([str(label) for label in initial_labels], dtype=object)
     current_reduced = initial_reduced_embeddings.copy()
 
     # Identify clusters to refine
