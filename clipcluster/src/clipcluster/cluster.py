@@ -346,14 +346,15 @@ def extract_cluster_embeddings(
     Handles both numeric (0, 1, 2) and hierarchical ("2.0", "2.1") labels.
     Returns: (cluster_embeddings, cluster_indices)
     """
-    # Handle string comparison for hierarchical labels
-    if isinstance(cluster_id, str):
-        mask = np.array([str(label) == cluster_id for label in labels])
-    else:
-        mask = labels == cluster_id
+    # Always convert to strings for consistent comparison
+    cluster_id_str = str(cluster_id)
+    mask = np.array([str(label) == cluster_id_str for label in labels])
 
     indices = np.where(mask)[0]
     cluster_embeddings = embeddings[indices]
+
+    logger.debug(f"Extracted {len(indices)} points for cluster '{cluster_id_str}'")
+
     return cluster_embeddings, indices
 
 
@@ -402,11 +403,15 @@ def refine_cluster(
     hierarchical_labels = []
     for label in sub_labels:
         if label == -1:
-            hierarchical_labels.append(f"{parent_label}.noise")
+            new_label = f"{parent_label}.noise"
         else:
-            hierarchical_labels.append(f"{parent_label}.{label}")
+            new_label = f"{parent_label}.{label}"
+        hierarchical_labels.append(new_label)
 
     logger.info(f"  Successfully split into {n_clusters} sub-clusters")
+    logger.debug(
+        f"  Parent label: '{parent_label}', sample sub-labels: {sorted(set(hierarchical_labels))[:5]}"
+    )
     return np.array(hierarchical_labels), subset_reduced
 
 
@@ -471,6 +476,7 @@ def hierarchical_cluster(
         _cluster_embeddings, cluster_indices = extract_cluster_embeddings(
             original_embeddings, current_labels, cluster_id_str
         )
+        logger.debug(f"  Extracted {len(cluster_indices)} points for refinement")
 
         # Attempt refinement
         sub_labels, sub_reduced = refine_cluster(
@@ -487,6 +493,13 @@ def hierarchical_cluster(
             current_labels[idx] = sub_labels[i]
             current_reduced[idx] = sub_reduced[i]
 
+        # Validate: ensure the original cluster label no longer exists
+        remaining_original = np.sum(current_labels == cluster_id_str)
+        if remaining_original > 0:
+            logger.warning(
+                f"  WARNING: {remaining_original} points still have original label {cluster_id_str}!"
+            )
+
         # Record refinement
         unique_sub_labels = sorted(set(sub_labels))
         refinement_tree[cluster_id_str] = {
@@ -500,6 +513,13 @@ def hierarchical_cluster(
         for sub_label in unique_sub_labels:
             count = int(np.sum(sub_labels == sub_label))
             logger.info(f"  └─ {sub_label}: {count} pts")
+            # Validate label format
+            if sub_label != f"{cluster_id_str}.noise" and not sub_label.startswith(
+                f"{cluster_id_str}."
+            ):
+                logger.error(
+                    f"  ERROR: Malformed sub-label '{sub_label}' for parent '{cluster_id_str}'"
+                )
 
     # Recurse on new sub-clusters
     if depth + 1 < config.max_depth:
@@ -518,5 +538,20 @@ def hierarchical_cluster(
                     refinement_tree[parent]["sub_clusters"][key] = value
             else:
                 refinement_tree[key] = value
+
+    # Log final label distribution at this depth
+    if depth == 0:
+        unique_final_labels = sorted(
+            set(current_labels), key=lambda x: (x.count("."), x)
+        )
+        logger.info(f"\n{'=' * 60}")
+        logger.info("FINAL LABEL DISTRIBUTION")
+        logger.info(f"{'=' * 60}")
+        logger.info(f"Total unique labels: {len(unique_final_labels)}")
+        hierarchical_labels = [
+            label for label in unique_final_labels if "." in label and label != "-1"
+        ]
+        logger.info(f"Hierarchical labels: {len(hierarchical_labels)}")
+        logger.info(f"Sample hierarchical labels: {hierarchical_labels[:10]}")
 
     return current_labels, current_reduced, refinement_tree
