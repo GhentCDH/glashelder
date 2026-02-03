@@ -26,6 +26,35 @@ logger = logging.getLogger(__name__)
 DINO_MODEL = "facebook/dinov2-large"
 
 
+def resize_image_to_max_dimension(src_path: str, dst_path: str, max_dim: int = 512):
+    """
+    Resize an image to fit within max_dim x max_dim while preserving aspect ratio.
+
+    Args:
+        src_path: Source image path
+        dst_path: Destination image path
+        max_dim: Maximum width or height in pixels
+    """
+    img = Image.open(src_path)
+    quality = 75
+
+    # Calculate new dimensions while preserving aspect ratio
+    width, height = img.size
+    if width <= max_dim and height <= max_dim:
+        # Image is already small enough, just copy it
+        img.save(dst_path, quality=quality)
+        return
+
+    # Calculate scaling factor
+    scale = min(max_dim / width, max_dim / height)
+    new_width = int(width * scale)
+    new_height = int(height * scale)
+
+    # Resize using high-quality resampling
+    resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    resized_img.save(dst_path, quality=quality)
+
+
 def get_dino_model():
     from transformers import Dinov2Model
 
@@ -260,12 +289,12 @@ def cluster(
         # Select up to 2 samples
         sample_indices = cluster_indices[:4]
 
-        # Copy images
+        # Copy and resize images
         for idx in sample_indices:
             src_path = image_paths[idx]
             filename = Path(src_path).name
             dst_path = cluster_dir / filename
-            shutil.copy(src_path, dst_path)
+            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
 
         print(
             f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
@@ -282,7 +311,7 @@ def cluster(
             src_path = image_paths[idx]
             filename = Path(src_path).name
             dst_path = noise_dir / filename
-            shutil.copy(src_path, dst_path)
+            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
 
         print(
             f"Noise: {len(noise_indices)} total images, saved {min(2, len(noise_indices))} samples"
@@ -717,12 +746,12 @@ def analyze(
         # Select up to 4 samples
         sample_indices = cluster_indices[:4]
 
-        # Copy images
+        # Copy and resize images
         for idx in sample_indices:
             src_path = image_paths[idx]
             filename = Path(src_path).name
             dst_path = cluster_dir / filename
-            shutil.copy(src_path, dst_path)
+            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
 
         logger.info(
             f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
@@ -739,7 +768,7 @@ def analyze(
             src_path = image_paths[idx]
             filename = Path(src_path).name
             dst_path = noise_dir / filename
-            shutil.copy(src_path, dst_path)
+            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
 
         logger.info(
             f"Noise: {len(noise_indices)} total images, saved {min(2, len(noise_indices))} samples"
