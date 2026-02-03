@@ -701,8 +701,8 @@ def analyze(
         logger.info("Loading embeddings")
         with open(embeddings, "rb") as file:
             data = pickle.load(file)
-            image_paths = data["images"]
-            embeddings_tensor = data["embeddings"].to(device)
+            image_paths = data["images"][:sample_size]
+            embeddings_tensor = data["embeddings"][:sample_size].to(device)
     else:
         logger.info("Getting ML models for embedding generation")
         model = get_model()
