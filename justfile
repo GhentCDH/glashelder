@@ -11,15 +11,15 @@ new name:
     def {{name}}():
         pass
 
-    
+
     @{{name}}.command()
     @click.option("--option", default="change me", help="change this help message")
     def command(option):
         pass
     EOF
 
-    sed -i '/from.*cli import/a\    from {{name}}.cli import {{name}}' src/glashelder/__init__.py
-    sed -i '/main.add_command/a\    main.add_command({{name}})' src/glashelder/__init__.py
+    sed -i ':a;N;$!ba; s/\(.*from [a-z_]*\.cli import [a-z_]*\)/\1\n    from {{name}}.cli import {{name}}/' src/glashelder/__init__.py
+    sed -i ':a;N;$!ba; s/\(.*main\.add_command([a-z_]*)\)/\1\n    main.add_command({{name}})/' src/glashelder/__init__.py
 
 jupyter experiment:
     uv run --package {{experiment}} --with jupyter jupyter lab --no-browser
