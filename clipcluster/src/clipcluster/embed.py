@@ -258,12 +258,23 @@ class Qwen3VLEmbedder(EmbeddingModel):
         self._model.eval()
         self._device = device
 
+    def _last_token_pooling(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Extract embedding from the last valid token (EOS) position."""
+        # Find the last non-padding position for each sequence
+        sequence_lengths = attention_mask.sum(dim=1) - 1
+        batch_size = hidden_states.shape[0]
+        return hidden_states[
+            torch.arange(batch_size, device=hidden_states.device), sequence_lengths
+        ]
+
     def encode_images(
         self,
         image_paths: list[str],
         batch_size: int = 8,  # Smaller default due to model size
     ) -> tuple[torch.Tensor, list[str]]:
-        from common.dataloader import _load_image_with_retry
+        from qwen_vl_utils import process_vision_info
 
         all_embeddings = []
         processed_paths = []
@@ -277,40 +288,51 @@ class Qwen3VLEmbedder(EmbeddingModel):
             logger.info(f"Batch {batch_num}/{total_batches}")
 
             for image_path in batch_paths:
-                image = _load_image_with_retry(image_path)
-                if image is None:
+                try:
+                    # Format as a conversation with image using file path
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "image": f"file://{image_path}",
+                                    "min_pixels": 4096,
+                                    "max_pixels": 1003520,  # ~1M pixels
+                                },
+                                {"type": "text", "text": "Describe this image."},
+                            ],
+                        }
+                    ]
+
+                    text = self._processor.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+
+                    # Use process_vision_info to properly extract image data
+                    image_inputs, video_inputs = process_vision_info(messages)
+
+                    inputs = self._processor(
+                        text=[text],
+                        images=image_inputs,
+                        videos=video_inputs,
+                        return_tensors="pt",
+                        padding=True,
+                    )
+                    inputs = {k: v.to(self._device) for k, v in inputs.items()}
+
+                    with torch.no_grad():
+                        outputs = self._model(**inputs)
+                        # Use last token pooling (EOS token) as per official implementation
+                        embedding = self._last_token_pooling(
+                            outputs.last_hidden_state, inputs["attention_mask"]
+                        )
+                        embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+                        all_embeddings.append(embedding.float().cpu())
+                        processed_paths.append(image_path)
+                except Exception as e:
+                    logger.warning(f"Failed to process {image_path}: {e}")
                     continue
-
-                # Format as a conversation with image
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "image", "image": image},
-                            {"type": "text", "text": "Describe this image."},
-                        ],
-                    }
-                ]
-
-                text = self._processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-                inputs = self._processor(
-                    text=[text],
-                    images=[image],
-                    return_tensors="pt",
-                    padding=True,
-                )
-                inputs = {k: v.to(self._device) for k, v in inputs.items()}
-
-                with torch.no_grad():
-                    outputs = self._model(**inputs)
-                    # Mean pooling over the last hidden state
-                    hidden_states = outputs.last_hidden_state
-                    embedding = hidden_states.mean(dim=1)
-                    embedding = embedding / embedding.norm(dim=-1, keepdim=True)
-                    all_embeddings.append(embedding.float().cpu())
-                    processed_paths.append(image_path)
 
         return torch.cat(all_embeddings), processed_paths
 
@@ -336,8 +358,10 @@ class Qwen3VLEmbedder(EmbeddingModel):
 
         with torch.no_grad():
             outputs = self._model(**inputs)
-            hidden_states = outputs.last_hidden_state
-            embedding = hidden_states.mean(dim=1)
+            # Use last token pooling for consistency
+            embedding = self._last_token_pooling(
+                outputs.last_hidden_state, inputs["attention_mask"]
+            )
             embedding = embedding / embedding.norm(dim=-1, keepdim=True)
 
         return embedding.float()
