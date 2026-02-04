@@ -158,9 +158,13 @@ def cluster(
         embedder = get_embedder(model)
         embedder.load(device)
         # Get all image paths
-        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
         logger.info("Generating image embeddings...")
-        embeddings = embedder.encode_images(image_paths, batch_size)
+        embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
+        if len(image_paths) < len(input_paths):
+            logger.warning(
+                f"Skipped {len(input_paths) - len(image_paths)} images due to load errors"
+            )
 
     logger.info("Reducing dimensions")
     # reduced_embeddings = embeddings.cpu().numpy()
@@ -293,9 +297,13 @@ def search(
         logger.info(f"Getting embedding model: {model}")
         embedder = get_embedder(model)
         embedder.load(device)
-        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
         logger.info("Generating image embeddings...")
-        image_embeddings = embedder.encode_images(image_paths, batch_size)
+        image_embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
+        if len(image_paths) < len(input_paths):
+            logger.warning(
+                f"Skipped {len(input_paths) - len(image_paths)} images due to load errors"
+            )
 
     # Load the embedder for text encoding (must match the image embeddings)
     embedder = get_embedder(embedding_model_name)
@@ -369,14 +377,19 @@ def generate_embeddings(image_dir, save_path, count, batch_size, model):
     embedder = get_embedder(model)
     embedder.load(device)
 
-    image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
+    input_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
     logger.info(
-        f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}"
+        f"Generating embeddings for {len(input_paths)} images with batch size {batch_size}"
     )
 
-    embeddings = embedder.encode_images(image_paths, batch_size)
+    embeddings, processed_paths = embedder.encode_images(input_paths, batch_size)
 
-    save_embeddings(save_path, image_paths, embeddings, embedder)
+    if len(processed_paths) < len(input_paths):
+        logger.warning(
+            f"Skipped {len(input_paths) - len(processed_paths)} images due to load errors"
+        )
+
+    save_embeddings(save_path, processed_paths, embeddings, embedder)
 
 
 @clipcluster.command()
@@ -684,9 +697,13 @@ def analyze(
         embedder.load(device)
         embedding_model_name = embedder.name
         embedding_model_id = embedder.model_id
-        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
         logger.info("Generating image embeddings...")
-        embeddings_tensor = embedder.encode_images(image_paths, batch_size)
+        embeddings_tensor, image_paths = embedder.encode_images(input_paths, batch_size)
+        if len(image_paths) < len(input_paths):
+            logger.warning(
+                f"Skipped {len(input_paths) - len(image_paths)} images due to load errors"
+            )
 
     logger.info(f"Processing {len(image_paths)} images")
 
