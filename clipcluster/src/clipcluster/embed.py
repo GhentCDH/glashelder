@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Model identifiers
 CLIP_MODEL_ID = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 DINOV2_MODEL_ID = "facebook/dinov2-large"
-QWEN3VL_MODEL_ID = "Alibaba-NLP/Qwen3-VL-Embedding-8B"
+QWEN3VL_MODEL_ID = "Qwen/Qwen3-VL-Embedding-8B"
 
 
 class EmbeddingModel(ABC):
