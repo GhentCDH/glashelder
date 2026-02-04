@@ -1,7 +1,6 @@
 import glob
 import logging
 import os
-import pickle
 import shutil
 from pathlib import Path
 
@@ -12,9 +11,15 @@ from PIL import Image
 
 # local source
 from common import ASSETS_DIR, PROJECT_ROOT
-from common.clipmodel import get_device, get_model, get_processor
+from common.clipmodel import get_device
 
-MODEL = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
+from .embed import (
+    CLIP_MODEL_ID,
+    get_embedder,
+    load_embeddings,
+    save_embeddings,
+)
+
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
@@ -22,8 +27,6 @@ PACKAGE_ROOT = PROJECT_ROOT / "clipcluster"
 EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 
 logger = logging.getLogger(__name__)
-
-DINO_MODEL = "facebook/dinov2-large"
 
 
 def resize_image_to_max_dimension(src_path: str, dst_path: str, max_dim: int = 512):
@@ -53,84 +56,6 @@ def resize_image_to_max_dimension(src_path: str, dst_path: str, max_dim: int = 5
     # Resize using high-quality resampling
     resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
     resized_img.save(dst_path, quality=quality)
-
-
-def get_dino_model():
-    from transformers import Dinov2Model
-
-    return Dinov2Model.from_pretrained(DINO_MODEL)
-
-
-def get_dino_processor():
-    from transformers import AutoImageProcessor
-
-    return AutoImageProcessor.from_pretrained(DINO_MODEL)
-
-
-def make_dino_embeddings(model, processor, image_paths, batch_size, device):
-    import torch
-
-    from common.dataloader import get_dataloader
-
-    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
-    all_embeddings = []
-
-    for i, batch in enumerate(dataloader):
-        logger.info(f"Batch {i + 1}/{len(dataloader)}")
-        inputs = {k: v.to(device) for k, v in batch.items()}
-
-        with torch.no_grad():
-            outputs = model(**inputs)
-            # Use CLS token embedding
-            embeddings = outputs.last_hidden_state[:, 0]
-            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-
-        all_embeddings.append(embeddings.cpu())
-
-    return torch.cat(all_embeddings)
-
-
-def get_image_embedding(processor, model, device: str, image_path: str):
-    import torch
-
-    image = Image.open(image_path)
-
-    with torch.no_grad():
-        inputs = processor(images=image, return_tensors="pt", padding=True).to(device)
-
-        return model.get_image_features(**inputs)
-
-
-def get_text_embedding(processor, model, device: str, text: str):
-    import torch
-
-    with torch.no_grad():
-        inputs = processor(text=[text], return_tensors="pt", padding=True).to(device)
-        return model.get_text_features(**inputs)
-
-
-def make_embeddings(model, processor, image_paths, batch_size, device):
-    import torch
-
-    from common.dataloader import get_dataloader
-
-    dataloader = get_dataloader(image_paths, processor, batch_size=batch_size)
-    all_embeddings = []
-    for i, batch in enumerate(dataloader):
-        logger.info(f"Batch {i + 1}/{len(dataloader)}")
-
-        # Move batch to GPU
-        inputs = {k: v.to(device) for k, v in batch.items()}
-
-        with torch.no_grad():
-            embeddings = model.get_image_features(**inputs)
-            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
-
-        all_embeddings.append(embeddings.cpu())
-
-    embeddings = torch.cat(all_embeddings)
-
-    return embeddings
 
 
 def perform_search(top_k, text_embedding, image_embeddings, image_paths):
@@ -204,8 +129,14 @@ def clipcluster():
     is_flag=True,
     help="Whether or not to stop after reducing dimensions",
 )
+@click.option(
+    "--model",
+    default="clip",
+    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    help="Embedding model to use if generating embeddings",
+)
 def cluster(
-    image_dir, embeddings, sample_size, batch_size, output_files, count, reduce
+    image_dir, embeddings, sample_size, batch_size, output_files, count, reduce, model
 ):
     from .cluster import create_clusterer, reduce_dimensions
     from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
@@ -218,19 +149,18 @@ def cluster(
 
     if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
-        with open(embeddings, "rb") as file:
-            data = pickle.load(file)
-            image_paths = data["images"]
-            embeddings = data["embeddings"].to(device)
+        data = load_embeddings(embeddings)
+        image_paths = data["images"]
+        embeddings = data["embeddings"].to(device)
+        logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
     else:
-        logger.info("Getting ML models for embedding generation")
-        model = get_model()
-        processor = get_processor()
-        model.to(device)
+        logger.info(f"Getting embedding model: {model}")
+        embedder = get_embedder(model)
+        embedder.load(device)
         # Get all image paths
         image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
         logger.info("Generating image embeddings...")
-        embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
+        embeddings = embedder.encode_images(image_paths, batch_size)
 
     logger.info("Reducing dimensions")
     # reduced_embeddings = embeddings.cpu().numpy()
@@ -336,33 +266,51 @@ def cluster(
 )
 @click.option("--embeddings", default=None, help="The path to a embeddings pickle file")
 @click.option("--batch-size", default=64, help="Batch size for embedding generation")
-def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_size):
-    """Search for images matching a text prompt using CLIP similarity"""
+@click.option(
+    "--model",
+    default="clip",
+    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    help="Embedding model to use",
+)
+def search(
+    prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_size, model
+):
+    """Search for images matching a text prompt using embedding similarity"""
     logger.info(f"Searching for: '{prompt}'")
     logger.info(f"Looking for top {top_k} matches")
 
-    model = get_model()
     device = get_device()
-    processor = get_processor()
-    model.to(device)
+
+    # Get image embeddings and determine which model to use for text encoding
+    if embeddings is not None:
+        data = load_embeddings(embeddings)
+        image_paths = data["images"]
+        image_embeddings = data["embeddings"].to(device)
+        embedding_model_name = data.get("model", "clip")
+        logger.info(f"Loaded embeddings from model: {embedding_model_name}")
+    else:
+        embedding_model_name = model
+        logger.info(f"Getting embedding model: {model}")
+        embedder = get_embedder(model)
+        embedder.load(device)
+        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        logger.info("Generating image embeddings...")
+        image_embeddings = embedder.encode_images(image_paths, batch_size)
+
+    # Load the embedder for text encoding (must match the image embeddings)
+    embedder = get_embedder(embedding_model_name)
+    embedder.load(device)
+
+    if not embedder.supports_text:
+        logger.error(
+            f"Model '{embedding_model_name}' does not support text search. "
+            "Use CLIP or Qwen3-VL for text-based search."
+        )
+        return
 
     # Get text embedding for the prompt
     logger.info("Generating text embedding...")
-    text_embedding = get_text_embedding(processor, model, device, prompt)
-
-    # Get image embeddings
-    if embeddings is not None:
-        with open(embeddings, "rb") as file:
-            data = pickle.load(file)
-            image_paths = data["images"]
-            image_embeddings = data["embeddings"].to(device)
-    else:
-        # Get all image paths
-        image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
-        image_embeddings = make_embeddings(
-            model, processor, image_paths, batch_size, device
-        )
-        logger.info("Generating image embeddings...")
+    text_embedding = embedder.encode_text(prompt)
 
     top_indices, top_scores = perform_search(
         top_k, text_embedding, image_embeddings, image_paths
@@ -407,21 +355,28 @@ def search(prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_
     "--count", default=10000, help="Amount of images to generate embeddings for"
 )
 @click.option("--batch-size", default=64, help="Batch size for embedding generation")
-def generate_embeddings(image_dir, save_path, count, batch_size):
-    model = get_model()
+@click.option(
+    "--model",
+    default="clip",
+    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    help="Embedding model to use (clip, dinov2, or qwen3vl)",
+)
+def generate_embeddings(image_dir, save_path, count, batch_size, model):
+    """Generate image embeddings using the specified model."""
     device = get_device()
-    processor = get_processor()
-    model.to(device)
+
+    logger.info(f"Loading embedding model: {model}")
+    embedder = get_embedder(model)
+    embedder.load(device)
 
     image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
     logger.info(
         f"Generating embeddings for {len(image_paths)} images with batch size {batch_size}"
     )
 
-    embeddings = make_embeddings(model, processor, image_paths, batch_size, device)
+    embeddings = embedder.encode_images(image_paths, batch_size)
 
-    with open(save_path, "wb") as file:
-        pickle.dump({"images": image_paths, "embeddings": embeddings}, file)
+    save_embeddings(save_path, image_paths, embeddings, embedder)
 
 
 @clipcluster.command()
@@ -440,27 +395,33 @@ def serve(embeddings, host, port):
         static_folder=PACKAGE_ROOT / "static",
     )
 
-    # Load model and embeddings once
-    logger.info("Loading model and processor...")
+    # Load embeddings and determine model
+    logger.info(f"Loading embeddings from {embeddings}...")
     device = get_device()
     logger.info(f"Using device: {device}")
 
-    model = get_model()
-    processor = get_processor()
-    model.to(device)
-    model.eval()
-
-    logger.info(f"Loading embeddings from {embeddings}...")
-    with open(embeddings, "rb") as f:
-        data = pickle.load(f)
-        image_paths = data["images"]
-        image_embeddings = data["embeddings"].to(device)
+    data = load_embeddings(embeddings)
+    image_paths = data["images"]
+    image_embeddings = data["embeddings"].to(device)
+    embedding_model_name = data.get("model", "clip")
 
     logger.info(f"Loaded {len(image_paths)} images")
+    logger.info(f"Embedding model: {embedding_model_name}")
+
+    # Load the embedder for text encoding
+    embedder = get_embedder(embedding_model_name)
+    embedder.load(device)
+
+    supports_text_search = embedder.supports_text
+    if not supports_text_search:
+        logger.warning(
+            f"Model '{embedding_model_name}' does not support text search. "
+            "Text search will be disabled."
+        )
 
     @app.route("/")
     def index():
-        return render_template("index.html")
+        return render_template("index.html", supports_text_search=supports_text_search)
 
     @app.route("/search", methods=["POST"])
     def search_endpoint():
@@ -476,8 +437,17 @@ def serve(embeddings, host, port):
                 query_value="",
             )
 
+        if not supports_text_search:
+            return render_template(
+                "results.html",
+                error=f"Text search not supported with {embedding_model_name} embeddings. Use CLIP or Qwen3-VL.",
+                results=[],
+                query_type="text",
+                query_value=prompt,
+            )
+
         try:
-            text_embedding = get_text_embedding(processor, model, device, prompt)
+            text_embedding = embedder.encode_text(prompt)
             top_indices, top_values = perform_search(
                 top_k, text_embedding, image_embeddings, image_paths
             )
@@ -659,6 +629,12 @@ def serve(embeddings, host, port):
     help="Density threshold for identifying vague clusters",
 )
 @click.option("--max-depth", default=2, help="Maximum recursion depth for refinement")
+@click.option(
+    "--model",
+    default="clip",
+    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    help="Embedding model to use if generating embeddings",
+)
 def analyze(
     image_dir,
     embeddings,
@@ -669,6 +645,7 @@ def analyze(
     hierarchical,
     density_threshold,
     max_depth,
+    model,
 ):
     """Analyze clustering results and generate statistics and visualizations."""
     from datetime import datetime
@@ -695,20 +672,21 @@ def analyze(
     # Load or generate embeddings
     if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
-        with open(embeddings, "rb") as file:
-            data = pickle.load(file)
-            image_paths = data["images"][:sample_size]
-            embeddings_tensor = data["embeddings"][:sample_size].to(device)
+        data = load_embeddings(embeddings)
+        image_paths = data["images"][:sample_size]
+        embeddings_tensor = data["embeddings"][:sample_size].to(device)
+        embedding_model_name = data.get("model", "clip")
+        embedding_model_id = data.get("model_id", CLIP_MODEL_ID)
+        logger.info(f"Loaded embeddings from model: {embedding_model_name}")
     else:
-        logger.info("Getting ML models for embedding generation")
-        model = get_model()
-        processor = get_processor()
-        model.to(device)
+        logger.info(f"Getting embedding model: {model}")
+        embedder = get_embedder(model)
+        embedder.load(device)
+        embedding_model_name = embedder.name
+        embedding_model_id = embedder.model_id
         image_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
         logger.info("Generating image embeddings...")
-        embeddings_tensor = make_embeddings(
-            model, processor, image_paths, batch_size, device
-        )
+        embeddings_tensor = embedder.encode_images(image_paths, batch_size)
 
     logger.info(f"Processing {len(image_paths)} images")
 
@@ -868,7 +846,8 @@ def analyze(
         "timestamp": datetime.now().isoformat(),
         "n_samples": len(image_paths),
         "min_cluster_size": min_cluster_size,
-        "embedding_model": MODEL,
+        "embedding_model": embedding_model_name,
+        "embedding_model_id": embedding_model_id,
         "reduction_dims": 30,
         "output_directory": str(output_path.resolve()),
         "visualizations": {
