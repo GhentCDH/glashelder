@@ -246,13 +246,13 @@ class Qwen3VLEmbedder(EmbeddingModel):
         return True
 
     def load(self, device: str) -> None:
-        from transformers import AutoProcessor, Qwen2VLModel
+        from transformers import Qwen3VLModel, Qwen3VLProcessor
 
         logger.info(f"Loading Qwen3-VL-Embedding model: {self.model_id}")
-        self._model = Qwen2VLModel.from_pretrained(
+        self._model = Qwen3VLModel.from_pretrained(
             self.model_id, dtype=torch.bfloat16, attn_implementation="flash_attention_2"
         )
-        self._processor = AutoProcessor.from_pretrained(self.model_id)
+        self._processor = Qwen3VLProcessor.from_pretrained(self.model_id)
         self._model.to(device)
         self._model.eval()
         self._device = device
