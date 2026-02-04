@@ -30,3 +30,9 @@ clipcluster/clustered.png
 # Environment variables
 *.env
 !example.env
+
+# Clustering reports
+cluster_analysis_*
+clipcluster/**/*.pdf
+clipcluster/analysis_report/*.json
+clipcluster/analysis_report/data
