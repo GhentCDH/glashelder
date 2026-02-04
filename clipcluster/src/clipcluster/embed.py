@@ -8,7 +8,6 @@ import logging
 from abc import ABC, abstractmethod
 
 import torch
-from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class EmbeddingModel(ABC):
         self,
         image_paths: list[str],
         batch_size: int = 64,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, list[str]]:
         """Generate normalized embeddings for a list of images.
 
         Args:
@@ -63,7 +62,9 @@ class EmbeddingModel(ABC):
             batch_size: Batch size for processing.
 
         Returns:
-            Tensor of shape (n_images, embedding_dim) with L2-normalized embeddings.
+            Tuple of:
+            - Tensor of shape (n_images, embedding_dim) with L2-normalized embeddings.
+            - List of successfully processed image paths (may be fewer than input if some failed).
         """
         ...
 
@@ -118,14 +119,19 @@ class CLIPEmbedder(EmbeddingModel):
         self,
         image_paths: list[str],
         batch_size: int = 64,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, list[str]]:
         from common.dataloader import get_dataloader
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
         all_embeddings = []
+        processed_paths = []
 
         for i, batch in enumerate(dataloader):
             logger.info(f"Batch {i + 1}/{len(dataloader)}")
+            if batch is None:
+                logger.warning(f"Batch {i + 1} had no valid images, skipping")
+                continue
+
             inputs = {k: v.to(self._device) for k, v in batch.items() if k != "path"}
 
             with torch.no_grad():
@@ -133,8 +139,9 @@ class CLIPEmbedder(EmbeddingModel):
                 embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
             all_embeddings.append(embeddings.cpu())
+            processed_paths.extend(batch["path"])
 
-        return torch.cat(all_embeddings)
+        return torch.cat(all_embeddings), processed_paths
 
     def encode_text(self, text: str) -> torch.Tensor | None:
         with torch.no_grad():
@@ -183,14 +190,19 @@ class DINOv2Embedder(EmbeddingModel):
         self,
         image_paths: list[str],
         batch_size: int = 64,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, list[str]]:
         from common.dataloader import get_dataloader
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
         all_embeddings = []
+        processed_paths = []
 
         for i, batch in enumerate(dataloader):
             logger.info(f"Batch {i + 1}/{len(dataloader)}")
+            if batch is None:
+                logger.warning(f"Batch {i + 1} had no valid images, skipping")
+                continue
+
             inputs = {k: v.to(self._device) for k, v in batch.items() if k != "path"}
 
             with torch.no_grad():
@@ -200,8 +212,9 @@ class DINOv2Embedder(EmbeddingModel):
                 embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
             all_embeddings.append(embeddings.cpu())
+            processed_paths.extend(batch["path"])
 
-        return torch.cat(all_embeddings)
+        return torch.cat(all_embeddings), processed_paths
 
 
 class Qwen3VLEmbedder(EmbeddingModel):
@@ -249,8 +262,11 @@ class Qwen3VLEmbedder(EmbeddingModel):
         self,
         image_paths: list[str],
         batch_size: int = 8,  # Smaller default due to model size
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, list[str]]:
+        from common.dataloader import _load_image_with_retry
+
         all_embeddings = []
+        processed_paths = []
 
         # Process in batches
         for batch_start in range(0, len(image_paths), batch_size):
@@ -260,9 +276,10 @@ class Qwen3VLEmbedder(EmbeddingModel):
             total_batches = (len(image_paths) + batch_size - 1) // batch_size
             logger.info(f"Batch {batch_num}/{total_batches}")
 
-            batch_embeddings = []
             for image_path in batch_paths:
-                image = Image.open(image_path).convert("RGB")
+                image = _load_image_with_retry(image_path)
+                if image is None:
+                    continue
 
                 # Format as a conversation with image
                 messages = [
@@ -292,11 +309,10 @@ class Qwen3VLEmbedder(EmbeddingModel):
                     hidden_states = outputs.last_hidden_state
                     embedding = hidden_states.mean(dim=1)
                     embedding = embedding / embedding.norm(dim=-1, keepdim=True)
-                    batch_embeddings.append(embedding.float().cpu())
+                    all_embeddings.append(embedding.float().cpu())
+                    processed_paths.append(image_path)
 
-            all_embeddings.extend(batch_embeddings)
-
-        return torch.cat(all_embeddings)
+        return torch.cat(all_embeddings), processed_paths
 
     def encode_text(self, text: str) -> torch.Tensor | None:
         messages = [
