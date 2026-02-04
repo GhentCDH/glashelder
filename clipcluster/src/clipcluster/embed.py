@@ -250,8 +250,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
 
         logger.info(f"Loading Qwen3-VL-Embedding model: {self.model_id}")
         self._model = Qwen2VLModel.from_pretrained(
-            self.model_id,
-            torch_dtype=torch.bfloat16,
+            self.model_id, dtype=torch.bfloat16, attn_implementation="flash_attention_2"
         )
         self._processor = AutoProcessor.from_pretrained(self.model_id)
         self._model.to(device)
