@@ -1,8 +1,12 @@
+import logging
+
 import numpy as np
 import rerun as rr
 from PIL import Image
 
 RERUN_ID = "clipcluster"
+
+logger = logging.getLogger(__name__)
 
 
 def init_rerun(address: str | None):
@@ -75,6 +79,46 @@ def log_clustered_points(
         else:
             path = f"{base_path}/{label}"
             color = cmap[label % len(cmap)].tolist()
+
+        rr.log(path, rr.Points3D(positions, colors=color, radii=0.02))
+
+
+def log_clustered_points_density(
+    latent: np.ndarray,
+    labels: np.ndarray,
+    stats: dict,
+    count: int | None = None,
+    base_path: str = "clusters",
+):
+    """
+    Log 3D points to Rerun, with each cluster on a separate entity path.
+
+    Args:
+        latent: The reduced embeddings, shape (N, D) where D >= 3.
+        labels: Cluster labels for each point, shape (N,). -1 indicates noise.
+        count: Number of points to sample. If None, logs all points.
+        base_path: The base Rerun entity path. Clusters logged as {base_path}/{cluster_id}.
+    """
+    n_points = len(latent)
+
+    if count is not None and count < n_points:
+        indices = np.random.choice(n_points, size=count, replace=False)
+        latent = latent[indices]
+        labels = labels[indices]
+
+    unique_labels = np.unique(labels)
+    cmap = _generate_density_colormap(unique_labels, stats, "plasma")
+
+    for label in unique_labels:
+        mask = labels == label
+        positions = latent[mask, :3]
+
+        if label == -1:
+            path = f"{base_path}/noise"
+            color = [128, 128, 128]
+        else:
+            path = f"{base_path}/{label}"
+            color = [cmap[label]]
 
         rr.log(path, rr.Points3D(positions, colors=color, radii=0.02))
 
@@ -182,6 +226,41 @@ def _generate_colormap(n: int) -> np.ndarray:
         r, g, b = _hsv_to_rgb(hue, 0.8, 0.9)
         colors.append([int(r * 255), int(g * 255), int(b * 255)])
     return np.array(colors, dtype=np.uint8)
+
+
+def _generate_density_colormap(
+    labels, stats, cmap_name: str = "plasma"
+) -> dict[str, list[int]]:
+    """Generate n distinct colours from a matplotlib colormap."""
+    import matplotlib.pyplot as plt
+
+    colors: dict[str, list[int]] = {}
+
+    cmap = plt.get_cmap(cmap_name)
+    max_density: float = max([stat["density"] for stat in stats["clusters"]])
+
+    def _cmap(x: float) -> list[int]:
+        rgba = cmap(x)
+        r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
+        return [r, g, b]
+
+    def _get_color(label) -> list[int]:
+        cluster = next(
+            (str(stat["cluster_id"]) == str(label) for stat in stats["clusters"]), None
+        )
+
+        if cluster is None:
+            logger.warning(f"Couldn't find stats for cluster {label}")
+            return _cmap(0)
+
+        density = cluster["density"]
+
+        return _cmap(density / max_density)
+
+    for label in labels:
+        colors[label] = _get_color(label)
+
+    return colors
 
 
 def _hsv_to_rgb(h: float, s: float, v: float) -> tuple[float, float, float]:
