@@ -107,7 +107,7 @@ def log_clustered_points_density(
         labels = labels[indices]
 
     unique_labels = np.unique(labels)
-    cmap = _generate_density_colormap(unique_labels, stats, "plasma")
+    cmap = _generate_density_colormap(unique_labels, stats, "magma")
 
     for label in unique_labels:
         mask = labels == label
@@ -232,6 +232,8 @@ def _generate_density_colormap(
     labels, stats, cmap_name: str = "plasma"
 ) -> dict[str, list[int]]:
     """Generate n distinct colours from a matplotlib colormap."""
+    import math
+
     import matplotlib.pyplot as plt
 
     colors: dict[str, list[int]] = {}
@@ -260,7 +262,7 @@ def _generate_density_colormap(
 
         density = cluster["density"]
 
-        return _cmap(density / max_density)
+        return _cmap(math.sqrt(density / max_density))
 
     for label in labels:
         colors[label] = _get_color(label)
