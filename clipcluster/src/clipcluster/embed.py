@@ -8,6 +8,7 @@ import logging
 from abc import ABC, abstractmethod
 
 import torch
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,17 @@ class EmbeddingModel(ABC):
         """
         return None
 
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        """Generate embedding for a single PIL image.
+
+        Args:
+            image: A PIL Image object.
+
+        Returns:
+            Tensor of shape (1, embedding_dim) with L2-normalized embedding.
+        """
+        raise NotImplementedError("Subclass must implement encode_pil_image")
+
 
 class CLIPEmbedder(EmbeddingModel):
     """CLIP-based image and text embeddings."""
@@ -151,6 +163,12 @@ class CLIPEmbedder(EmbeddingModel):
             text_embedding = self._model.get_text_features(**inputs)
             return text_embedding / text_embedding.norm(dim=-1, keepdim=True)
 
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        with torch.no_grad():
+            inputs = self._processor(images=image, return_tensors="pt").to(self._device)
+            embedding = self._model.get_image_features(**inputs)
+            return embedding / embedding.norm(dim=-1, keepdim=True)
+
 
 class DINOv2Embedder(EmbeddingModel):
     """DINOv2-based image embeddings (vision-only, no text support)."""
@@ -215,6 +233,13 @@ class DINOv2Embedder(EmbeddingModel):
             processed_paths.extend(batch["path"])
 
         return torch.cat(all_embeddings), processed_paths
+
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        with torch.no_grad():
+            inputs = self._processor(images=image, return_tensors="pt").to(self._device)
+            outputs = self._model(**inputs)
+            embedding = outputs.last_hidden_state[:, 0]
+            return embedding / embedding.norm(dim=-1, keepdim=True)
 
 
 class Qwen3VLEmbedder(EmbeddingModel):
@@ -366,6 +391,45 @@ class Qwen3VLEmbedder(EmbeddingModel):
         with torch.no_grad():
             outputs = self._model(**inputs)
             # Use last token pooling for consistency
+            embedding = self._last_token_pooling(
+                outputs.last_hidden_state, inputs["attention_mask"]
+            )
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+        return embedding.float()
+
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        from qwen_vl_utils import process_vision_info
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": image,
+                        "min_pixels": 4096,
+                        "max_pixels": 1003520,
+                    },
+                    {"type": "text", "text": "Describe this image."},
+                ],
+            }
+        ]
+        text = self._processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, _ = process_vision_info(messages)
+
+        inputs = self._processor(
+            text=[text],
+            images=image_inputs,
+            return_tensors="pt",
+            padding=True,
+        )
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self._model(**inputs)
             embedding = self._last_token_pooling(
                 outputs.last_hidden_state, inputs["attention_mask"]
             )

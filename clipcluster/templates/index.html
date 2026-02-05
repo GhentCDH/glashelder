@@ -11,12 +11,34 @@
       href="{{ url_for('static', filename='css/output.css') }}"
       rel="stylesheet"
     />
+    <style>
+      .drop-zone-active {
+        border-color: #ef4444 !important;
+        background-color: rgba(239, 68, 68, 0.1);
+      }
+      .image-preview {
+        max-height: 100px;
+        border-radius: 4px;
+      }
+      .upload-btn {
+        position: relative;
+        overflow: hidden;
+      }
+      .upload-btn input[type="file"] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+    </style>
   </head>
   <body>
-    <div class="p-8 mb-8">
+    <div class="p-8 mb-8" id="search-container">
       <h1 class="font-400 text-2xl mb-4">Search in Latent Space...</h1>
+
+      <!-- Text search form -->
       <form
-        class="flex gap-4 mb-8"
+        class="flex gap-4 mb-4"
         hx-post="/search"
         hx-target="#results"
         hx-indicator="#loading"
@@ -25,8 +47,8 @@
           class="focus:border-red-500 focus:outline-none border-black border-2 rounded-sm flex-1 p-3"
           type="text"
           name="prompt"
+          id="text-prompt"
           placeholder="Enter search prompt (e.g., 'a cat sitting on a chair')"
-          required
           autocomplete="off"
           hx-post="/search"
           hx-trigger="input changed delay:500ms"
@@ -38,16 +60,145 @@
           type="number"
           class="min-w-30 border-2 border-black rounded-sm p-3 focus:border-red-500 focus:outline-none"
           name="top_k"
+          id="top_k"
           value="12"
           min="1"
           max="100"
           title="Number of results"
         />
         <button type="submit" class="bg-black text-white rounded-sm border-0 cursor-pointer px-3 py-2 transition-colors hover:bg-neutral-500">Search</button>
+
+        <!-- Image upload button -->
+        <label class="upload-btn bg-black text-white rounded-sm border-0 cursor-pointer px-3 py-2 transition-colors hover:bg-neutral-500 flex items-center gap-2">
+          <span>📷 Upload</span>
+          <input type="file" id="image-upload" accept="image/*" />
+        </label>
+
         <div id="loading" class="htmx-indicator loading">Searching...</div>
       </form>
+
+      <!-- Image preview area (hidden by default) -->
+      <div id="image-preview-container" class="hidden mb-4 p-4 border-2 border-dashed border-neutral-300 rounded-sm">
+        <div class="flex items-center gap-4">
+          <img id="image-preview" class="image-preview" />
+          <div>
+            <p id="image-filename" class="font-bold"></p>
+            <button id="clear-image" class="text-red-500 underline cursor-pointer">Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Drop zone hint -->
+      <p class="text-neutral-500 text-sm">💡 Tip: Drop an image anywhere, paste from clipboard (Ctrl+V), or use the upload button</p>
     </div>
 
     <div id="results">{% block results %}{% endblock %}</div>
+
+    <!-- Hidden form for image upload -->
+    <form id="image-search-form" style="display: none;"
+          hx-post="/search-image"
+          hx-target="#results"
+          hx-indicator="#loading"
+          hx-encoding="multipart/form-data">
+      <input type="file" name="image" id="image-input" />
+      <input type="hidden" name="top_k" id="image-top-k" value="12" />
+    </form>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        const searchContainer = document.getElementById('search-container');
+        const imageUpload = document.getElementById('image-upload');
+        const imageInput = document.getElementById('image-input');
+        const imageTopK = document.getElementById('image-top-k');
+        const topKInput = document.getElementById('top_k');
+        const previewContainer = document.getElementById('image-preview-container');
+        const previewImg = document.getElementById('image-preview');
+        const filenameDisplay = document.getElementById('image-filename');
+        const clearBtn = document.getElementById('clear-image');
+        const imageSearchForm = document.getElementById('image-search-form');
+
+        // Sync top_k value
+        topKInput.addEventListener('change', function() {
+          imageTopK.value = this.value;
+        });
+
+        // Handle file upload button
+        imageUpload.addEventListener('change', function(e) {
+          if (e.target.files && e.target.files[0]) {
+            handleImageFile(e.target.files[0]);
+          }
+        });
+
+        // Handle drag and drop
+        document.body.addEventListener('dragover', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          searchContainer.classList.add('drop-zone-active');
+        });
+
+        document.body.addEventListener('dragleave', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!e.relatedTarget || !document.body.contains(e.relatedTarget)) {
+            searchContainer.classList.remove('drop-zone-active');
+          }
+        });
+
+        document.body.addEventListener('drop', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          searchContainer.classList.remove('drop-zone-active');
+
+          const files = e.dataTransfer.files;
+          if (files && files[0] && files[0].type.startsWith('image/')) {
+            handleImageFile(files[0]);
+          }
+        });
+
+        // Handle paste
+        document.addEventListener('paste', function(e) {
+          const items = e.clipboardData.items;
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].type.startsWith('image/')) {
+              const file = items[i].getAsFile();
+              if (file) {
+                handleImageFile(file);
+              }
+              break;
+            }
+          }
+        });
+
+        // Clear image
+        clearBtn.addEventListener('click', function() {
+          previewContainer.classList.add('hidden');
+          imageInput.value = '';
+          imageUpload.value = '';
+        });
+
+        // Handle image file
+        function handleImageFile(file) {
+          // Show preview
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            previewImg.src = e.target.result;
+            filenameDisplay.textContent = file.name || 'Pasted image';
+            previewContainer.classList.remove('hidden');
+          };
+          reader.readAsDataURL(file);
+
+          // Create a DataTransfer to set the file on the hidden input
+          const dataTransfer = new DataTransfer();
+          dataTransfer.items.add(file);
+          imageInput.files = dataTransfer.files;
+
+          // Sync top_k
+          imageTopK.value = topKInput.value;
+
+          // Trigger HTMX request
+          htmx.trigger(imageSearchForm, 'submit');
+        }
+      });
+    </script>
   </body>
 </html>

@@ -13,6 +13,10 @@
 <div class="query-info">
   <p>Results for: <strong>{{ query_value }}</strong></p>
 </div>
+{% elif query_type == 'image' %}
+<div class="query-info">
+  <p>Images similar to uploaded: <strong>{{ query_value }}</strong></p>
+</div>
 {% endif %}
 
 <div class="results-grid">

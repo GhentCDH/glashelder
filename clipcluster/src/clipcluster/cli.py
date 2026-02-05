@@ -400,6 +400,8 @@ def generate_embeddings(image_dir, save_path, count, batch_size, model):
 @click.option("--port", default=5000, help="Port to bind to")
 def serve(embeddings, host, port):
     """Start a web server for interactive image search"""
+    import io
+
     from flask import Flask, render_template, request, send_from_directory
 
     app = Flask(
@@ -494,6 +496,76 @@ def serve(embeddings, host, port):
                 error=f"Search failed: {e!s}",
                 results=[],
                 query_type="text",
+                query_value="",
+            )
+
+    @app.route("/search-image", methods=["POST"])
+    def search_image_endpoint():
+        """Search for similar images using an uploaded image"""
+        top_k = int(request.form.get("top_k", 12))
+
+        # Check for file upload
+        if "image" not in request.files:
+            return render_template(
+                "results.html",
+                error="No image provided",
+                results=[],
+                query_type="image",
+                query_value="",
+            )
+
+        file = request.files["image"]
+        if file.filename == "":
+            return render_template(
+                "results.html",
+                error="No image selected",
+                results=[],
+                query_type="image",
+                query_value="",
+            )
+
+        try:
+            # Load image from upload
+            image_data = file.read()
+            pil_image = Image.open(io.BytesIO(image_data)).convert("RGB")
+
+            # Encode the uploaded image
+            query_embedding = embedder.encode_pil_image(pil_image)
+
+            # Search for similar images
+            top_indices, top_values = perform_search(
+                top_k, query_embedding, image_embeddings, image_paths
+            )
+
+            results = []
+            for rank, (idx, score) in enumerate(
+                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
+                1,
+            ):
+                results.append(
+                    {
+                        "rank": rank,
+                        "index": int(idx),
+                        "score": float(score),
+                        "filename": Path(image_paths[idx]).name,
+                    }
+                )
+
+            return render_template(
+                "results.html",
+                results=results,
+                error=None,
+                query_type="image",
+                query_value=file.filename or "uploaded image",
+            )
+
+        except Exception as e:
+            logger.error(f"Image search error: {e}")
+            return render_template(
+                "results.html",
+                error=f"Image search failed: {e!s}",
+                results=[],
+                query_type="image",
                 query_value="",
             )
 
