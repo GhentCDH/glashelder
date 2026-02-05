@@ -671,6 +671,9 @@ def analyze(
         reduce_dimensions,
         save_cluster_statistics,
     )
+    from .rr import init_rerun, log_clustered_points_density
+
+    init_rerun(os.getenv("RERUN_ADDR"))
 
     device = get_device()
 
@@ -750,6 +753,11 @@ def analyze(
     # Calculate statistics
     logger.info("Calculating cluster statistics...")
     stats = calculate_cluster_statistics(reduced_embeddings_30d, labels, clusterer)
+
+    # log to rerun
+    log_clustered_points_density(
+        reduced_embeddings_3d, labels, stats, 30000, "clusters"
+    )
 
     # Add hierarchical metadata if used
     if hierarchical:
