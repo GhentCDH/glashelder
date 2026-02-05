@@ -246,7 +246,12 @@ def _generate_density_colormap(
 
     def _get_color(label) -> list[int]:
         cluster = next(
-            (str(stat["cluster_id"]) == str(label) for stat in stats["clusters"]), None
+            (
+                stat
+                for stat in stats["clusters"]
+                if str(stat["cluster_id"]) == str(label)
+            ),
+            None,
         )
 
         if cluster is None:
