@@ -145,7 +145,7 @@ def cluster(
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
-    image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))
+    image_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
 
     if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
@@ -158,7 +158,9 @@ def cluster(
         embedder = get_embedder(model)
         embedder.load(device)
         # Get all image paths
-        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
+            :sample_size
+        ]
         logger.info("Generating image embeddings...")
         embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
         if len(image_paths) < len(input_paths):
@@ -297,7 +299,9 @@ def search(
         logger.info(f"Getting embedding model: {model}")
         embedder = get_embedder(model)
         embedder.load(device)
-        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
+            :sample_size
+        ]
         logger.info("Generating image embeddings...")
         image_embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
         if len(image_paths) < len(input_paths):
@@ -377,7 +381,7 @@ def generate_embeddings(image_dir, save_path, count, batch_size, model):
     embedder = get_embedder(model)
     embedder.load(device)
 
-    input_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
+    input_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[:count]
     logger.info(
         f"Generating embeddings for {len(input_paths)} images with batch size {batch_size}"
     )
@@ -772,7 +776,9 @@ def analyze(
         embedder.load(device)
         embedding_model_name = embedder.name
         embedding_model_id = embedder.model_id
-        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
+            :sample_size
+        ]
         logger.info("Generating image embeddings...")
         embeddings_tensor, image_paths = embedder.encode_images(input_paths, batch_size)
         if len(image_paths) < len(input_paths):
