@@ -227,18 +227,37 @@ def stitch(
     default=None,
     help="maximum dimension for resizing images before feature extraction (faster, uses less memory)",
 )
-def build_db(painting_dir: str, output_db: str, workers: int, max_size: int | None):
+@click.option(
+    "--max-features",
+    type=int,
+    default=None,
+    help="maximum keypoints per image (e.g., 1000). Drastically reduces database size. Recommended: 500-2000",
+)
+def build_db(
+    painting_dir: str,
+    output_db: str,
+    workers: int,
+    max_size: int | None,
+    max_features: int | None,
+):
     """Build a recognition database from a directory of known paintings.
 
     PAINTING_DIR should contain images of known paintings (JPG/PNG).
     OUTPUT_DB is the path where the database will be saved (.pkl file).
 
     Use --workers to parallelize feature extraction across multiple CPU cores.
+    Use --max-features to limit keypoints per image (CRITICAL for controlling database size!)
     Use --max-size to resize images before feature extraction (faster, lower memory).
 
     Examples:
-        image-matching build-db ./known_paintings ./paintings.db.pkl --workers 4
-        image-matching build-db ./paintings ./db.pkl --workers 4 --max-size 2000
+        # Recommended: Limit features to keep database small (~0.5MB per image)
+        image-matching build-db ./paintings ./db.pkl --workers 4 --max-features 1000
+
+        # Smaller database with resizing (~0.2-0.3MB per image)
+        image-matching build-db ./paintings ./db.pkl --workers 4 --max-size 2000 --max-features 500
+
+        # Default (unlimited features, can create 50GB+ databases!)
+        image-matching build-db ./paintings ./db.pkl --workers 4
     """
     painting_dir_path = Path(painting_dir)
 
@@ -262,6 +281,7 @@ def build_db(painting_dir: str, output_db: str, workers: int, max_size: int | No
         [str(p) for p in painting_paths],
         workers=workers,
         max_size=max_size,
+        max_features=max_features,
         on_progress=on_progress,
     )
 

@@ -90,14 +90,16 @@ _worker_sift = None
 _worker_max_size = None
 
 
-def _init_worker(max_size: int | None = None) -> None:
+def _init_worker(max_size: int | None = None, max_features: int | None = None) -> None:
     """Initialize worker process with a SIFT detector and optional max size.
 
     Args:
         max_size: Optional maximum dimension for resizing images before feature extraction.
+        max_features: Maximum number of keypoints to extract per image (None = unlimited).
     """
     global _worker_sift, _worker_max_size
-    _worker_sift = cv2.SIFT_create()  # type:ignore
+    # nfeatures=0 means unlimited (default), otherwise limits to best N features
+    _worker_sift = cv2.SIFT_create(nfeatures=max_features or 0)  # type:ignore
     _worker_max_size = max_size
 
 
@@ -148,6 +150,7 @@ def build_database(
     *,
     workers: int = 1,
     max_size: int | None = None,
+    max_features: int | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> RecognitionDatabase:
     """Build a database of SIFT features for known paintings.
@@ -156,6 +159,8 @@ def build_database(
         painting_paths: List of paths to painting images.
         workers: Number of parallel workers for feature extraction (default: 1 for sequential).
         max_size: Optional maximum dimension for resizing images before feature extraction.
+        max_features: Maximum number of keypoints to extract per image. Limits database size.
+                     Recommended: 500-2000 for recognition tasks. None = unlimited (large databases).
         on_progress: Optional callback for progress messages.
 
     Returns:
@@ -175,7 +180,7 @@ def build_database(
 
     if workers <= 1:
         # Sequential processing (original behavior)
-        sift = cv2.SIFT_create()  # type:ignore
+        sift = cv2.SIFT_create(nfeatures=max_features or 0)  # type:ignore
         for path in track(painting_paths):
             img = load_image(path)
             h_orig, w_orig = img.shape[:2]
@@ -211,7 +216,9 @@ def build_database(
                 )
 
                 with ProcessPoolExecutor(
-                    max_workers=workers, initializer=_init_worker, initargs=(max_size,)
+                    max_workers=workers,
+                    initializer=_init_worker,
+                    initargs=(max_size, max_features),
                 ) as executor:
                     try:
                         # Submit all tasks and process as they complete (not in order)
