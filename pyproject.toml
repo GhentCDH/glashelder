@@ -25,6 +25,7 @@ dependencies = [
   "torchvision>=0.24.0",
   "rerun-sdk>=0.27.2",
   "jupyter>=1.1.1",
+  "image-matching",
 ]
 
 [project.scripts]
@@ -38,6 +39,7 @@ torchvision = { index = "pytorch" }
 classification = { workspace = true }
 preprocessing = { workspace = true }
 qwenvlm = { workspace = true }
+image-matching = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -46,6 +48,7 @@ members = [
   "classification",
   "preprocessing",
   "qwenvlm",
+  "image-matching",
 ]
 
 [[tool.uv.index]]
@@ -85,10 +88,18 @@ known-first-party = [
   "classification",
   "preprocessing",
   "qwenvlm",
+  "image_matching",
 ]
 
 [tool.ty.environment]
-root = ["common", "clipcluster", "classification", "preprocessing", "qwenvlm"]
+root = [
+  "common",
+  "clipcluster",
+  "classification",
+  "preprocessing",
+  "qwenvlm",
+  "image-matching",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.14,<0.10.0"]
