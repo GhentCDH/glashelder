@@ -152,6 +152,7 @@ def assess_risk_of_image_folder(folder_path, output_csv="lavaguard_risk_assessme
 def assess_risk_of_image(image_path, prompt_file="lavaguard_prompt.txt"):
     model, processor = load_model()
     prompt = load_prompt(prompt_file)
+
     image = Image.open(image_path).convert("RGB")
     assessment = process_image(image, model, processor, os.path.basename(image_path), prompt)
     return assessment
@@ -204,5 +205,5 @@ def process_image(image, model, processor, image_name="", prompt=None):
 
 if __name__ == "__main__":
     # Example usage
-    assess_risk_of_image_folder("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set")
+    assess_risk_of_image_folder("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop")
     # assess_risk_of_image("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set/test.png")
