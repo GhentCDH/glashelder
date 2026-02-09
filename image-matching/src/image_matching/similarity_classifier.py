@@ -129,8 +129,4 @@ class SimpleClassifier:
 
         at_zero = fitted[-1]
 
-        logger.info(f"Similarity[0] = {similarities[0]}")
-        logger.info(f"Fitted @ 0 = {at_zero}")
-        logger.info(f"Diff = {similarities[0] - at_zero}")
-
         return similarities[0] - at_zero > 0.2

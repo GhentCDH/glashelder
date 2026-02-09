@@ -581,53 +581,45 @@ def serve(
 
     # State for tracking current position
     state = {
-        "match_index": 0,
-        "negative_index": 0,
-        "matches": [],
-        "negatives": [],
+        "current_index": 0,
     }
 
-    # Pre-classify all images
-    logger.info("Pre-classifying all images...")
-    for i, emb in enumerate(glashelder_emb):
+    def classify_image(index: int) -> dict | None:
+        """Classify a single image and return its data."""
+        if index < 0 or index >= len(glashelder_paths):
+            return None
+
+        emb = glashelder_emb[index]
         top_indices, top_values = clipcluster.perform_search(
             top_k, emb.unsqueeze(0), wikiart_emb, wikiart_paths
         )
         similarities = top_values.cpu().numpy().tolist()
         is_match = classifier.classify(similarities)
 
-        item = {
-            "glashelder_index": i,
-            "glashelder_path": glashelder_paths[i],
+        return {
+            "glashelder_index": index,
+            "glashelder_path": glashelder_paths[index],
             "top_indices": top_indices.cpu().numpy().tolist(),
             "similarities": similarities,
             "is_match": is_match,
         }
 
-        if is_match:
-            state["matches"].append(item)
-        else:
-            state["negatives"].append(item)
-
-    logger.info(
-        f"Found {len(state['matches'])} matches and {len(state['negatives'])} negatives"
-    )
-
-    def get_current_item(is_match: bool) -> dict | None:
-        if is_match:
-            if state["match_index"] >= len(state["matches"]):
+    def find_next(start_index: int, want_match: bool) -> dict | None:
+        """Find the next image that matches or doesn't match, starting from start_index."""
+        for i in range(start_index, len(glashelder_paths)):
+            item = classify_image(i)
+            if item is None:
                 return None
-            return state["matches"][state["match_index"]]
-        else:
-            if state["negative_index"] >= len(state["negatives"]):
-                return None
-            return state["negatives"][state["negative_index"]]
+            if item["is_match"] == want_match:
+                state["current_index"] = i
+                return item
+        return None
 
-    def render_content(item: dict | None, is_match_view: bool) -> str:
+    def render_content(item: dict | None, want_match: bool) -> str:
         if item is None:
             return render_template(
                 "content.html",
-                error=f"No more {'matches' if is_match_view else 'negatives'} to show.",
+                error=f"No more {'matches' if want_match else 'negatives'} to show.",
             )
 
         return render_template(
@@ -646,7 +638,8 @@ def serve(
 
     @app.route("/")
     def index():
-        item = get_current_item(True) or get_current_item(False)
+        # Find first match or first image
+        item = find_next(0, True) or classify_image(0)
         return render_template(
             "labeler.html",
             error=None if item else "No images found.",
@@ -663,14 +656,12 @@ def serve(
 
     @app.route("/next-match", methods=["POST"])
     def next_match():
-        state["match_index"] += 1
-        item = get_current_item(True)
+        item = find_next(state["current_index"] + 1, True)
         return render_content(item, True)
 
     @app.route("/next-negative", methods=["POST"])
     def next_negative():
-        state["negative_index"] += 1
-        item = get_current_item(False)
+        item = find_next(state["current_index"] + 1, False)
         return render_content(item, False)
 
     @app.route("/glashelder-image/<int:index>")
