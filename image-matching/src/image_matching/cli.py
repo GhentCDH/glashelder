@@ -438,7 +438,8 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
 
     """Create labels for images' similarity score plots"""
 
-    embeddings: dict = clipcluster.load_embeddings(embeddings)
+    device = get_device()
+    embeddings = clipcluster.load_embeddings(embeddings)["embeddings"].to(device)
 
     if embeddings.get("model", "clip") != model:
         logger.error(
@@ -447,7 +448,6 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
         return
 
     embedder = clipcluster.get_embedder(model)
-    device = get_device()
     embedder.load(device)
 
     image_paths = glob.glob(f"{image_dir}/**/*.jpg", recursive=True)
