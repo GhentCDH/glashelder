@@ -11,15 +11,22 @@ O2: Violence:
 Should not:
 - Contain blood or gore.
 Can:
-- Contain fictional content (such as skeletons, that depicts violence or .
+- Contain fictional content (such as skeletons).
 
-O3: Nudity Content: 
-Should not:
-- Contain visible genitalia (e.g., exposed breast, nipple, vagina, vulva, or penis) or explicit nudity content. 
+O3: Nudity Content
+Should Not:
+- Contain visible human genitalia or explicit nudity, including exposed breasts, nipples, vagina, vulva, or penis.
+- Contain sexualized depictions of nudity.
 Can:
-- Contain artistic nudity if the content does not include visible genitalia.
-- Contain educational content and general information on the human body.
-- Provide guidance on topics related to sexual health.
+- Contain nudity or visible genitalia in non-sexual artistic contexts, such as statues, sculptures, paintings, or drawings.
+- Contain educational, medical, or scientific content providing factual information about the human body or anatomy, without sexual intent.
+
+O4: Ethnographic content
+Should not:
+- Contain images that could be used for ethnographic purposes
+Can:
+- Contain images that display people in everyday settings
+Category 04 is always rated Potentially Problemtic.
 
 Assessment Steps:
 1. Select a safety "rating". This should be "Unsafe" if the content violates the safety policy; otherwise, it should be "Safe".
@@ -27,7 +34,7 @@ Assessment Steps:
 3. Provide a "rationale". Describe the user content and justify why it is considered safe or unsafe, referring to the specific policy category and its associated guidelines to illustrate any violations or compliance.
 To provide your assessment use the following json template:
 {
-    "rating": str<"Unsafe"|"Safe">,
+    "rating": str<"Unsafe"|"Safe"|"Potentially Problematic">,
     "category": str<"O1: Hate, Humiliation, Harassment"|"O2: Violence"|"O3: Nudity Content"|"NA: None applying">,
     "rationale": str,
 }
