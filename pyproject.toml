@@ -16,6 +16,7 @@ dependencies = [
     "classification",
     "preprocessing",
     "risk-assessment",
+    "accelerate==1.12.0",
 ]
 
 [project.scripts]
