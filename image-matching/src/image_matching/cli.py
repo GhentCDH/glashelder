@@ -438,6 +438,14 @@ def identify(
     help="Number of cross-validation folds",
 )
 @click.option(
+    "--workers",
+    "-w",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Number of parallel workers for SIFT feature extraction (1=sequential)",
+)
+@click.option(
     "--no-sift",
     is_flag=True,
     help="Skip SIFT feature extraction (faster, but less accurate)",
@@ -447,6 +455,7 @@ def train_classifier(
     output_model: str,
     n_estimators: int,
     cv_folds: int,
+    workers: int,
     no_sift: bool,
 ):
     """Train an ML classifier from a labeled dataset.
@@ -457,35 +466,27 @@ def train_classifier(
     The dataset should contain labeled examples in the format exported
     by the 'serve' command's "Download Dataset" button.
 
-    Example:
-        image-matching train-classifier labeling_dataset.json model.pkl
-    """
-    click.echo(f"Loading dataset from {dataset}...")
+    Use --workers to parallelize SIFT feature extraction across CPU cores.
+    For a 96-core machine, try --workers 48 or higher.
 
+    Example:
+        image-matching train-classifier labeling_dataset.json model.pkl --workers 48
+    """
     classifier = MLClassifier()
 
     try:
-        metrics = classifier.train(
+        classifier.train(
             dataset,
             n_estimators=n_estimators,
             cv_folds=cv_folds,
             extract_sift=not no_sift,
+            workers=workers,
         )
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         return
 
-    click.echo("\nTraining Results:")
-    click.echo(
-        f"  Samples: {metrics.n_samples} ({metrics.n_positives} positives, {metrics.n_negatives} negatives)"
-    )
-    click.echo(f"  CV Accuracy: {metrics.cv_accuracy:.3f} (+/- {metrics.cv_std:.3f})")
-    click.echo("\nTop 5 Features by Importance:")
-    for i, (name, imp) in enumerate(list(metrics.feature_importance.items())[:5]):
-        click.echo(f"  {i + 1}. {name}: {imp:.4f}")
-
     classifier.save(output_model)
-    click.echo(f"\nModel saved to {output_model}")
 
 
 @image_matching.command()
