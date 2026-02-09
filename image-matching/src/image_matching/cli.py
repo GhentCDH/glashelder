@@ -4,6 +4,7 @@ import glob
 import json
 import logging
 import random
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +15,11 @@ from PIL import Image
 
 from common import ASSETS_DIR
 from common.clipmodel import get_device
-from image_matching.ml_classifier import MLClassifier
+from image_matching.ml_classifier import (
+    MLClassifier,
+    _extract_sift_worker,
+    _init_sift_worker,
+)
 from image_matching.recognition import (
     RecognitionDatabase,
     build_database,
@@ -603,6 +608,21 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     default=None,
     help="Path to trained ML model (.pkl file). Required if --classifier=ml",
 )
+@click.option(
+    "--search-workers",
+    "-sw",
+    type=int,
+    default=8,
+    show_default=True,
+    help="Number of parallel workers for SIFT extraction during search (ML classifier only)",
+)
+@click.option(
+    "--search-batch-size",
+    type=int,
+    default=32,
+    show_default=True,
+    help="Number of images to check in parallel when searching for matches",
+)
 def serve(
     wikiart_embeddings: str,
     glashelder_embeddings: str | None,
@@ -614,10 +634,13 @@ def serve(
     threshold: float,
     classifier: Literal["simple", "ml"],
     ml_model: str | None,
+    search_workers: int,
+    search_batch_size: int,
 ):
     """Start a web interface for labeling artwork matches.
 
     Use --classifier=ml with --ml-model to use a trained ML classifier.
+    Use --search-workers to parallelize SIFT extraction during search.
     """
     from flask import Flask, render_template, send_file
 
@@ -699,67 +722,208 @@ def serve(
         },
     }
 
+    # Classification cache: image_index -> (features, threshold used)
+    # We cache features but recompute is_match when threshold changes
+    classification_cache: dict[int, dict] = {}
+
     def get_simple_classifier() -> SimpleClassifier:
         return SimpleClassifier(threshold=state["threshold"])
 
-    def classify_image(image_index: int) -> dict | None:
-        """Classify a single image by its index in glashelder_paths."""
-        if image_index < 0 or image_index >= len(glashelder_paths):
-            return None
-
+    def get_embedding_results(image_index: int) -> tuple[list[int], list[float]]:
+        """Get embedding search results for an image (fast)."""
         emb = glashelder_emb[image_index]
         top_indices, top_values = clipcluster.perform_search(
             top_k, emb.unsqueeze(0), wikiart_emb, wikiart_paths
         )
-        similarities = top_values.cpu().numpy().tolist()
-        top_indices_list = top_indices.cpu().numpy().tolist()
+        return top_indices.cpu().numpy().tolist(), top_values.cpu().numpy().tolist()
+
+    def classify_image(image_index: int, use_cache: bool = True) -> dict | None:
+        """Classify a single image by its index in glashelder_paths."""
+        if image_index < 0 or image_index >= len(glashelder_paths):
+            return None
+
+        current_threshold = state["threshold"]
+
+        # Check cache for features (but recompute is_match with current threshold)
+        if use_cache and image_index in classification_cache:
+            cached = classification_cache[image_index]
+            # Recompute is_match with current threshold
+            if ml_classifier_instance is not None:
+                confidence = cached["diff"]
+                is_match = confidence >= current_threshold
+            else:
+                is_match = cached["diff"] > current_threshold
+            return {
+                **cached,
+                "is_match": is_match,
+                "threshold": current_threshold,
+            }
+
+        top_indices_list, similarities = get_embedding_results(image_index)
 
         glashelder_path = glashelder_paths[image_index]
         wikiart_path = wikiart_paths[top_indices_list[0]] if top_indices_list else None
 
         # Use ML classifier if available, otherwise simple classifier
         if ml_classifier_instance is not None:
-            # Update threshold if changed in state
-            ml_classifier_instance.threshold = state["threshold"]
+            ml_classifier_instance.threshold = current_threshold
             result = ml_classifier_instance.classify(
                 similarities, glashelder_path, wikiart_path
             )
-            return {
+            item = {
                 "glashelder_index": image_index,
                 "glashelder_path": glashelder_path,
                 "top_indices": top_indices_list,
                 "similarities": similarities,
                 "is_match": result.is_match,
-                "diff": result.confidence,  # Use confidence as "diff" for display
-                "threshold": result.threshold,
+                "diff": result.confidence,
+                "threshold": current_threshold,
                 "classifier_type": "ml",
                 "features": result.features,
             }
         else:
             simple_clf = get_simple_classifier()
             result = simple_clf.classify(similarities)
-            return {
+            item = {
                 "glashelder_index": image_index,
                 "glashelder_path": glashelder_path,
                 "top_indices": top_indices_list,
                 "similarities": similarities,
                 "is_match": result.is_match,
                 "diff": result.diff,
-                "threshold": result.threshold,
+                "threshold": current_threshold,
                 "classifier_type": "simple",
             }
 
+        # Cache the result
+        classification_cache[image_index] = item
+        return item
+
+    def classify_batch_parallel(image_indices: list[int]) -> list[dict | None]:
+        """Classify multiple images in parallel (ML classifier with SIFT)."""
+        if ml_classifier_instance is None:
+            # Simple classifier is fast, no need for parallelization
+            return [classify_image(idx) for idx in image_indices]
+
+        current_threshold = state["threshold"]
+        results: list[dict | None] = [None] * len(image_indices)
+
+        # Separate cached and uncached indices
+        uncached_batch = []
+        for batch_idx, image_index in enumerate(image_indices):
+            if image_index in classification_cache:
+                cached = classification_cache[image_index]
+                confidence = cached["diff"]
+                is_match = confidence >= current_threshold
+                results[batch_idx] = {
+                    **cached,
+                    "is_match": is_match,
+                    "threshold": current_threshold,
+                }
+            else:
+                uncached_batch.append((batch_idx, image_index))
+
+        if not uncached_batch:
+            return results
+
+        # Get embedding results for uncached images (fast, sequential)
+        embedding_data = []
+        for batch_idx, image_index in uncached_batch:
+            top_indices_list, similarities = get_embedding_results(image_index)
+            glashelder_path = glashelder_paths[image_index]
+            wikiart_path = (
+                wikiart_paths[top_indices_list[0]] if top_indices_list else ""
+            )
+            embedding_data.append(
+                {
+                    "batch_idx": batch_idx,
+                    "image_index": image_index,
+                    "top_indices_list": top_indices_list,
+                    "similarities": similarities,
+                    "glashelder_path": glashelder_path,
+                    "wikiart_path": wikiart_path,
+                }
+            )
+
+        # Prepare work items for parallel SIFT extraction
+        work_items = [
+            (i, d["glashelder_path"], d["wikiart_path"], d["similarities"], 0)
+            for i, d in enumerate(embedding_data)
+        ]
+
+        # Extract SIFT features in parallel
+        sift_results: dict[int, dict] = {}
+        with ProcessPoolExecutor(
+            max_workers=search_workers,
+            initializer=_init_sift_worker,
+        ) as executor:
+            future_to_idx = {
+                executor.submit(_extract_sift_worker, item): item[0]
+                for item in work_items
+            }
+            for future in as_completed(future_to_idx):
+                idx, features, _ = future.result()
+                sift_results[idx] = features
+
+        # Build final results with ML predictions
+        for i, data in enumerate(embedding_data):
+            features = sift_results[i]
+            feature_vector = np.array(
+                [features.get(f, 0.0) for f in ml_classifier_instance.FEATURE_ORDER]
+            ).reshape(1, -1)
+
+            proba = ml_classifier_instance._model.predict_proba(feature_vector)[0]
+            confidence = float(proba[1])
+            is_match = confidence >= current_threshold
+
+            item = {
+                "glashelder_index": data["image_index"],
+                "glashelder_path": data["glashelder_path"],
+                "top_indices": data["top_indices_list"],
+                "similarities": data["similarities"],
+                "is_match": is_match,
+                "diff": confidence,
+                "threshold": current_threshold,
+                "classifier_type": "ml",
+                "features": features,
+            }
+            results[data["batch_idx"]] = item
+            classification_cache[data["image_index"]] = item
+
+        return results
+
     def find_next_in_queue(start_queue_pos: int, want_match: bool) -> dict | None:
-        """Find next image in shuffled queue that matches/doesn't match."""
-        for queue_pos in range(start_queue_pos, len(shuffled_indices)):
-            image_index = shuffled_indices[queue_pos]
-            item = classify_image(image_index)
-            if item is None:
-                continue
-            if item["is_match"] == want_match:
-                state["queue_position"] = queue_pos
-                state["current_item"] = item
-                return item
+        """Find next image in shuffled queue that matches/doesn't match.
+
+        Uses batch parallel classification for ML classifier to speed up search.
+        """
+        remaining = len(shuffled_indices) - start_queue_pos
+        if remaining <= 0:
+            return None
+
+        # Process in batches for parallel SIFT extraction
+        batch_size = search_batch_size if ml_classifier_instance else 1
+
+        for batch_start in range(start_queue_pos, len(shuffled_indices), batch_size):
+            batch_end = min(batch_start + batch_size, len(shuffled_indices))
+            batch_queue_positions = list(range(batch_start, batch_end))
+            batch_image_indices = [
+                shuffled_indices[pos] for pos in batch_queue_positions
+            ]
+
+            # Classify batch in parallel
+            batch_results = classify_batch_parallel(batch_image_indices)
+
+            # Check results in order
+            for i, item in enumerate(batch_results):
+                if item is None:
+                    continue
+                if item["is_match"] == want_match:
+                    queue_pos = batch_queue_positions[i]
+                    state["queue_position"] = queue_pos
+                    state["current_item"] = item
+                    return item
+
         return None
 
     def get_dataset_counts() -> dict:
