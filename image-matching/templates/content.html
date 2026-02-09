@@ -66,9 +66,7 @@
   </form>
 </div>
 
-<div
-  class="grid {% if is_match %}grid-cols-2{% else %}grid-cols-1{% endif %} gap-8 mb-8"
->
+<div class="grid grid-cols-2 gap-8 mb-8">
   <div class="border-2 border-neutral-200 rounded overflow-hidden">
     <h2 class="p-3 bg-neutral-200 text-sm font-bold">Glashelder Image</h2>
     <img
@@ -79,19 +77,21 @@
     <div class="p-3 text-xs break-all bg-neutral-50">{{ glashelder_path }}</div>
   </div>
 
-  {% if is_match %}
-  <div class="border-2 border-neutral-200 rounded overflow-hidden">
-    <h2 class="p-3 bg-green-100 text-sm font-bold text-green-800">
+  <div class="border-2 {% if is_match %}border-green-300{% else %}border-red-300{% endif %} rounded overflow-hidden">
+    <h2 class="p-3 text-sm font-bold {% if is_match %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+      {% if is_match %}
       WikiArt Match
+      {% else %}
+      Top WikiArt Result (Not a Match)
+      {% endif %}
     </h2>
     <img
       src="/wikiart-image/{{ top_match_index }}"
-      alt="WikiArt match"
-      class="w-full h-[500px] object-contain bg-neutral-50"
+      alt="WikiArt top result"
+      class="w-full h-[500px] object-contain bg-neutral-50 {% if not is_match %}opacity-75{% endif %}"
     />
     <div class="p-3 text-xs break-all bg-neutral-50">{{ wikiart_path }}</div>
   </div>
-  {% endif %}
 </div>
 
 {% if classifier_type == 'ml' and features %}

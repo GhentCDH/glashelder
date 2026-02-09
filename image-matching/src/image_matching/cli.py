@@ -786,9 +786,7 @@ def serve(
             current_index=item["glashelder_index"],
             total_images=len(glashelder_paths),
             glashelder_path=item["glashelder_path"],
-            wikiart_path=wikiart_paths[item["top_indices"][0]]
-            if item["is_match"]
-            else None,
+            wikiart_path=wikiart_paths[item["top_indices"][0]],
             top_match_index=item["top_indices"][0],
             similarities=item["similarities"],
             is_match=item["is_match"],
@@ -814,9 +812,7 @@ def serve(
             current_index=item["glashelder_index"] if item else 0,
             total_images=len(glashelder_paths),
             glashelder_path=item["glashelder_path"] if item else "",
-            wikiart_path=wikiart_paths[item["top_indices"][0]]
-            if item and item["is_match"]
-            else None,
+            wikiart_path=wikiart_paths[item["top_indices"][0]] if item else "",
             top_match_index=item["top_indices"][0] if item else 0,
             similarities=item["similarities"] if item else [],
             is_match=item["is_match"] if item else False,
