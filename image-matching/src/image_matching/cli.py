@@ -14,6 +14,7 @@ from PIL import Image
 
 from common import ASSETS_DIR
 from common.clipmodel import get_device
+from image_matching.ml_classifier import MLClassifier
 from image_matching.recognition import (
     RecognitionDatabase,
     build_database,
@@ -420,6 +421,74 @@ def identify(
 
 
 @image_matching.command()
+@click.argument("dataset", type=click.Path(exists=True), required=True)
+@click.argument("output_model", type=click.Path(), required=True)
+@click.option(
+    "--n-estimators",
+    type=int,
+    default=100,
+    show_default=True,
+    help="Number of trees in the Random Forest",
+)
+@click.option(
+    "--cv-folds",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Number of cross-validation folds",
+)
+@click.option(
+    "--no-sift",
+    is_flag=True,
+    help="Skip SIFT feature extraction (faster, but less accurate)",
+)
+def train_classifier(
+    dataset: str,
+    output_model: str,
+    n_estimators: int,
+    cv_folds: int,
+    no_sift: bool,
+):
+    """Train an ML classifier from a labeled dataset.
+
+    DATASET is the JSON file exported from the labeling web UI.
+    OUTPUT_MODEL is where to save the trained model (.pkl file).
+
+    The dataset should contain labeled examples in the format exported
+    by the 'serve' command's "Download Dataset" button.
+
+    Example:
+        image-matching train-classifier labeling_dataset.json model.pkl
+    """
+    click.echo(f"Loading dataset from {dataset}...")
+
+    classifier = MLClassifier()
+
+    try:
+        metrics = classifier.train(
+            dataset,
+            n_estimators=n_estimators,
+            cv_folds=cv_folds,
+            extract_sift=not no_sift,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        return
+
+    click.echo("\nTraining Results:")
+    click.echo(
+        f"  Samples: {metrics.n_samples} ({metrics.n_positives} positives, {metrics.n_negatives} negatives)"
+    )
+    click.echo(f"  CV Accuracy: {metrics.cv_accuracy:.3f} (+/- {metrics.cv_std:.3f})")
+    click.echo("\nTop 5 Features by Importance:")
+    for i, (name, imp) in enumerate(list(metrics.feature_importance.items())[:5]):
+        click.echo(f"  {i + 1}. {name}: {imp:.4f}")
+
+    classifier.save(output_model)
+    click.echo(f"\nModel saved to {output_model}")
+
+
+@image_matching.command()
 @click.option(
     "--embeddings", "-e", type=str, help="Path to the wikiart embeddings '.pkl' file"
 )
@@ -521,6 +590,18 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
 @click.option(
     "--threshold", default=0.2, help="Diff threshold for match classification"
 )
+@click.option(
+    "--classifier",
+    type=click.Choice(["simple", "ml"]),
+    default="simple",
+    help="Classifier to use: 'simple' (polynomial fit) or 'ml' (Random Forest)",
+)
+@click.option(
+    "--ml-model",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to trained ML model (.pkl file). Required if --classifier=ml",
+)
 def serve(
     wikiart_embeddings: str,
     glashelder_embeddings: str | None,
@@ -530,11 +611,21 @@ def serve(
     port: int,
     top_k: int,
     threshold: float,
+    classifier: Literal["simple", "ml"],
+    ml_model: str | None,
 ):
-    """Start a web interface for labeling artwork matches."""
+    """Start a web interface for labeling artwork matches.
+
+    Use --classifier=ml with --ml-model to use a trained ML classifier.
+    """
     from flask import Flask, render_template, send_file
 
     import clipcluster
+
+    # Validate ML classifier options
+    if classifier == "ml" and ml_model is None:
+        click.echo("Error: --ml-model is required when using --classifier=ml", err=True)
+        return
 
     app = Flask(
         __name__,
@@ -543,6 +634,13 @@ def serve(
 
     device = get_device()
     logger.info(f"Using device: {device}")
+
+    # Load ML classifier if specified
+    ml_classifier_instance: MLClassifier | None = None
+    if classifier == "ml" and ml_model:
+        logger.info(f"Loading ML classifier from {ml_model}...")
+        ml_classifier_instance = MLClassifier.load(ml_model, threshold=threshold)
+        logger.info("ML classifier loaded")
 
     # Load wikiart embeddings
     logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
@@ -600,7 +698,7 @@ def serve(
         },
     }
 
-    def get_classifier() -> SimpleClassifier:
+    def get_simple_classifier() -> SimpleClassifier:
         return SimpleClassifier(threshold=state["threshold"])
 
     def classify_image(image_index: int) -> dict | None:
@@ -608,23 +706,47 @@ def serve(
         if image_index < 0 or image_index >= len(glashelder_paths):
             return None
 
-        classifier = get_classifier()
         emb = glashelder_emb[image_index]
         top_indices, top_values = clipcluster.perform_search(
             top_k, emb.unsqueeze(0), wikiart_emb, wikiart_paths
         )
         similarities = top_values.cpu().numpy().tolist()
-        result = classifier.classify(similarities)
+        top_indices_list = top_indices.cpu().numpy().tolist()
 
-        return {
-            "glashelder_index": image_index,
-            "glashelder_path": glashelder_paths[image_index],
-            "top_indices": top_indices.cpu().numpy().tolist(),
-            "similarities": similarities,
-            "is_match": result.is_match,
-            "diff": result.diff,
-            "threshold": result.threshold,
-        }
+        glashelder_path = glashelder_paths[image_index]
+        wikiart_path = wikiart_paths[top_indices_list[0]] if top_indices_list else None
+
+        # Use ML classifier if available, otherwise simple classifier
+        if ml_classifier_instance is not None:
+            # Update threshold if changed in state
+            ml_classifier_instance.threshold = state["threshold"]
+            result = ml_classifier_instance.classify(
+                similarities, glashelder_path, wikiart_path
+            )
+            return {
+                "glashelder_index": image_index,
+                "glashelder_path": glashelder_path,
+                "top_indices": top_indices_list,
+                "similarities": similarities,
+                "is_match": result.is_match,
+                "diff": result.confidence,  # Use confidence as "diff" for display
+                "threshold": result.threshold,
+                "classifier_type": "ml",
+                "features": result.features,
+            }
+        else:
+            simple_clf = get_simple_classifier()
+            result = simple_clf.classify(similarities)
+            return {
+                "glashelder_index": image_index,
+                "glashelder_path": glashelder_path,
+                "top_indices": top_indices_list,
+                "similarities": similarities,
+                "is_match": result.is_match,
+                "diff": result.diff,
+                "threshold": result.threshold,
+                "classifier_type": "simple",
+            }
 
     def find_next_in_queue(start_queue_pos: int, want_match: bool) -> dict | None:
         """Find next image in shuffled queue that matches/doesn't match."""
