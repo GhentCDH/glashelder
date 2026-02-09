@@ -795,6 +795,8 @@ def serve(
             diff=item["diff"],
             threshold=item["threshold"],
             dataset_counts=get_dataset_counts(),
+            classifier_type=item.get("classifier_type", "simple"),
+            features=item.get("features", {}),
         )
 
     @app.route("/")
@@ -821,6 +823,8 @@ def serve(
             diff=item["diff"] if item else 0.0,
             threshold=item["threshold"] if item else state["threshold"],
             dataset_counts=get_dataset_counts(),
+            classifier_type=item.get("classifier_type", "simple") if item else "simple",
+            features=item.get("features", {}) if item else {},
         )
 
     @app.route("/next-match", methods=["POST"])

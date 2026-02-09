@@ -13,6 +13,9 @@
 
 <div class="flex gap-4 items-center p-3 bg-neutral-100 rounded mb-4 text-sm">
   <span>Image {{ current_index + 1 }} of {{ total_images }}</span>
+  <span class="px-2 py-1 rounded text-xs {% if classifier_type == 'ml' %}bg-purple-100 text-purple-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+    {{ classifier_type|upper }}
+  </span>
   <span class="ml-auto">
     Classification:
     <span
@@ -22,7 +25,11 @@
     </span>
   </span>
   <span>
+    {% if classifier_type == 'ml' %}
+    Confidence:
+    {% else %}
     Diff:
+    {% endif %}
     <span
       class="font-bold {% if diff > threshold %}text-green-600{% else %}text-red-600{% endif %}"
     >
@@ -87,8 +94,93 @@
   {% endif %}
 </div>
 
+{% if classifier_type == 'ml' and features %}
+<div class="grid grid-cols-2 gap-4 mb-8">
+  <!-- SIFT Features Panel -->
+  <div class="border-2 border-purple-200 rounded p-4">
+    <h2 class="text-sm font-bold mb-3 text-purple-800">SIFT Geometric Features</h2>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>Matches:</span>
+        <span class="font-bold">{{ features.sift_num_matches|int }}</span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>Inliers:</span>
+        <span class="font-bold {% if features.sift_num_inliers > 10 %}text-green-600{% elif features.sift_num_inliers > 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.sift_num_inliers|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>SIFT Confidence:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.sift_confidence) }}</span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>Inlier Ratio:</span>
+        <span class="font-bold">{{ "%.2f"|format(features.inlier_match_ratio) }}</span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded col-span-2">
+        <span>Warp Stretch:</span>
+        <span class="font-bold {% if features.sift_warp_stretch < 2 %}text-green-600{% elif features.sift_warp_stretch < 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ "%.2f"|format(features.sift_warp_stretch) }}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Embedding Features Panel -->
+  <div class="border-2 border-blue-200 rounded p-4">
+    <h2 class="text-sm font-bold mb-3 text-blue-800">Key Embedding Features</h2>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Top Similarity:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.sim_0) }}</span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Gap (1st-2nd):</span>
+        <span class="font-bold {% if features.gap_01 > 0.1 %}text-green-600{% elif features.gap_01 > 0.05 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ "%.4f"|format(features.gap_01) }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Z-Score:</span>
+        <span class="font-bold {% if features.sim_0_zscore > 3 %}text-green-600{% elif features.sim_0_zscore > 2 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ "%.2f"|format(features.sim_0_zscore) }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Poly Diff:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.poly_diff) }}</span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Sim Ratio:</span>
+        <span class="font-bold">{{ "%.3f"|format(features.sim_ratio_01) }}</span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Decay Rate:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.decay_rate) }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- All Features (collapsible) -->
+<details class="mb-8 border-2 border-neutral-200 rounded">
+  <summary class="p-3 bg-neutral-100 cursor-pointer text-sm font-bold">
+    All 19 ML Features (click to expand)
+  </summary>
+  <div class="p-4 grid grid-cols-3 gap-2 text-xs">
+    {% for name, value in features.items() %}
+    <div class="flex justify-between bg-neutral-50 p-2 rounded">
+      <span class="text-neutral-600">{{ name }}:</span>
+      <span class="font-mono">{{ "%.4f"|format(value) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
 <div class="border-2 border-neutral-200 rounded p-4">
-  <h2 class="text-sm font-bold mb-4">Similarity Scores</h2>
+  <h2 class="text-sm font-bold mb-4">Similarity Scores (CLIP Embeddings)</h2>
   <svg
     id="similarity-plot"
     width="100%"
@@ -106,6 +198,7 @@
   ];
   const diff = {{ diff }};
   const threshold = {{ threshold }};
+  const classifierType = "{{ classifier_type }}";
 
   function drawSimilarityPlot() {
     const svg = document.getElementById('similarity-plot');
@@ -191,7 +284,7 @@
       g.appendChild(path);
     }
 
-    // Draw first point highlighted
+    // Draw first point highlighted (color based on ML confidence or simple diff)
     const cx = xScale(0);
     const cy = yScale(similarityScores[0]);
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
