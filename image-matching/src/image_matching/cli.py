@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image
 
 from common import ASSETS_DIR
+from common.clipmodel import get_device
 from image_matching.recognition import (
     RecognitionDatabase,
     build_database,
@@ -445,7 +446,9 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
         )
         return
 
-    embedder = clipcluster.get_embedder("dino")
+    embedder = clipcluster.get_embedder(model)
+    device = get_device()
+    embedder.load(device)
 
     image_paths = glob.glob(f"{image_dir}/**/*.jpg", recursive=True)
 
