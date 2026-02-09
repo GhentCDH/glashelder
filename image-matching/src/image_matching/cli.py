@@ -439,13 +439,15 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     """Create labels for images' similarity score plots"""
 
     device = get_device()
-    embeddings = clipcluster.load_embeddings(embeddings)["embeddings"].to(device)
+    data = clipcluster.load_embeddings(embeddings)
 
-    if embeddings.get("model", "clip") != model:
+    if data.get("model", "clip") != model:
         logger.error(
             "Embeddings should be from the same model as the model used for the embedder of glashelder images (the --model option)"
         )
         return
+
+    embeddings = data["embeddings"].to(device)
 
     embedder = clipcluster.get_embedder(model)
     embedder.load(device)
