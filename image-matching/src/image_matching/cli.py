@@ -476,3 +476,6 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
         is_known_painting = matcher.classify(similarities)
 
         logger.info(f"Is known painting: {is_known_painting}")
+
+        if is_known_painting:
+            logger.info(f"MATCHMATCHMATCH: \n{image_path}")
