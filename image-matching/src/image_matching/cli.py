@@ -25,6 +25,7 @@ from image_matching.stitching import (
 )
 
 WINDOW = "image-matching"
+PACKAGE_ROOT = Path(__file__).parent.parent.parent
 
 logger = logging.getLogger(__name__)
 
@@ -482,3 +483,208 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
             logger.info(
                 f"MATCHMATCHMATCH: \n{image_path} \nmatches \n{wikiart_paths[indexes[0]]}"
             )
+
+
+@image_matching.command()
+@click.option(
+    "--wikiart-embeddings",
+    "-w",
+    type=str,
+    required=True,
+    help="Path to the wikiart embeddings '.pkl' file",
+)
+@click.option(
+    "--glashelder-embeddings",
+    "-g",
+    type=str,
+    default=None,
+    help="Path to pre-calculated glashelder embeddings '.pkl' file (optional)",
+)
+@click.option(
+    "--model",
+    default="clip",
+    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    help="Embedding model to use",
+)
+@click.option(
+    "--image-dir",
+    "-i",
+    type=str,
+    default=ASSETS_DIR,
+    help="Path to the Glashelder images",
+)
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", default=5000, help="Port to bind to")
+@click.option("--top-k", default=10, help="Number of top matches to consider")
+def serve(
+    wikiart_embeddings: str,
+    glashelder_embeddings: str | None,
+    model: Literal["clip", "dinov2", "qwen3vl"],
+    image_dir: str,
+    host: str,
+    port: int,
+    top_k: int,
+):
+    """Start a web interface for labeling artwork matches."""
+    from flask import Flask, render_template, send_file
+
+    import clipcluster
+
+    app = Flask(
+        __name__,
+        template_folder=PACKAGE_ROOT / "templates",
+    )
+
+    device = get_device()
+    logger.info(f"Using device: {device}")
+
+    # Load wikiart embeddings
+    logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
+    wikiart_data = clipcluster.load_embeddings(wikiart_embeddings)
+    wikiart_emb = wikiart_data["embeddings"].to(device)
+    wikiart_paths: list[str] = wikiart_data["images"]
+    embedding_model_name = wikiart_data.get("model", "clip")
+    logger.info(f"Loaded {len(wikiart_paths)} wikiart images")
+    logger.info(f"Embedding model: {embedding_model_name}")
+
+    if embedding_model_name != model:
+        logger.warning(
+            f"Wikiart embeddings use model '{embedding_model_name}' but --model is '{model}'. "
+            f"Using '{embedding_model_name}' for consistency."
+        )
+        model = embedding_model_name  # type: ignore
+
+    # Load or generate glashelder embeddings
+    if glashelder_embeddings is not None:
+        logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
+        glashelder_data = clipcluster.load_embeddings(glashelder_embeddings)
+        glashelder_emb = glashelder_data["embeddings"].to(device)
+        glashelder_paths: list[str] = glashelder_data["images"]
+        logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
+    else:
+        logger.info(f"Loading embedder model: {model}")
+        embedder = clipcluster.get_embedder(model)
+        embedder.load(device)
+
+        glashelder_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
+        logger.info(f"Found {len(glashelder_paths)} glashelder images")
+
+        logger.info("Generating glashelder embeddings (this may take a while)...")
+        glashelder_emb, glashelder_paths = embedder.encode_images(
+            glashelder_paths, batch_size=64
+        )
+        glashelder_emb = glashelder_emb.to(device)
+        logger.info(f"Generated embeddings for {len(glashelder_paths)} images")
+
+    # Create classifier
+    classifier = SimpleClassifier()
+
+    # State for tracking current position
+    state = {
+        "match_index": 0,
+        "negative_index": 0,
+        "matches": [],
+        "negatives": [],
+    }
+
+    # Pre-classify all images
+    logger.info("Pre-classifying all images...")
+    for i, emb in enumerate(glashelder_emb):
+        top_indices, top_values = clipcluster.perform_search(
+            top_k, emb.unsqueeze(0), wikiart_emb, wikiart_paths
+        )
+        similarities = top_values.cpu().numpy().tolist()
+        is_match = classifier.classify(similarities)
+
+        item = {
+            "glashelder_index": i,
+            "glashelder_path": glashelder_paths[i],
+            "top_indices": top_indices.cpu().numpy().tolist(),
+            "similarities": similarities,
+            "is_match": is_match,
+        }
+
+        if is_match:
+            state["matches"].append(item)
+        else:
+            state["negatives"].append(item)
+
+    logger.info(
+        f"Found {len(state['matches'])} matches and {len(state['negatives'])} negatives"
+    )
+
+    def get_current_item(is_match: bool) -> dict | None:
+        if is_match:
+            if state["match_index"] >= len(state["matches"]):
+                return None
+            return state["matches"][state["match_index"]]
+        else:
+            if state["negative_index"] >= len(state["negatives"]):
+                return None
+            return state["negatives"][state["negative_index"]]
+
+    def render_content(item: dict | None, is_match_view: bool) -> str:
+        if item is None:
+            return render_template(
+                "content.html",
+                error=f"No more {'matches' if is_match_view else 'negatives'} to show.",
+            )
+
+        return render_template(
+            "content.html",
+            error=None,
+            current_index=item["glashelder_index"],
+            total_images=len(glashelder_paths),
+            glashelder_path=item["glashelder_path"],
+            wikiart_path=wikiart_paths[item["top_indices"][0]]
+            if item["is_match"]
+            else None,
+            top_match_index=item["top_indices"][0],
+            similarities=item["similarities"],
+            is_match=item["is_match"],
+        )
+
+    @app.route("/")
+    def index():
+        item = get_current_item(True) or get_current_item(False)
+        return render_template(
+            "labeler.html",
+            error=None if item else "No images found.",
+            current_index=item["glashelder_index"] if item else 0,
+            total_images=len(glashelder_paths),
+            glashelder_path=item["glashelder_path"] if item else "",
+            wikiart_path=wikiart_paths[item["top_indices"][0]]
+            if item and item["is_match"]
+            else None,
+            top_match_index=item["top_indices"][0] if item else 0,
+            similarities=item["similarities"] if item else [],
+            is_match=item["is_match"] if item else False,
+        )
+
+    @app.route("/next-match", methods=["POST"])
+    def next_match():
+        state["match_index"] += 1
+        item = get_current_item(True)
+        return render_content(item, True)
+
+    @app.route("/next-negative", methods=["POST"])
+    def next_negative():
+        state["negative_index"] += 1
+        item = get_current_item(False)
+        return render_content(item, False)
+
+    @app.route("/glashelder-image/<int:index>")
+    def serve_glashelder_image(index: int):
+        if index < 0 or index >= len(glashelder_paths):
+            return "Image not found", 404
+        return send_file(glashelder_paths[index])
+
+    @app.route("/wikiart-image/<int:index>")
+    def serve_wikiart_image(index: int):
+        if index < 0 or index >= len(wikiart_paths):
+            return "Image not found", 404
+        return send_file(wikiart_paths[index])
+
+    logger.info(f"Starting Flask server on {host}:{port}...")
+    logger.info(f"Open http://localhost:{port} in your browser")
+    app.run(host=host, port=port, debug=True)
