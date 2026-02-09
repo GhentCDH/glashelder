@@ -7,9 +7,7 @@
   <span class="text-red-600">FN: {{ dataset_counts.false_negatives }}</span>
   <span class="ml-auto font-bold">Total: {{ dataset_counts.total }}</span>
 </div>
-{% endif %}
-
-{% if error %}
+{% endif %} {% if error %}
 <div class="bg-red-500 text-white p-4 rounded">{{ error }}</div>
 {% else %}
 
@@ -17,13 +15,17 @@
   <span>Image {{ current_index + 1 }} of {{ total_images }}</span>
   <span class="ml-auto">
     Classification:
-    <span class="font-bold {% if is_match %}text-green-600{% else %}text-red-600{% endif %}">
+    <span
+      class="font-bold {% if is_match %}text-green-600{% else %}text-red-600{% endif %}"
+    >
       {{ "MATCH" if is_match else "NO MATCH" }}
     </span>
   </span>
   <span>
     Diff:
-    <span class="font-bold {% if diff > threshold %}text-green-600{% else %}text-red-600{% endif %}">
+    <span
+      class="font-bold {% if diff > threshold %}text-green-600{% else %}text-red-600{% endif %}"
+    >
       {{ "%.4f"|format(diff) }}
     </span>
     (threshold: {{ "%.2f"|format(threshold) }})
@@ -57,7 +59,9 @@
   </form>
 </div>
 
-<div class="grid {% if is_match %}grid-cols-2{% else %}grid-cols-1{% endif %} gap-8 mb-8">
+<div
+  class="grid {% if is_match %}grid-cols-2{% else %}grid-cols-1{% endif %} gap-8 mb-8"
+>
   <div class="border-2 border-neutral-200 rounded overflow-hidden">
     <h2 class="p-3 bg-neutral-200 text-sm font-bold">Glashelder Image</h2>
     <img
@@ -65,32 +69,36 @@
       alt="Glashelder image"
       class="w-full h-[500px] object-contain bg-neutral-50"
     />
-    <div class="p-3 text-xs break-all bg-neutral-50">
-      {{ glashelder_path }}
-    </div>
+    <div class="p-3 text-xs break-all bg-neutral-50">{{ glashelder_path }}</div>
   </div>
 
   {% if is_match %}
   <div class="border-2 border-neutral-200 rounded overflow-hidden">
-    <h2 class="p-3 bg-green-100 text-sm font-bold text-green-800">WikiArt Match</h2>
+    <h2 class="p-3 bg-green-100 text-sm font-bold text-green-800">
+      WikiArt Match
+    </h2>
     <img
       src="/wikiart-image/{{ top_match_index }}"
       alt="WikiArt match"
       class="w-full h-[500px] object-contain bg-neutral-50"
     />
-    <div class="p-3 text-xs break-all bg-neutral-50">
-      {{ wikiart_path }}
-    </div>
+    <div class="p-3 text-xs break-all bg-neutral-50">{{ wikiart_path }}</div>
   </div>
   {% endif %}
 </div>
 
 <div class="border-2 border-neutral-200 rounded p-4">
   <h2 class="text-sm font-bold mb-4">Similarity Scores</h2>
-  <svg id="similarity-plot" width="100%" height="200" style="display: block;"></svg>
+  <svg
+    id="similarity-plot"
+    width="100%"
+    height="200"
+    style="display: block"
+  ></svg>
 </div>
 
 <script>
+(function() {
   const similarityScores = [
     {% for score in similarities %}
       {{ score }}{{ "," if not loop.last else "" }}
@@ -196,13 +204,11 @@
     svg.appendChild(g);
   }
 
-  // Draw after a small delay to ensure layout is complete
+  // Draw after layout is complete
   requestAnimationFrame(() => {
     requestAnimationFrame(drawSimilarityPlot);
   });
-
-  // Also redraw on resize
-  window.addEventListener('resize', drawSimilarityPlot);
+})();
 </script>
 
 {% endif %}
