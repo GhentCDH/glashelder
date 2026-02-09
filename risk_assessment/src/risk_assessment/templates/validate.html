@@ -67,10 +67,38 @@
       }
 
       .content {
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
+        padding: 30px;
+      }
+
+      .models-comparison {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 30px;
-        padding: 30px;
+      }
+
+      .single-model-view {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 30px;
+      }
+
+      .model-section {
+        border: 2px solid #e5e5e5;
+        border-radius: 8px;
+        padding: 20px;
+        background: #fafafa;
+      }
+
+      .model-header {
+        font-size: 18px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #ddd;
       }
 
       .info-panel {
@@ -121,20 +149,6 @@
         font-size: 18px;
       }
 
-      .image-panel {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .image-panel img {
-        max-width: 100%;
-        max-height: 600px;
-        border-radius: 4px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      }
-
       .navigation {
         display: flex;
         gap: 10px;
@@ -174,8 +188,33 @@
         word-wrap: break-word;
       }
 
+      .image-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: #f9f9f9;
+        border-radius: 8px;
+      }
+
+      .image-section img {
+        max-width: 100%;
+        max-height: 500px;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      }
+
+      .image-filename {
+        margin-top: 15px;
+        font-size: 14px;
+        color: #666;
+        font-weight: 500;
+      }
+
       @media (max-width: 768px) {
-        .content {
+        .models-comparison,
+        .single-model-view {
           grid-template-columns: 1fr;
         }
       }
@@ -192,39 +231,112 @@
       </div>
 
       <div class="content">
-        <div class="info-panel">
-          <div class="info-item">
-            <div class="info-label">Filename</div>
-            <div class="info-value">{{ result.image }}</div>
-          </div>
+        <!-- Image Section -->
+        <div class="image-section">
+          <img src="/image/{{ result_model1.image }}" alt="{{ result_model1.image }}" />
+          <div class="image-filename">{{ result_model1.image }}</div>
+        </div>
 
-          <div class="info-item">
-            <div class="info-label">Rating</div>
-            <div class="info-value">
-              {% if result.rating == "Safe" %}
-                <span class="rating-safe">{{ result.rating }}</span>
-              {% elif result.rating == "Potentially Problematic" %}
-                <span class="rating-potentially-problematic">{{ result.rating }}</span>
-              {% else %}
-                <span class="rating-unsafe">{{ result.rating }}</span>
-              {% endif %}
+        <!-- Models Comparison -->
+        {% if has_model2 %}
+        <div class="models-comparison">
+          <!-- LavaGuard Results -->
+          <div class="model-section">
+            <div class="model-header">LavaGuard</div>
+            <div class="info-panel">
+              <div class="info-item">
+                <div class="info-label">Rating</div>
+                <div class="info-value">
+                  {% if result_model1.rating == "Safe" %}
+                    <span class="rating-safe">{{ result_model1.rating }}</span>
+                  {% elif result_model1.rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result_model1.rating }}</span>
+                  {% else %}
+                    <span class="rating-unsafe">{{ result_model1.rating }}</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="info-item">
+                <div class="info-label">Category</div>
+                <div class="info-value">{{ result_model1.category }}</div>
+              </div>
+
+              <div class="info-item">
+                <div class="info-label">Rationale</div>
+                <div class="info-value rationale-text">{{ result_model1.rationale }}</div>
+              </div>
             </div>
           </div>
 
-          <div class="info-item">
-            <div class="info-label">Category</div>
-            <div class="info-value">{{ result.category }}</div>
-          </div>
+          <!-- Qwen3asGuard Results -->
+          <div class="model-section">
+            <div class="model-header">Qwen3asGuard</div>
+            {% if result_model2 %}
+            <div class="info-panel">
+              <div class="info-item">
+                <div class="info-label">Rating</div>
+                <div class="info-value">
+                  {% if result_model2.rating == "Safe" %}
+                    <span class="rating-safe">{{ result_model2.rating }}</span>
+                  {% elif result_model2.rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result_model2.rating }}</span>
+                  {% else %}
+                    <span class="rating-unsafe">{{ result_model2.rating }}</span>
+                  {% endif %}
+                </div>
+              </div>
 
-          <div class="info-item">
-            <div class="info-label">Rationale</div>
-            <div class="info-value rationale-text">{{ result.rationale }}</div>
+              <div class="info-item">
+                <div class="info-label">Category</div>
+                <div class="info-value">{{ result_model2.category }}</div>
+              </div>
+
+              <div class="info-item">
+                <div class="info-label">Rationale</div>
+                <div class="info-value rationale-text">{{ result_model2.rationale }}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="info-value" style="color: #999; text-align: center; padding: 40px;">
+              No result available for this image
+            </div>
+            {% endif %}
           </div>
         </div>
+        {% else %}
+        <!-- Single Model View -->
+        <div class="single-model-view">
+          <div class="info-panel">
+            <div class="info-item">
+              <div class="info-label">Rating</div>
+              <div class="info-value">
+                {% if result_model1.rating == "Safe" %}
+                  <span class="rating-safe">{{ result_model1.rating }}</span>
+                {% elif result_model1.rating == "Potentially Problematic" %}
+                  <span class="rating-potentially-problematic">{{ result_model1.rating }}</span>
+                {% else %}
+                  <span class="rating-unsafe">{{ result_model1.rating }}</span>
+                {% endif %}
+              </div>
+            </div>
 
-        <div class="image-panel">
-          <img src="/image/{{ result.image }}" alt="{{ result.image }}" />
+            <div class="info-item">
+              <div class="info-label">Category</div>
+              <div class="info-value">{{ result_model1.category }}</div>
+            </div>
+
+            <div class="info-item">
+              <div class="info-label">Rationale</div>
+              <div class="info-value rationale-text">{{ result_model1.rationale }}</div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: center; color: #999;">
+            <p>Configure CSV_PATH_MODEL2 in validate_results.py to enable comparison mode</p>
+          </div>
         </div>
+        {% endif %}
       </div>
 
       <div class="navigation">

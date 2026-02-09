@@ -8,53 +8,87 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 CSV_PATH = "/home/bas/Documents/Visual Code Repos/glashelder/lavaguard_risk_assessment_results.csv"
+CSV_PATH_MODEL2 = "/home/bas/Documents/Visual Code Repos/glashelder/qwen3_risk_assessment_results.csv"
 IMAGES_DIR = Path("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 app = Flask(__name__, template_folder=str(TEMPLATES_DIR))
 
-# Global results list
-results = []
+# Global results lists
+results_model1 = []
+results_model2 = []
 
 
 def load_results():
-    """Load results from CSV file."""
-    global results
+    """Load results from CSV files."""
+    global results_model1, results_model2
+
+    # Load model 1 results
     with open(CSV_PATH, 'r') as f:
         reader = csv.DictReader(f)
-        results = list(reader)
-    logger.info(f"Loaded {len(results)} results from {CSV_PATH}")
+        results_model1 = list(reader)
+    logger.info(f"Loaded {len(results_model1)} results from {CSV_PATH}")
+
+    # Load model 2 results if path is configured
+    if CSV_PATH_MODEL2 and Path(CSV_PATH_MODEL2).exists():
+        with open(CSV_PATH_MODEL2, 'r') as f:
+            reader = csv.DictReader(f)
+            results_model2 = list(reader)
+        logger.info(f"Loaded {len(results_model2)} results from {CSV_PATH_MODEL2}")
+    else:
+        results_model2 = []
+        logger.info("Model 2 results not configured or file not found")
 
 
 # Load results at startup
 load_results()
 
 
+def get_model2_result(image_name):
+    """Get the corresponding result from model 2 for the given image."""
+    if not results_model2:
+        return None
+
+    # Find matching result by image name
+    for result in results_model2:
+        if result.get('image') == image_name:
+            return result
+    return None
+
+
 @app.route("/")
 def index():
     """Show the first result."""
-    if not results:
+    if not results_model1:
         return "No results found", 404
+
+    result_model2 = get_model2_result(results_model1[0].get('image'))
 
     return render_template(
         "validate.html",
-        result=results[0],
+        result_model1=results_model1[0],
+        result_model2=result_model2,
         index=0,
-        total=len(results)
+        total=len(results_model1),
+        has_model2=bool(results_model2)
     )
 
 
 @app.route("/result/<int:index>")
 def show_result(index):
     """Show a specific result by index."""
-    if index < 0 or index >= len(results):
+    if index < 0 or index >= len(results_model1):
         return "Result not found", 404
+
+    result_model2 = get_model2_result(results_model1[index].get('image'))
 
     return render_template(
         "validate.html",
-        result=results[index],
+        result_model1=results_model1[index],
+        result_model2=result_model2,
         index=index,
-        total=len(results)
+        total=len(results_model1),
+        has_model2=bool(results_model2)
     )
 
 

@@ -230,5 +230,5 @@ def assess_risk_of_image_folder(folder_path, output_csv="qwen3_risk_assessment_r
 
 if __name__ == "__main__":
     # Example usage
-    # assess_risk_of_image_folder("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop")
-    assess_risk_of_image("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/sn01004006_tiff.jpg")
+    assess_risk_of_image_folder("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop")
+    # assess_risk_of_image("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/sn01004006_tiff.jpg")
