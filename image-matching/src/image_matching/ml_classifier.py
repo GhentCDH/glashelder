@@ -83,7 +83,26 @@ def _extract_sift_worker(
         else 0.0
     )
 
+    # Sanitize to remove NaN/Inf values
+    features = _sanitize_features(features)
+
     return (idx, features, label)
+
+
+def _sanitize_features(features: dict[str, float]) -> dict[str, float]:
+    """Replace NaN and Inf values with safe defaults."""
+    sanitized = {}
+    for key, value in features.items():
+        if np.isnan(value) or np.isinf(value):
+            # Use 0 as default for most features, 1.0 for ratios and warp_stretch
+            if "ratio" in key or "warp_stretch" in key:
+                sanitized[key] = 1.0
+            else:
+                sanitized[key] = 0.0
+        else:
+            # Clip to reasonable range to avoid sklearn issues
+            sanitized[key] = float(np.clip(value, -1e6, 1e6))
+    return sanitized
 
 
 def _extract_distribution_features(similarities: list[float]) -> dict[str, float]:
@@ -104,7 +123,9 @@ def _extract_distribution_features(similarities: list[float]) -> dict[str, float
     features["mean_1to9"] = float(np.mean(rest))
     features["std_1to9"] = float(np.std(rest)) if len(rest) > 1 else 0.0
 
-    if features["std_1to9"] > 0:
+    # Z-score with minimum std threshold to avoid huge values
+    std_threshold = 1e-6
+    if features["std_1to9"] > std_threshold:
         features["sim_0_zscore"] = (
             features["sim_0"] - features["mean_1to9"]
         ) / features["std_1to9"]
@@ -113,8 +134,11 @@ def _extract_distribution_features(similarities: list[float]) -> dict[str, float
 
     if len(rest) > 1:
         x = np.arange(len(rest))
-        coeffs = np.polyfit(x, rest, 1)
-        features["decay_rate"] = float(coeffs[0])
+        try:
+            coeffs = np.polyfit(x, rest, 1)
+            features["decay_rate"] = float(coeffs[0])
+        except (np.linalg.LinAlgError, ValueError):
+            features["decay_rate"] = 0.0
     else:
         features["decay_rate"] = 0.0
 
@@ -134,13 +158,20 @@ def _extract_distribution_features(similarities: list[float]) -> dict[str, float
             weights = np.exp(-0.5 * (indices / sigma) ** 2)
             weights = weights / weights.sum()
         x = np.arange(n_rest)
-        coeffs = np.polyfit(x, rest_list, 1, w=weights)
-        features["poly_diff"] = similarities[0] - coeffs[-1]
+        try:
+            coeffs = np.polyfit(x, rest_list, 1, w=weights)
+            features["poly_diff"] = similarities[0] - coeffs[-1]
+        except (np.linalg.LinAlgError, ValueError):
+            features["poly_diff"] = 0.0
     else:
         features["poly_diff"] = 0.0
 
+    # Ratio with minimum denominator threshold
+    min_denom = 1e-6
     features["sim_ratio_01"] = (
-        features["sim_0"] / features["sim_1"] if features["sim_1"] > 0 else 1.0
+        features["sim_0"] / max(features["sim_1"], min_denom)
+        if features["sim_1"] > min_denom
+        else 1.0
     )
 
     return features
@@ -453,8 +484,9 @@ class FeatureExtractor:
         features["mean_1to9"] = float(np.mean(rest))
         features["std_1to9"] = float(np.std(rest)) if len(rest) > 1 else 0.0
 
-        # Z-score of top similarity
-        if features["std_1to9"] > 0:
+        # Z-score of top similarity with minimum std threshold
+        std_threshold = 1e-6
+        if features["std_1to9"] > std_threshold:
             features["sim_0_zscore"] = (
                 features["sim_0"] - features["mean_1to9"]
             ) / features["std_1to9"]
@@ -464,8 +496,11 @@ class FeatureExtractor:
         # Decay rate (linear slope of similarities[1:10])
         if len(rest) > 1:
             x = np.arange(len(rest))
-            coeffs = np.polyfit(x, rest, 1)
-            features["decay_rate"] = float(coeffs[0])
+            try:
+                coeffs = np.polyfit(x, rest, 1)
+                features["decay_rate"] = float(coeffs[0])
+            except (np.linalg.LinAlgError, ValueError):
+                features["decay_rate"] = 0.0
         else:
             features["decay_rate"] = 0.0
 
@@ -476,9 +511,12 @@ class FeatureExtractor:
         # Poly diff (SimpleClassifier's diff value)
         features["poly_diff"] = self._compute_poly_diff(similarities)
 
-        # Ratio features
+        # Ratio features with minimum denominator threshold
+        min_denom = 1e-6
         features["sim_ratio_01"] = (
-            features["sim_0"] / features["sim_1"] if features["sim_1"] > 0 else 1.0
+            features["sim_0"] / max(features["sim_1"], min_denom)
+            if features["sim_1"] > min_denom
+            else 1.0
         )
 
         return features
@@ -503,10 +541,12 @@ class FeatureExtractor:
 
         # Fit weighted linear polynomial
         x = np.arange(n)
-        coeffs = np.polyfit(x, rest, 1, w=weights)
-        at_zero = coeffs[-1]  # Intercept
-
-        return similarities[0] - at_zero
+        try:
+            coeffs = np.polyfit(x, rest, 1, w=weights)
+            at_zero = coeffs[-1]  # Intercept
+            return similarities[0] - at_zero
+        except (np.linalg.LinAlgError, ValueError):
+            return 0.0
 
     def extract_all_features(
         self,
@@ -548,7 +588,8 @@ class FeatureExtractor:
             features["sift_warp_stretch"] = 1.0
             features["inlier_match_ratio"] = 0.0
 
-        return features
+        # Sanitize to remove NaN/Inf values
+        return _sanitize_features(features)
 
 
 @dataclass
