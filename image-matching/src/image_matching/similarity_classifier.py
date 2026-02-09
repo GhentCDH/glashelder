@@ -115,18 +115,32 @@ def gaussian_weights_min(
     return gaussian_weights(length, center, sigma)
 
 
+class ClassificationResult:
+    """Result of a classification containing the decision and the diff value."""
+
+    def __init__(self, is_match: bool, diff: float, threshold: float):
+        self.is_match = is_match
+        self.diff = diff
+        self.threshold = threshold
+
+
 class SimpleClassifier:
     """Classifies whether or not the top n similarity scores indicate that index 0 (the most similar) is an actual match"""
 
-    def __init__(self):
-        pass
+    def __init__(self, threshold: float = 0.2):
+        self.threshold = threshold
 
-    def classify(self, similarities: list[float]) -> bool:
+    def classify(self, similarities: list[float]) -> ClassificationResult:
         weights = gaussian_weights_min(len(similarities[1:]), 0, 0.3)
         fitted = fit_poly(
             similarities[1:], list(range(len(similarities[1:]))), weights, 1
         )
 
         at_zero = fitted[-1]
+        diff = similarities[0] - at_zero
 
-        return similarities[0] - at_zero > 0.2
+        return ClassificationResult(
+            is_match=diff > self.threshold,
+            diff=diff,
+            threshold=self.threshold,
+        )
