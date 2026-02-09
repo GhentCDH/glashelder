@@ -1,0 +1,248 @@
+{% if error %}
+<div class="bg-red-500 text-white p-4 rounded">{{ error }}</div>
+{% else %}
+
+<div class="flex gap-4 items-center p-3 bg-neutral-100 rounded mb-4 text-sm">
+  <span>Image {{ current_index + 1 }} of {{ total_images }}</span>
+  <span class="ml-auto">
+    Classification:
+    <span class="font-bold {% if is_match %}text-green-600{% else %}text-red-600{% endif %}">
+      {{ "MATCH" if is_match else "NO MATCH" }}
+    </span>
+  </span>
+  <span>
+    Top Score:
+    <span class="font-bold {% if similarities[0] > 0.5 %}text-green-600{% else %}text-red-600{% endif %}">
+      {{ "%.4f"|format(similarities[0]) }}
+    </span>
+  </span>
+</div>
+
+<div class="grid {% if is_match %}grid-cols-2{% else %}grid-cols-1{% endif %} gap-8 mb-8">
+  <div class="border-2 border-neutral-200 rounded overflow-hidden">
+    <h2 class="p-3 bg-neutral-200 text-sm font-bold">Glashelder Image</h2>
+    <img
+      src="/glashelder-image/{{ current_index }}"
+      alt="Glashelder image"
+      class="w-full h-[500px] object-contain bg-neutral-50"
+    />
+    <div class="p-3 text-xs break-all bg-neutral-50">
+      {{ glashelder_path }}
+    </div>
+  </div>
+
+  {% if is_match %}
+  <div class="border-2 border-neutral-200 rounded overflow-hidden">
+    <h2 class="p-3 bg-green-100 text-sm font-bold text-green-800">WikiArt Match</h2>
+    <img
+      src="/wikiart-image/{{ top_match_index }}"
+      alt="WikiArt match"
+      class="w-full h-[500px] object-contain bg-neutral-50"
+    />
+    <div class="p-3 text-xs break-all bg-neutral-50">
+      {{ wikiart_path }}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="border-2 border-neutral-200 rounded p-4">
+  <h2 class="text-sm font-bold mb-4">Similarity Scores Distribution</h2>
+
+  <div class="mb-2 text-sm">
+    <strong>Peak analysis:</strong>
+    <span id="peak-analysis"></span>
+  </div>
+
+  <svg id="similarity-plot" width="100%" height="200" class="border border-neutral-300 rounded"></svg>
+
+  <div class="mt-2 text-xs text-neutral-500">
+    The first result should appear as a clear peak if it's a true match.
+    A significant gap between rank 1 and rank 2 indicates high confidence.
+  </div>
+</div>
+
+<script>
+  const similarityScores = [
+    {% for score in similarities %}
+      {{ score }}{{ "," if not loop.last else "" }}
+    {% endfor %}
+  ];
+
+  function drawSimilarityPlot() {
+    if (similarityScores.length === 0) return;
+
+    const svg = document.getElementById('similarity-plot');
+    const width = svg.clientWidth;
+    const height = 200;
+    const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+
+    svg.innerHTML = '';
+
+    const maxScore = Math.max(...similarityScores);
+    const minScore = Math.min(...similarityScores);
+    const scoreRange = maxScore - minScore || 0.1;
+
+    const gap = similarityScores.length > 1 ? similarityScores[0] - similarityScores[1] : 0;
+    const avgGap = similarityScores.length > 1
+      ? similarityScores.slice(0, -1).map((s, i) => s - similarityScores[i + 1]).reduce((a, b) => a + b, 0) / (similarityScores.length - 1)
+      : 0;
+    const gapRatio = avgGap > 0 ? gap / avgGap : 0;
+
+    const analysisText = document.getElementById('peak-analysis');
+    if (similarityScores.length === 1) {
+      analysisText.textContent = `Single result (score: ${similarityScores[0].toFixed(4)})`;
+      analysisText.className = 'text-neutral-600';
+    } else {
+      const gapText = `Gap: ${gap.toFixed(4)} (${gapRatio.toFixed(2)}x avg)`;
+      if (gapRatio > 2.0) {
+        analysisText.textContent = `Strong peak! ${gapText} - Likely a good match`;
+        analysisText.className = 'text-green-600 font-bold';
+      } else if (gapRatio > 1.5) {
+        analysisText.textContent = `Moderate peak. ${gapText} - Possible match`;
+        analysisText.className = 'text-yellow-600 font-bold';
+      } else {
+        analysisText.textContent = `Weak peak. ${gapText} - Match uncertain`;
+        analysisText.className = 'text-red-600 font-bold';
+      }
+    }
+
+    const xScale = (i) => padding.left + (i / (similarityScores.length - 1 || 1)) * plotWidth;
+    const yScale = (score) => padding.top + plotHeight - ((score - minScore) / scoreRange) * plotHeight;
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+    // Y-axis
+    const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    yAxis.setAttribute('x1', padding.left);
+    yAxis.setAttribute('y1', padding.top);
+    yAxis.setAttribute('x2', padding.left);
+    yAxis.setAttribute('y2', height - padding.bottom);
+    yAxis.setAttribute('stroke', '#666');
+    yAxis.setAttribute('stroke-width', '1');
+    g.appendChild(yAxis);
+
+    // X-axis
+    const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    xAxis.setAttribute('x1', padding.left);
+    xAxis.setAttribute('y1', height - padding.bottom);
+    xAxis.setAttribute('x2', width - padding.right);
+    xAxis.setAttribute('y2', height - padding.bottom);
+    xAxis.setAttribute('stroke', '#666');
+    xAxis.setAttribute('stroke-width', '1');
+    g.appendChild(xAxis);
+
+    // Y-axis labels
+    const numYTicks = 5;
+    for (let i = 0; i <= numYTicks; i++) {
+      const score = minScore + (scoreRange * i / numYTicks);
+      const y = yScale(score);
+
+      const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      tick.setAttribute('x1', padding.left - 5);
+      tick.setAttribute('y1', y);
+      tick.setAttribute('x2', padding.left);
+      tick.setAttribute('y2', y);
+      tick.setAttribute('stroke', '#666');
+      g.appendChild(tick);
+
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', padding.left - 10);
+      label.setAttribute('y', y + 4);
+      label.setAttribute('text-anchor', 'end');
+      label.setAttribute('font-size', '10');
+      label.setAttribute('fill', '#666');
+      label.textContent = score.toFixed(3);
+      g.appendChild(label);
+    }
+
+    // X-axis label
+    const xLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    xLabel.setAttribute('x', padding.left + plotWidth / 2);
+    xLabel.setAttribute('y', height - 5);
+    xLabel.setAttribute('text-anchor', 'middle');
+    xLabel.setAttribute('font-size', '12');
+    xLabel.setAttribute('fill', '#666');
+    xLabel.textContent = 'Rank';
+    g.appendChild(xLabel);
+
+    // Y-axis label
+    const yLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    yLabel.setAttribute('x', -height / 2);
+    yLabel.setAttribute('y', 15);
+    yLabel.setAttribute('text-anchor', 'middle');
+    yLabel.setAttribute('font-size', '12');
+    yLabel.setAttribute('fill', '#666');
+    yLabel.setAttribute('transform', `rotate(-90, 15, ${height / 2})`);
+    yLabel.textContent = 'Similarity Score';
+    g.appendChild(yLabel);
+
+    // Draw line
+    if (similarityScores.length > 1) {
+      let pathData = `M ${xScale(0)} ${yScale(similarityScores[0])}`;
+      for (let i = 1; i < similarityScores.length; i++) {
+        pathData += ` L ${xScale(i)} ${yScale(similarityScores[i])}`;
+      }
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathData);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#3b82f6');
+      path.setAttribute('stroke-width', '2');
+      g.appendChild(path);
+    }
+
+    // Draw points
+    similarityScores.forEach((score, i) => {
+      const cx = xScale(i);
+      const cy = yScale(score);
+
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', cx);
+      circle.setAttribute('cy', cy);
+      circle.setAttribute('r', i === 0 ? '6' : '4');
+      circle.setAttribute('fill', i === 0 ? '#ef4444' : '#3b82f6');
+      circle.setAttribute('stroke', 'white');
+      circle.setAttribute('stroke-width', '2');
+      g.appendChild(circle);
+
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = `Rank ${i + 1}: ${score.toFixed(4)}`;
+      circle.appendChild(title);
+    });
+
+    // Highlight gap if significant
+    if (similarityScores.length > 1 && gapRatio > 1.5) {
+      const gapLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      gapLine.setAttribute('x1', xScale(0.5));
+      gapLine.setAttribute('y1', yScale(similarityScores[0]));
+      gapLine.setAttribute('x2', xScale(0.5));
+      gapLine.setAttribute('y2', yScale(similarityScores[1]));
+      gapLine.setAttribute('stroke', gapRatio > 2.0 ? '#22c55e' : '#eab308');
+      gapLine.setAttribute('stroke-width', '3');
+      gapLine.setAttribute('opacity', '0.5');
+      g.appendChild(gapLine);
+
+      const gapText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      gapText.setAttribute('x', xScale(0.5) + 5);
+      gapText.setAttribute('y', (yScale(similarityScores[0]) + yScale(similarityScores[1])) / 2);
+      gapText.setAttribute('font-size', '10');
+      gapText.setAttribute('fill', gapRatio > 2.0 ? '#22c55e' : '#eab308');
+      gapText.setAttribute('font-weight', 'bold');
+      gapText.textContent = `${gap.toFixed(3)}`;
+      g.appendChild(gapText);
+    }
+
+    svg.appendChild(g);
+  }
+
+  // Draw on load
+  drawSimilarityPlot();
+
+  // Redraw on resize
+  window.addEventListener('resize', drawSimilarityPlot);
+</script>
+
+{% endif %}
