@@ -3,6 +3,7 @@
 import json
 import logging
 import pickle
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
@@ -10,6 +11,17 @@ from typing import ClassVar
 import cv2
 import numpy as np
 from numpy.typing import NDArray
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 from image_matching.stitching import (
     compute_homography,
@@ -19,6 +31,226 @@ from image_matching.stitching import (
 )
 
 logger = logging.getLogger(__name__)
+console = Console()
+
+
+# Global variables for worker processes
+_worker_sift = None
+_worker_flann = None
+
+
+def _init_sift_worker() -> None:
+    """Initialize worker process with SIFT detector and FLANN matcher."""
+    global _worker_sift, _worker_flann
+    _worker_sift = cv2.SIFT_create()
+    _worker_flann = create_flann_matcher()
+
+
+def _extract_sift_worker(
+    args: tuple[int, str, str, list[float], int],
+) -> tuple[int, dict[str, float], int]:
+    """Worker function to extract features for a single entry.
+
+    Args:
+        args: Tuple of (index, glashelder_path, wikiart_path, similarities, label)
+
+    Returns:
+        Tuple of (index, features_dict, label)
+    """
+    global _worker_sift, _worker_flann
+    idx, glashelder_path, wikiart_path, similarities, label = args
+
+    # Initialize if needed (shouldn't happen with initializer, but be safe)
+    if _worker_sift is None:
+        _worker_sift = cv2.SIFT_create()
+    if _worker_flann is None:
+        _worker_flann = create_flann_matcher()
+
+    # Extract distribution features first (fast)
+    features = _extract_distribution_features(similarities)
+
+    # Extract SIFT features (slow)
+    sift_feats = _extract_sift_features_worker(
+        glashelder_path, wikiart_path, _worker_sift, _worker_flann
+    )
+    features["sift_num_matches"] = float(sift_feats["num_matches"])
+    features["sift_num_inliers"] = float(sift_feats["num_inliers"])
+    features["sift_confidence"] = sift_feats["confidence"]
+    features["sift_warp_stretch"] = sift_feats["warp_stretch"]
+    features["inlier_match_ratio"] = (
+        sift_feats["num_inliers"] / sift_feats["num_matches"]
+        if sift_feats["num_matches"] > 0
+        else 0.0
+    )
+
+    return (idx, features, label)
+
+
+def _extract_distribution_features(similarities: list[float]) -> dict[str, float]:
+    """Extract distribution shape features from similarity scores (standalone function)."""
+    features = {}
+    sims = np.array(similarities)
+    n = len(sims)
+
+    features["sim_0"] = float(sims[0]) if n > 0 else 0.0
+    features["sim_1"] = float(sims[1]) if n > 1 else 0.0
+    features["sim_2"] = float(sims[2]) if n > 2 else 0.0
+
+    features["gap_01"] = features["sim_0"] - features["sim_1"]
+    features["gap_02"] = features["sim_0"] - features["sim_2"]
+    features["gap_12"] = features["sim_1"] - features["sim_2"]
+
+    rest = sims[1:10] if n > 1 else np.array([0.0])
+    features["mean_1to9"] = float(np.mean(rest))
+    features["std_1to9"] = float(np.std(rest)) if len(rest) > 1 else 0.0
+
+    if features["std_1to9"] > 0:
+        features["sim_0_zscore"] = (
+            features["sim_0"] - features["mean_1to9"]
+        ) / features["std_1to9"]
+    else:
+        features["sim_0_zscore"] = 0.0
+
+    if len(rest) > 1:
+        x = np.arange(len(rest))
+        coeffs = np.polyfit(x, rest, 1)
+        features["decay_rate"] = float(coeffs[0])
+    else:
+        features["decay_rate"] = 0.0
+
+    features["sim_min"] = float(np.min(sims[:10])) if n > 0 else 0.0
+    features["sim_range"] = features["sim_0"] - features["sim_min"]
+
+    # Poly diff
+    if len(similarities) >= 2:
+        rest_list = similarities[1:]
+        n_rest = len(rest_list)
+        if n_rest == 1:
+            weights = np.array([1.0])
+        else:
+            max_distance = n_rest - 1
+            sigma = max_distance / np.sqrt(-2 * np.log(0.3))
+            indices = np.arange(n_rest)
+            weights = np.exp(-0.5 * (indices / sigma) ** 2)
+            weights = weights / weights.sum()
+        x = np.arange(n_rest)
+        coeffs = np.polyfit(x, rest_list, 1, w=weights)
+        features["poly_diff"] = similarities[0] - coeffs[-1]
+    else:
+        features["poly_diff"] = 0.0
+
+    features["sim_ratio_01"] = (
+        features["sim_0"] / features["sim_1"] if features["sim_1"] > 0 else 1.0
+    )
+
+    return features
+
+
+def _extract_sift_features_worker(
+    query_path: str, reference_path: str, sift, flann
+) -> dict[str, float]:
+    """Extract SIFT features in worker process."""
+    try:
+        query_img = load_image(query_path)
+        ref_img = load_image(reference_path)
+
+        query_kp, query_des = extract_features(query_img, sift)
+        ref_kp, ref_des = extract_features(ref_img, sift)
+
+        if query_des is None or ref_des is None or len(query_kp) == 0:
+            return {
+                "num_matches": 0,
+                "num_inliers": 0,
+                "confidence": 0.0,
+                "warp_stretch": 1.0,
+            }
+
+        query_des = np.float32(query_des)
+        ref_des = np.float32(ref_des)
+
+        if len(query_des) < 2 or len(ref_des) < 2:
+            return {
+                "num_matches": 0,
+                "num_inliers": 0,
+                "confidence": 0.0,
+                "warp_stretch": 1.0,
+            }
+
+        matches = flann.knnMatch(query_des, ref_des, k=2)
+
+        good_matches = []
+        for match in matches:
+            if len(match) == 2:
+                m, n = match
+                if m.distance < 0.7 * n.distance:
+                    good_matches.append(m)
+
+        num_matches = len(good_matches)
+
+        if num_matches < 4:
+            return {
+                "num_matches": num_matches,
+                "num_inliers": 0,
+                "confidence": 0.0,
+                "warp_stretch": 1.0,
+            }
+
+        h = compute_homography(query_kp, ref_kp, good_matches)
+
+        if h is None:
+            return {
+                "num_matches": num_matches,
+                "num_inliers": 0,
+                "confidence": 0.0,
+                "warp_stretch": 1.0,
+            }
+
+        src_pts = np.float32([query_kp[m.queryIdx].pt for m in good_matches]).reshape(
+            -1, 1, 2
+        )
+        dst_pts = np.float32([ref_kp[m.trainIdx].pt for m in good_matches]).reshape(
+            -1, 1, 2
+        )
+        _, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+        num_inliers = int(mask.ravel().sum()) if mask is not None else 0
+
+        confidence = num_inliers / len(query_kp) if len(query_kp) > 0 else 0.0
+
+        # Compute warp stretch
+        img_h, img_w = query_img.shape[:2]
+        corners = np.float32([[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]]).reshape(
+            -1, 1, 2
+        )
+        try:
+            warped = cv2.perspectiveTransform(corners, h).reshape(-1, 2)
+            orig_edges = [img_w, img_h, img_w, img_h]
+            warped_edges = []
+            for i in range(4):
+                p1 = warped[i]
+                p2 = warped[(i + 1) % 4]
+                warped_edges.append(np.linalg.norm(p2 - p1))
+            ratios = []
+            for orig, warped_len in zip(orig_edges, warped_edges, strict=True):
+                if orig > 0:
+                    ratios.append(max(warped_len / orig, orig / warped_len))
+            warp_stretch = max(ratios) if ratios else 1.0
+        except cv2.error:
+            warp_stretch = 1.0
+
+        return {
+            "num_matches": num_matches,
+            "num_inliers": num_inliers,
+            "confidence": confidence,
+            "warp_stretch": warp_stretch,
+        }
+
+    except Exception:
+        return {
+            "num_matches": 0,
+            "num_inliers": 0,
+            "confidence": 0.0,
+            "warp_stretch": 1.0,
+        }
 
 
 @dataclass
@@ -376,6 +608,7 @@ class MLClassifier:
         n_estimators: int = 100,
         cv_folds: int = 5,
         extract_sift: bool = True,
+        workers: int = 1,
     ) -> TrainingMetrics:
         """Train the classifier from a labeled JSON dataset.
 
@@ -384,6 +617,7 @@ class MLClassifier:
             n_estimators: Number of trees in the Random Forest
             cv_folds: Number of cross-validation folds
             extract_sift: Whether to extract SIFT features from image paths
+            workers: Number of parallel workers for SIFT extraction (1=sequential)
 
         Returns:
             TrainingMetrics with CV accuracy and feature importance
@@ -393,38 +627,41 @@ class MLClassifier:
         from sklearn.model_selection import cross_val_score
 
         # Load dataset
+        console.print(f"[cyan]Loading dataset from {dataset_path}...[/cyan]")
         with open(dataset_path) as f:
             dataset = json.load(f)
 
-        # Prepare training data
-        features_list = []
-        labels_list = []
-
-        logger.info("Extracting features from labeled dataset...")
+        # Collect all entries with their labels
+        entries_with_labels: list[tuple[dict, int]] = []
 
         # True positives (classifier correct when predicting match)
         for entry in dataset.get("positives", []):
-            features = self._extract_entry_features(entry, extract_sift)
-            features_list.append(self._features_to_array(features))
-            labels_list.append(1)
+            entries_with_labels.append((entry, 1))
 
         # True negatives (classifier correct when predicting no match)
         for entry in dataset.get("negatives", []):
-            features = self._extract_entry_features(entry, extract_sift)
-            features_list.append(self._features_to_array(features))
-            labels_list.append(0)
+            entries_with_labels.append((entry, 0))
 
         # False positives (classifier said match but was wrong) -> actual negative
         for entry in dataset.get("false_positives", []):
-            features = self._extract_entry_features(entry, extract_sift)
-            features_list.append(self._features_to_array(features))
-            labels_list.append(0)
+            entries_with_labels.append((entry, 0))
 
         # False negatives (classifier said no match but was wrong) -> actual positive
         for entry in dataset.get("false_negatives", []):
-            features = self._extract_entry_features(entry, extract_sift)
-            features_list.append(self._features_to_array(features))
-            labels_list.append(1)
+            entries_with_labels.append((entry, 1))
+
+        n_entries = len(entries_with_labels)
+        console.print(f"[cyan]Found {n_entries} labeled samples[/cyan]")
+
+        # Extract features (parallel or sequential)
+        if extract_sift and workers > 1:
+            features_list, labels_list = self._extract_features_parallel(
+                entries_with_labels, workers
+            )
+        else:
+            features_list, labels_list = self._extract_features_sequential(
+                entries_with_labels, extract_sift
+            )
 
         features_array = np.array(features_list)
         labels_array = np.array(labels_list)
@@ -433,14 +670,16 @@ class MLClassifier:
         n_positives = int(np.sum(labels_array))
         n_negatives = n_samples - n_positives
 
-        logger.info(
-            f"Training on {n_samples} samples ({n_positives} positives, {n_negatives} negatives)"
+        console.print(
+            f"[green]Training on {n_samples} samples "
+            f"({n_positives} positives, {n_negatives} negatives)[/green]"
         )
 
         if n_samples < 10:
             raise ValueError(f"Need at least 10 samples for training, got {n_samples}")
 
         # Train Random Forest with cross-validation
+        console.print("[cyan]Training Random Forest classifier...[/cyan]")
         base_rf = RandomForestClassifier(
             n_estimators=n_estimators,
             max_depth=10,
@@ -451,7 +690,8 @@ class MLClassifier:
             n_jobs=-1,
         )
 
-        # Cross-validation
+        # Cross-validation with progress
+        console.print(f"[cyan]Running {cv_folds}-fold cross-validation...[/cyan]")
         n_cv_folds = min(cv_folds, n_samples)
         cv_scores = cross_val_score(
             base_rf, features_array, labels_array, cv=n_cv_folds, scoring="accuracy"
@@ -459,9 +699,12 @@ class MLClassifier:
         cv_accuracy = float(np.mean(cv_scores))
         cv_std = float(np.std(cv_scores))
 
-        logger.info(f"Cross-validation accuracy: {cv_accuracy:.3f} (+/- {cv_std:.3f})")
+        console.print(
+            f"[green]Cross-validation accuracy: {cv_accuracy:.3f} (+/- {cv_std:.3f})[/green]"
+        )
 
         # Train final model with probability calibration
+        console.print("[cyan]Calibrating probabilities...[/cyan]")
         self._model = CalibratedClassifierCV(
             base_rf,
             method="sigmoid",
@@ -470,7 +713,7 @@ class MLClassifier:
         self._model.fit(features_array, labels_array)
 
         # Get feature importance from the base estimator
-        # First fit the base RF to get feature importances
+        console.print("[cyan]Computing feature importance...[/cyan]")
         base_rf.fit(features_array, labels_array)
         importances = base_rf.feature_importances_
         feature_importance = {
@@ -483,9 +726,9 @@ class MLClassifier:
             sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)
         )
 
-        logger.info("Top 5 features by importance:")
+        console.print("\n[bold green]Top 5 features by importance:[/bold green]")
         for i, (name, imp) in enumerate(list(feature_importance.items())[:5]):
-            logger.info(f"  {i + 1}. {name}: {imp:.4f}")
+            console.print(f"  {i + 1}. [yellow]{name}[/yellow]: {imp:.4f}")
 
         return TrainingMetrics(
             cv_accuracy=cv_accuracy,
@@ -495,6 +738,106 @@ class MLClassifier:
             n_positives=n_positives,
             n_negatives=n_negatives,
         )
+
+    def _extract_features_sequential(
+        self,
+        entries_with_labels: list[tuple[dict, int]],
+        extract_sift: bool,
+    ) -> tuple[list[NDArray], list[int]]:
+        """Extract features sequentially with progress bar."""
+        features_list = []
+        labels_list = []
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(
+                "[cyan]Extracting features...",
+                total=len(entries_with_labels),
+            )
+
+            for entry, label in entries_with_labels:
+                features = self._extract_entry_features(entry, extract_sift)
+                features_list.append(self._features_to_array(features))
+                labels_list.append(label)
+                progress.advance(task)
+
+        return features_list, labels_list
+
+    def _extract_features_parallel(
+        self,
+        entries_with_labels: list[tuple[dict, int]],
+        workers: int,
+    ) -> tuple[list[NDArray], list[int]]:
+        """Extract features in parallel using multiprocessing with progress bar."""
+        # Prepare work items: (index, glashelder_path, wikiart_path, similarities, label)
+        work_items = []
+        for idx, (entry, label) in enumerate(entries_with_labels):
+            work_items.append(
+                (
+                    idx,
+                    entry.get("glashelder_path", ""),
+                    entry.get("wikiart_path", ""),
+                    entry.get("similarities", []),
+                    label,
+                )
+            )
+
+        n_items = len(work_items)
+        console.print(
+            f"[cyan]Starting {workers} worker processes for SIFT extraction...[/cyan]"
+        )
+
+        # Results storage (indexed by original position)
+        results: dict[int, tuple[dict[str, float], int]] = {}
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(
+                "[cyan]Extracting SIFT features...",
+                total=n_items,
+            )
+
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_init_sift_worker,
+            ) as executor:
+                # Submit all tasks
+                future_to_idx = {
+                    executor.submit(_extract_sift_worker, item): item[0]
+                    for item in work_items
+                }
+
+                # Process results as they complete
+                for future in as_completed(future_to_idx):
+                    idx, features, label = future.result()
+                    results[idx] = (features, label)
+                    progress.advance(task)
+
+        # Reconstruct ordered lists
+        features_list = []
+        labels_list = []
+        for idx in range(n_items):
+            features, label = results[idx]
+            features_list.append(self._features_to_array(features))
+            labels_list.append(label)
+
+        return features_list, labels_list
 
     def _extract_entry_features(
         self, entry: dict, extract_sift: bool
