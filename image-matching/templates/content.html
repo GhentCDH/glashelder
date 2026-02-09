@@ -1,3 +1,14 @@
+{% if dataset_counts %}
+<div class="flex gap-4 items-center p-3 bg-blue-50 rounded mb-4 text-sm">
+  <span class="font-bold">Dataset:</span>
+  <span class="text-green-600">TP: {{ dataset_counts.positives }}</span>
+  <span class="text-blue-600">TN: {{ dataset_counts.negatives }}</span>
+  <span class="text-orange-600">FP: {{ dataset_counts.false_positives }}</span>
+  <span class="text-red-600">FN: {{ dataset_counts.false_negatives }}</span>
+  <span class="ml-auto font-bold">Total: {{ dataset_counts.total }}</span>
+</div>
+{% endif %}
+
 {% if error %}
 <div class="bg-red-500 text-white p-4 rounded">{{ error }}</div>
 {% else %}

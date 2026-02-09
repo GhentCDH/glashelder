@@ -1,7 +1,9 @@
 """CLI for image matching and stitching."""
 
 import glob
+import json
 import logging
+import random
 from pathlib import Path
 from typing import Literal
 
@@ -516,6 +518,9 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=5000, help="Port to bind to")
 @click.option("--top-k", default=10, help="Number of top matches to consider")
+@click.option(
+    "--threshold", default=0.2, help="Diff threshold for match classification"
+)
 def serve(
     wikiart_embeddings: str,
     glashelder_embeddings: str | None,
@@ -524,6 +529,7 @@ def serve(
     host: str,
     port: int,
     top_k: int,
+    threshold: float,
 ):
     """Start a web interface for labeling artwork matches."""
     from flask import Flask, render_template, send_file
@@ -576,50 +582,79 @@ def serve(
         glashelder_emb = glashelder_emb.to(device)
         logger.info(f"Generated embeddings for {len(glashelder_paths)} images")
 
-    # Create classifier
-    classifier = SimpleClassifier()
+    # Create shuffled order of indices
+    shuffled_indices = list(range(len(glashelder_paths)))
+    random.shuffle(shuffled_indices)
+    logger.info(f"Shuffled {len(shuffled_indices)} images for random traversal")
 
-    # State for tracking current position
-    state = {
-        "current_index": 0,
+    # State for tracking current position, threshold, and labeled dataset
+    state: dict = {
+        "queue_position": 0,  # Position in shuffled_indices
+        "current_item": None,  # Current classified item
+        "threshold": threshold,
+        "dataset": {
+            "positives": [],  # True matches (classifier correct when predicting match)
+            "negatives": [],  # True negatives (classifier correct when predicting no match)
+            "false_positives": [],  # Classifier said match but was wrong
+            "false_negatives": [],  # Classifier said no match but was wrong
+        },
     }
 
-    def classify_image(index: int) -> dict | None:
-        """Classify a single image and return its data."""
-        if index < 0 or index >= len(glashelder_paths):
+    def get_classifier() -> SimpleClassifier:
+        return SimpleClassifier(threshold=state["threshold"])
+
+    def classify_image(image_index: int) -> dict | None:
+        """Classify a single image by its index in glashelder_paths."""
+        if image_index < 0 or image_index >= len(glashelder_paths):
             return None
 
-        emb = glashelder_emb[index]
+        classifier = get_classifier()
+        emb = glashelder_emb[image_index]
         top_indices, top_values = clipcluster.perform_search(
             top_k, emb.unsqueeze(0), wikiart_emb, wikiart_paths
         )
         similarities = top_values.cpu().numpy().tolist()
-        is_match = classifier.classify(similarities)
+        result = classifier.classify(similarities)
 
         return {
-            "glashelder_index": index,
-            "glashelder_path": glashelder_paths[index],
+            "glashelder_index": image_index,
+            "glashelder_path": glashelder_paths[image_index],
             "top_indices": top_indices.cpu().numpy().tolist(),
             "similarities": similarities,
-            "is_match": is_match,
+            "is_match": result.is_match,
+            "diff": result.diff,
+            "threshold": result.threshold,
         }
 
-    def find_next(start_index: int, want_match: bool) -> dict | None:
-        """Find the next image that matches or doesn't match, starting from start_index."""
-        for i in range(start_index, len(glashelder_paths)):
-            item = classify_image(i)
+    def find_next_in_queue(start_queue_pos: int, want_match: bool) -> dict | None:
+        """Find next image in shuffled queue that matches/doesn't match."""
+        for queue_pos in range(start_queue_pos, len(shuffled_indices)):
+            image_index = shuffled_indices[queue_pos]
+            item = classify_image(image_index)
             if item is None:
-                return None
+                continue
             if item["is_match"] == want_match:
-                state["current_index"] = i
+                state["queue_position"] = queue_pos
+                state["current_item"] = item
                 return item
         return None
+
+    def get_dataset_counts() -> dict:
+        """Get counts for each category in the dataset."""
+        return {
+            "positives": len(state["dataset"]["positives"]),
+            "negatives": len(state["dataset"]["negatives"]),
+            "false_positives": len(state["dataset"]["false_positives"]),
+            "false_negatives": len(state["dataset"]["false_negatives"]),
+            "total": sum(len(v) for v in state["dataset"].values()),
+        }
 
     def render_content(item: dict | None, want_match: bool) -> str:
         if item is None:
             return render_template(
                 "content.html",
                 error=f"No more {'matches' if want_match else 'negatives'} to show.",
+                dataset_counts=get_dataset_counts(),
             )
 
         return render_template(
@@ -634,12 +669,20 @@ def serve(
             top_match_index=item["top_indices"][0],
             similarities=item["similarities"],
             is_match=item["is_match"],
+            diff=item["diff"],
+            threshold=item["threshold"],
+            dataset_counts=get_dataset_counts(),
         )
 
     @app.route("/")
     def index():
-        # Find first match or first image
-        item = find_next(0, True) or classify_image(0)
+        # Find first match or first image in shuffled order
+        item = find_next_in_queue(0, True)
+        if item is None and shuffled_indices:
+            item = classify_image(shuffled_indices[0])
+            state["queue_position"] = 0
+            state["current_item"] = item
+
         return render_template(
             "labeler.html",
             error=None if item else "No images found.",
@@ -652,17 +695,98 @@ def serve(
             top_match_index=item["top_indices"][0] if item else 0,
             similarities=item["similarities"] if item else [],
             is_match=item["is_match"] if item else False,
+            diff=item["diff"] if item else 0.0,
+            threshold=item["threshold"] if item else state["threshold"],
+            dataset_counts=get_dataset_counts(),
         )
 
     @app.route("/next-match", methods=["POST"])
     def next_match():
-        item = find_next(state["current_index"] + 1, True)
+        item = find_next_in_queue(state["queue_position"] + 1, True)
         return render_content(item, True)
 
     @app.route("/next-negative", methods=["POST"])
     def next_negative():
-        item = find_next(state["current_index"] + 1, False)
+        item = find_next_in_queue(state["queue_position"] + 1, False)
         return render_content(item, False)
+
+    @app.route("/set-threshold", methods=["POST"])
+    def set_threshold():
+        from flask import request
+
+        new_threshold = request.form.get("threshold", type=float)
+        if new_threshold is not None:
+            state["threshold"] = new_threshold
+        # Re-classify current image with new threshold
+        if state["current_item"]:
+            item = classify_image(state["current_item"]["glashelder_index"])
+            state["current_item"] = item
+        else:
+            item = None
+        return render_content(item, True)
+
+    @app.route("/label-correct", methods=["POST"])
+    def label_correct():
+        """Mark current classification as correct and move to next."""
+        item = state["current_item"]
+        if item:
+            entry = {
+                "glashelder_index": item["glashelder_index"],
+                "glashelder_path": item["glashelder_path"],
+                "wikiart_index": item["top_indices"][0],
+                "wikiart_path": wikiart_paths[item["top_indices"][0]],
+                "diff": item["diff"],
+                "threshold": item["threshold"],
+                "similarities": item["similarities"],
+            }
+            if item["is_match"]:
+                state["dataset"]["positives"].append(entry)
+            else:
+                state["dataset"]["negatives"].append(entry)
+
+        # Move to next (prefer matches)
+        next_item = find_next_in_queue(state["queue_position"] + 1, True)
+        if next_item is None:
+            next_item = find_next_in_queue(state["queue_position"] + 1, False)
+        return render_content(next_item, True)
+
+    @app.route("/label-incorrect", methods=["POST"])
+    def label_incorrect():
+        """Mark current classification as incorrect and move to next."""
+        item = state["current_item"]
+        if item:
+            entry = {
+                "glashelder_index": item["glashelder_index"],
+                "glashelder_path": item["glashelder_path"],
+                "wikiart_index": item["top_indices"][0],
+                "wikiart_path": wikiart_paths[item["top_indices"][0]],
+                "diff": item["diff"],
+                "threshold": item["threshold"],
+                "similarities": item["similarities"],
+            }
+            if item["is_match"]:
+                state["dataset"]["false_positives"].append(entry)
+            else:
+                state["dataset"]["false_negatives"].append(entry)
+
+        # Move to next (prefer matches)
+        next_item = find_next_in_queue(state["queue_position"] + 1, True)
+        if next_item is None:
+            next_item = find_next_in_queue(state["queue_position"] + 1, False)
+        return render_content(next_item, True)
+
+    @app.route("/download-dataset")
+    def download_dataset():
+        from flask import Response
+
+        dataset_json = json.dumps(state["dataset"], indent=2)
+        return Response(
+            dataset_json,
+            mimetype="application/json",
+            headers={
+                "Content-Disposition": "attachment;filename=labeling_dataset.json"
+            },
+        )
 
     @app.route("/glashelder-image/<int:index>")
     def serve_glashelder_image(index: int):

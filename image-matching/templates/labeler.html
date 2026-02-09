@@ -42,24 +42,55 @@
     <div class="p-8">
       <h1 class="text-2xl mb-4">Artwork Labeler</h1>
 
-      <div class="flex gap-4 mb-8">
-        <button
-          class="bg-green-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-green-600 transition-colors border-0"
-          hx-post="/next-match"
-          hx-target="#content"
-          hx-indicator="#loading"
-        >
-          Next Match
-        </button>
-        <button
-          class="bg-red-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-red-600 transition-colors border-0"
-          hx-post="/next-negative"
-          hx-target="#content"
-          hx-indicator="#loading"
-        >
-          Next Negative
-        </button>
-        <span id="loading" class="htmx-indicator text-neutral-500">Loading...</span>
+      <div class="flex gap-4 mb-4 flex-wrap">
+        <div class="flex gap-2">
+          <button
+            class="bg-green-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-green-600 transition-colors border-0"
+            hx-post="/next-match"
+            hx-target="#content"
+            hx-indicator="#loading"
+          >
+            Next Match
+          </button>
+          <button
+            class="bg-red-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-red-600 transition-colors border-0"
+            hx-post="/next-negative"
+            hx-target="#content"
+            hx-indicator="#loading"
+          >
+            Next Negative
+          </button>
+        </div>
+
+        <div class="border-l-2 border-neutral-300 pl-4 flex gap-2">
+          <button
+            class="bg-blue-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-blue-600 transition-colors border-0"
+            hx-post="/label-correct"
+            hx-target="#content"
+            hx-indicator="#loading"
+          >
+            Correct
+          </button>
+          <button
+            class="bg-orange-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-orange-600 transition-colors border-0"
+            hx-post="/label-incorrect"
+            hx-target="#content"
+            hx-indicator="#loading"
+          >
+            Incorrect
+          </button>
+        </div>
+
+        <div class="border-l-2 border-neutral-300 pl-4">
+          <a
+            href="/download-dataset"
+            class="bg-neutral-800 text-white rounded px-6 py-3 cursor-pointer hover:bg-neutral-600 transition-colors border-0 inline-block"
+          >
+            Download Dataset
+          </a>
+        </div>
+
+        <span id="loading" class="htmx-indicator text-neutral-500 self-center">Loading...</span>
       </div>
 
       <div id="content">
