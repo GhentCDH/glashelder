@@ -448,6 +448,7 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
         return
 
     embeddings = data["embeddings"].to(device)
+    wikiart_paths: list[str] = data["images"]
 
     embedder = clipcluster.get_embedder(model)
     embedder.load(device)
@@ -478,4 +479,6 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
         logger.info(f"Is known painting: {is_known_painting}")
 
         if is_known_painting:
-            logger.info(f"MATCHMATCHMATCH: \n{image_path}")
+            logger.info(
+                f"MATCHMATCHMATCH: \n{image_path} \nmatches \n{wikiart_paths[indexes[0]]}"
+            )
