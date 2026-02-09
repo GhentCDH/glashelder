@@ -11,11 +11,39 @@
     </span>
   </span>
   <span>
-    Top Score:
-    <span class="font-bold {% if similarities[0] > 0.5 %}text-green-600{% else %}text-red-600{% endif %}">
-      {{ "%.4f"|format(similarities[0]) }}
+    Diff:
+    <span class="font-bold {% if diff > threshold %}text-green-600{% else %}text-red-600{% endif %}">
+      {{ "%.4f"|format(diff) }}
     </span>
+    (threshold: {{ "%.2f"|format(threshold) }})
   </span>
+</div>
+
+<div class="flex gap-4 items-center p-3 bg-neutral-50 rounded mb-4 text-sm">
+  <form
+    hx-post="/set-threshold"
+    hx-target="#content"
+    hx-indicator="#loading"
+    class="flex gap-2 items-center"
+  >
+    <label for="threshold">Threshold:</label>
+    <input
+      type="number"
+      name="threshold"
+      id="threshold"
+      value="{{ threshold }}"
+      step="0.01"
+      min="0"
+      max="1"
+      class="border border-neutral-300 rounded px-2 py-1 w-24"
+    />
+    <button
+      type="submit"
+      class="bg-neutral-800 text-white rounded px-3 py-1 hover:bg-neutral-600 transition-colors"
+    >
+      Apply
+    </button>
+  </form>
 </div>
 
 <div class="grid {% if is_match %}grid-cols-2{% else %}grid-cols-1{% endif %} gap-8 mb-8">
@@ -47,19 +75,8 @@
 </div>
 
 <div class="border-2 border-neutral-200 rounded p-4">
-  <h2 class="text-sm font-bold mb-4">Similarity Scores Distribution</h2>
-
-  <div class="mb-2 text-sm">
-    <strong>Peak analysis:</strong>
-    <span id="peak-analysis"></span>
-  </div>
-
-  <svg id="similarity-plot" width="100%" height="200" class="border border-neutral-300 rounded"></svg>
-
-  <div class="mt-2 text-xs text-neutral-500">
-    The first result should appear as a clear peak if it's a true match.
-    A significant gap between rank 1 and rank 2 indicates high confidence.
-  </div>
+  <h2 class="text-sm font-bold mb-4">Similarity Scores</h2>
+  <svg id="similarity-plot" width="100%" height="200" style="display: block;"></svg>
 </div>
 
 <script>
@@ -68,46 +85,26 @@
       {{ score }}{{ "," if not loop.last else "" }}
     {% endfor %}
   ];
+  const diff = {{ diff }};
+  const threshold = {{ threshold }};
 
   function drawSimilarityPlot() {
-    if (similarityScores.length === 0) return;
-
     const svg = document.getElementById('similarity-plot');
-    const width = svg.clientWidth;
+    if (!svg || similarityScores.length === 0) return;
+
+    const rect = svg.getBoundingClientRect();
+    const width = rect.width || 800;
     const height = 200;
-    const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+    const padding = { top: 10, right: 10, bottom: 30, left: 50 };
     const plotWidth = width - padding.left - padding.right;
     const plotHeight = height - padding.top - padding.bottom;
 
     svg.innerHTML = '';
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
 
     const maxScore = Math.max(...similarityScores);
     const minScore = Math.min(...similarityScores);
     const scoreRange = maxScore - minScore || 0.1;
-
-    const gap = similarityScores.length > 1 ? similarityScores[0] - similarityScores[1] : 0;
-    const avgGap = similarityScores.length > 1
-      ? similarityScores.slice(0, -1).map((s, i) => s - similarityScores[i + 1]).reduce((a, b) => a + b, 0) / (similarityScores.length - 1)
-      : 0;
-    const gapRatio = avgGap > 0 ? gap / avgGap : 0;
-
-    const analysisText = document.getElementById('peak-analysis');
-    if (similarityScores.length === 1) {
-      analysisText.textContent = `Single result (score: ${similarityScores[0].toFixed(4)})`;
-      analysisText.className = 'text-neutral-600';
-    } else {
-      const gapText = `Gap: ${gap.toFixed(4)} (${gapRatio.toFixed(2)}x avg)`;
-      if (gapRatio > 2.0) {
-        analysisText.textContent = `Strong peak! ${gapText} - Likely a good match`;
-        analysisText.className = 'text-green-600 font-bold';
-      } else if (gapRatio > 1.5) {
-        analysisText.textContent = `Moderate peak. ${gapText} - Possible match`;
-        analysisText.className = 'text-yellow-600 font-bold';
-      } else {
-        analysisText.textContent = `Weak peak. ${gapText} - Match uncertain`;
-        analysisText.className = 'text-red-600 font-bold';
-      }
-    }
 
     const xScale = (i) => padding.left + (i / (similarityScores.length - 1 || 1)) * plotWidth;
     const yScale = (score) => padding.top + plotHeight - ((score - minScore) / scoreRange) * plotHeight;
@@ -134,50 +131,31 @@
     xAxis.setAttribute('stroke-width', '1');
     g.appendChild(xAxis);
 
-    // Y-axis labels
-    const numYTicks = 5;
-    for (let i = 0; i <= numYTicks; i++) {
-      const score = minScore + (scoreRange * i / numYTicks);
+    // Y-axis labels (just min and max)
+    [minScore, maxScore].forEach((score) => {
       const y = yScale(score);
-
-      const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      tick.setAttribute('x1', padding.left - 5);
-      tick.setAttribute('y1', y);
-      tick.setAttribute('x2', padding.left);
-      tick.setAttribute('y2', y);
-      tick.setAttribute('stroke', '#666');
-      g.appendChild(tick);
-
       const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      label.setAttribute('x', padding.left - 10);
+      label.setAttribute('x', padding.left - 5);
       label.setAttribute('y', y + 4);
       label.setAttribute('text-anchor', 'end');
       label.setAttribute('font-size', '10');
       label.setAttribute('fill', '#666');
       label.textContent = score.toFixed(3);
       g.appendChild(label);
-    }
+    });
 
-    // X-axis label
-    const xLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    xLabel.setAttribute('x', padding.left + plotWidth / 2);
-    xLabel.setAttribute('y', height - 5);
-    xLabel.setAttribute('text-anchor', 'middle');
-    xLabel.setAttribute('font-size', '12');
-    xLabel.setAttribute('fill', '#666');
-    xLabel.textContent = 'Rank';
-    g.appendChild(xLabel);
-
-    // Y-axis label
-    const yLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    yLabel.setAttribute('x', -height / 2);
-    yLabel.setAttribute('y', 15);
-    yLabel.setAttribute('text-anchor', 'middle');
-    yLabel.setAttribute('font-size', '12');
-    yLabel.setAttribute('fill', '#666');
-    yLabel.setAttribute('transform', `rotate(-90, 15, ${height / 2})`);
-    yLabel.textContent = 'Similarity Score';
-    g.appendChild(yLabel);
+    // X-axis labels (just 1 and n)
+    [0, similarityScores.length - 1].forEach((i) => {
+      const x = xScale(i);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', x);
+      label.setAttribute('y', height - padding.bottom + 15);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('font-size', '10');
+      label.setAttribute('fill', '#666');
+      label.textContent = i + 1;
+      g.appendChild(label);
+    });
 
     // Draw line
     if (similarityScores.length > 1) {
@@ -194,54 +172,25 @@
       g.appendChild(path);
     }
 
-    // Draw points
-    similarityScores.forEach((score, i) => {
-      const cx = xScale(i);
-      const cy = yScale(score);
-
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('cx', cx);
-      circle.setAttribute('cy', cy);
-      circle.setAttribute('r', i === 0 ? '6' : '4');
-      circle.setAttribute('fill', i === 0 ? '#ef4444' : '#3b82f6');
-      circle.setAttribute('stroke', 'white');
-      circle.setAttribute('stroke-width', '2');
-      g.appendChild(circle);
-
-      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      title.textContent = `Rank ${i + 1}: ${score.toFixed(4)}`;
-      circle.appendChild(title);
-    });
-
-    // Highlight gap if significant
-    if (similarityScores.length > 1 && gapRatio > 1.5) {
-      const gapLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      gapLine.setAttribute('x1', xScale(0.5));
-      gapLine.setAttribute('y1', yScale(similarityScores[0]));
-      gapLine.setAttribute('x2', xScale(0.5));
-      gapLine.setAttribute('y2', yScale(similarityScores[1]));
-      gapLine.setAttribute('stroke', gapRatio > 2.0 ? '#22c55e' : '#eab308');
-      gapLine.setAttribute('stroke-width', '3');
-      gapLine.setAttribute('opacity', '0.5');
-      g.appendChild(gapLine);
-
-      const gapText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      gapText.setAttribute('x', xScale(0.5) + 5);
-      gapText.setAttribute('y', (yScale(similarityScores[0]) + yScale(similarityScores[1])) / 2);
-      gapText.setAttribute('font-size', '10');
-      gapText.setAttribute('fill', gapRatio > 2.0 ? '#22c55e' : '#eab308');
-      gapText.setAttribute('font-weight', 'bold');
-      gapText.textContent = `${gap.toFixed(3)}`;
-      g.appendChild(gapText);
-    }
+    // Draw first point highlighted
+    const cx = xScale(0);
+    const cy = yScale(similarityScores[0]);
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', '5');
+    circle.setAttribute('fill', diff > threshold ? '#22c55e' : '#ef4444');
+    g.appendChild(circle);
 
     svg.appendChild(g);
   }
 
-  // Draw on load
-  drawSimilarityPlot();
+  // Draw after a small delay to ensure layout is complete
+  requestAnimationFrame(() => {
+    requestAnimationFrame(drawSimilarityPlot);
+  });
 
-  // Redraw on resize
+  // Also redraw on resize
   window.addEventListener('resize', drawSimilarityPlot);
 </script>
 
