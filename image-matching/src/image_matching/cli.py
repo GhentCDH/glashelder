@@ -1,16 +1,22 @@
 """CLI for image matching and stitching."""
 
+import glob
+import logging
 from pathlib import Path
+from typing import Literal
 
 import click
 import cv2
 import numpy as np
+from PIL import Image
 
+from common import ASSETS_DIR
 from image_matching.recognition import (
     RecognitionDatabase,
     build_database,
     find_painting,
 )
+from image_matching.similarity_classifier import SimpleClassifier
 from image_matching.stitching import (
     extract_features,
     resize_max,
@@ -18,6 +24,8 @@ from image_matching.stitching import (
 )
 
 WINDOW = "image-matching"
+
+logger = logging.getLogger(__name__)
 
 
 def show(
@@ -128,8 +136,8 @@ def match(image_one, image_two, size: int | None):
         ]
     )
 
-    [x_min, y_min] = np.int32(all_corners.min(axis=0).ravel())
-    [x_max, y_max] = np.int32(all_corners.max(axis=0).ravel())
+    [x_min, y_min] = np.int32(all_corners.min(axis=0).ravel())  # ty:ignore[not-iterable]
+    [x_max, y_max] = np.int32(all_corners.max(axis=0).ravel())  # ty:ignore[not-iterable]
 
     translation = np.array(
         [[1, 0, -x_min], [0, 1, -y_min], [0, 0, 1]], dtype=np.float64
@@ -405,3 +413,61 @@ def identify(
 
         show(match_img, window="Matches")
         cv2.destroyAllWindows()
+
+
+@image_matching.command()
+@click.option(
+    "--embeddings", "-e", type=str, help="Path to the wikiart embeddings '.pkl' file"
+)
+@click.option(
+    "--model",
+    default="clip",
+    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    help="Embedding model to use if generating embeddings",
+)
+@click.option(
+    "--image-dir",
+    "-i",
+    type=str,
+    default=ASSETS_DIR,
+    help="Path to the Glashelder images",
+)
+def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_dir: str):
+    import clipcluster
+
+    """Create labels for images' similarity score plots"""
+
+    embeddings: dict = clipcluster.load_embeddings(embeddings)
+
+    if embeddings.get("model", "clip") != model:
+        logger.error(
+            "Embeddings should be from the same model as the model used for the embedder of glashelder images (the --model option)"
+        )
+        return
+
+    embedder = clipcluster.get_embedder("dino")
+
+    image_paths = glob.glob(f"{image_dir}/**/*.jpg", recursive=True)
+
+    matcher = SimpleClassifier()
+
+    for image_path in image_paths:
+        image = Image.open(image_path)
+
+        embedding = embedder.encode_pil_image(image)
+
+        top_indices, top_values = clipcluster.perform_search(
+            10, embedding, embeddings, image_paths
+        )
+
+        indexes = []
+        similarities = []
+        for idx, score in zip(
+            top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False
+        ):
+            indexes.append(idx)
+            similarities.append(score)
+
+        is_known_painting = matcher.classify(similarities)
+
+        logger.info(f"Is known painting: {is_known_painting}")
