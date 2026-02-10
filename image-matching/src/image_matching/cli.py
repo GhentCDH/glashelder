@@ -1102,6 +1102,217 @@ def serve(
 
 @image_matching.command()
 @click.option(
+    "--wikiart-embeddings",
+    "-w",
+    type=click.Path(exists=True),
+    required=True,
+    help="Path to wikiart embeddings pickle file",
+)
+@click.option(
+    "--ml-model",
+    type=click.Path(exists=True),
+    required=True,
+    help="Path to trained ML classifier (.pkl file)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    required=True,
+    help="Output path (.json or .csv)",
+)
+@click.option(
+    "--glashelder-embeddings",
+    "-g",
+    type=click.Path(exists=True),
+    default=None,
+    help="Pre-computed glashelder embeddings (generates if not provided)",
+)
+@click.option(
+    "--image-dir",
+    "-i",
+    type=str,
+    default=ASSETS_DIR,
+    help="Path to glashelder images",
+)
+@click.option(
+    "--output-format",
+    type=click.Choice(["json", "csv", "both"]),
+    default="json",
+    show_default=True,
+    help="Output format",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=8,
+    show_default=True,
+    help="Parallel workers for ORB extraction",
+)
+@click.option(
+    "--top-k",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Top wikiart matches to consider",
+)
+@click.option(
+    "--threshold",
+    type=float,
+    default=0.5,
+    show_default=True,
+    help="Confidence threshold for is_match",
+)
+@click.option(
+    "--min-confidence",
+    type=float,
+    default=None,
+    help="Only output results above this confidence",
+)
+@click.option(
+    "--cache-features",
+    is_flag=True,
+    help="Cache features to disk for reuse",
+)
+@click.option(
+    "--cache-path",
+    type=click.Path(),
+    default="./feature_cache.pkl",
+    show_default=True,
+    help="Path for feature cache",
+)
+@click.option(
+    "--model",
+    default="clip",
+    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    help="Embedding model to use if generating embeddings",
+)
+def batch_classify(
+    wikiart_embeddings: str,
+    ml_model: str,
+    output: str,
+    glashelder_embeddings: str | None,
+    image_dir: str,
+    output_format: Literal["json", "csv", "both"],
+    workers: int,
+    top_k: int,
+    threshold: float,
+    min_confidence: float | None,
+    cache_features: bool,
+    cache_path: str,
+    model: Literal["clip", "dinov2", "qwen3vl"],
+):
+    """Batch classify all glashelder images for artwork matches.
+
+    This command processes all glashelder images through the artwork matcher,
+    computing embedding similarities and running ML classification with
+    parallel ORB/hash feature extraction.
+
+    Example:
+        image-matching batch-classify \\
+            -w wikiart.pkl \\
+            --ml-model model.pkl \\
+            -o results.json \\
+            --workers 32
+    """
+    import clipcluster
+    from image_matching.batch import (
+        FeatureCache,
+        write_csv_output,
+        write_json_output,
+    )
+    from image_matching.batch import (
+        batch_classify as do_batch_classify,
+    )
+    from image_matching.ml_classifier import MLClassifier
+
+    device = get_device()
+    logger.info(f"Using device: {device}")
+
+    # Load ML classifier
+    logger.info(f"Loading ML classifier from {ml_model}...")
+    classifier = MLClassifier.load(ml_model, threshold=threshold)
+    logger.info("ML classifier loaded")
+
+    # Load wikiart embeddings
+    logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
+    wikiart_data = clipcluster.load_embeddings(wikiart_embeddings)
+    wikiart_emb = wikiart_data["embeddings"].to(device)
+    wikiart_paths: list[str] = wikiart_data["images"]
+    embedding_model_name = wikiart_data.get("model", "clip")
+    logger.info(f"Loaded {len(wikiart_paths)} wikiart images")
+    logger.info(f"Embedding model: {embedding_model_name}")
+
+    if embedding_model_name != model:
+        logger.warning(
+            f"Wikiart embeddings use model '{embedding_model_name}' but --model is '{model}'. "
+            f"Using '{embedding_model_name}' for consistency."
+        )
+        model = embedding_model_name
+
+    # Load or generate glashelder embeddings
+    if glashelder_embeddings is not None:
+        logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
+        glashelder_data = clipcluster.load_embeddings(glashelder_embeddings)
+        glashelder_emb = glashelder_data["embeddings"].to(device)
+        glashelder_paths: list[str] = glashelder_data["images"]
+        logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
+    else:
+        logger.info(f"Loading embedder model: {model}")
+        embedder = clipcluster.get_embedder(model)
+        embedder.load(device)
+
+        glashelder_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
+        logger.info(f"Found {len(glashelder_paths)} glashelder images")
+
+        if not glashelder_paths:
+            click.echo(f"Error: No images found in {image_dir}", err=True)
+            return
+
+        logger.info("Generating glashelder embeddings (this may take a while)...")
+        glashelder_emb, glashelder_paths = embedder.encode_images(
+            glashelder_paths, batch_size=64
+        )
+        glashelder_emb = glashelder_emb.to(device)
+        logger.info(f"Generated embeddings for {len(glashelder_paths)} images")
+
+    # Setup feature cache
+    cache = FeatureCache(cache_path) if cache_features else None
+
+    # Run batch classification
+    result = do_batch_classify(
+        glashelder_emb=glashelder_emb,
+        glashelder_paths=glashelder_paths,
+        wikiart_emb=wikiart_emb,
+        wikiart_paths=wikiart_paths,
+        classifier=classifier,
+        top_k=top_k,
+        threshold=threshold,
+        workers=workers,
+        min_confidence=min_confidence,
+        cache=cache,
+    )
+
+    # Write output
+    output_path = Path(output)
+    if output_format == "json":
+        write_json_output(result, output_path)
+    elif output_format == "csv":
+        csv_path = output_path.with_suffix(".csv")
+        write_csv_output(result, csv_path)
+    else:  # both
+        write_json_output(result, output_path.with_suffix(".json"))
+        write_csv_output(result, output_path.with_suffix(".csv"))
+
+    # Save cache if enabled
+    if cache:
+        cache.save()
+
+    logger.info("Batch classification complete!")
+
+
+@image_matching.command()
+@click.option(
     "--label-file",
     "-l",
     type=str,
