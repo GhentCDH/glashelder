@@ -15,16 +15,6 @@ from PIL import Image
 
 from common import ASSETS_DIR
 from common.clipmodel import get_device
-from image_matching.ml_classifier import (
-    MLClassifier,
-    _extract_sift_worker,
-    _init_sift_worker,
-)
-from image_matching.recognition import (
-    RecognitionDatabase,
-    build_database,
-    find_painting,
-)
 from image_matching.similarity_classifier import SimpleClassifier
 from image_matching.stitching import (
     extract_features,
@@ -277,6 +267,10 @@ def build_db(
         # Default (unlimited features, can create 50GB+ databases!)
         image-matching build-db ./paintings ./db.pkl --workers 4
     """
+    from image_matching.recognition import (
+        build_database,
+    )
+
     painting_dir_path = Path(painting_dir)
 
     # Find all image files
@@ -359,6 +353,11 @@ def identify(
     Example:
         image-matching identify photo.jpg paintings.db.pkl --show-matches
     """
+    from image_matching.recognition import (
+        RecognitionDatabase,
+        find_painting,
+    )
+
     # Load database
     click.echo(f"Loading database from {database}...")
     db = RecognitionDatabase.load(database)
@@ -477,6 +476,10 @@ def train_classifier(
     Example:
         image-matching train-classifier labeling_dataset.json model.pkl --workers 48
     """
+    from image_matching.ml_classifier import (
+        MLClassifier,
+    )
+
     classifier = MLClassifier()
 
     try:
@@ -645,6 +648,11 @@ def serve(
     from flask import Flask, render_template, send_file
 
     import clipcluster
+    from image_matching.ml_classifier import (
+        MLClassifier,
+        _extract_sift_worker,
+        _init_sift_worker,
+    )
 
     # Validate ML classifier options
     if classifier == "ml" and ml_model is None:
@@ -680,7 +688,7 @@ def serve(
             f"Wikiart embeddings use model '{embedding_model_name}' but --model is '{model}'. "
             f"Using '{embedding_model_name}' for consistency."
         )
-        model = embedding_model_name  # type: ignore
+        model = embedding_model_name
 
     # Load or generate glashelder embeddings
     if glashelder_embeddings is not None:
@@ -872,7 +880,7 @@ def serve(
                 [features.get(f, 0.0) for f in ml_classifier_instance.FEATURE_ORDER]
             ).reshape(1, -1)
 
-            proba = ml_classifier_instance._model.predict_proba(feature_vector)[0]
+            proba = ml_classifier_instance._model.predict_proba(feature_vector)[0]  # type:ignore
             confidence = float(proba[1])
             is_match = confidence >= current_threshold
 
@@ -1090,3 +1098,23 @@ def serve(
     logger.info(f"Starting Flask server on {host}:{port}...")
     logger.info(f"Open http://localhost:{port} in your browser")
     app.run(host=host, port=port, debug=True)
+
+
+@image_matching.command()
+@click.option(
+    "--label-file",
+    "-l",
+    type=str,
+    help="The csv file containing the metadata of the ART500K dataset",
+)
+def analyze_art500k(label_file: str):
+    import csv
+
+    with open(label_file) as f:
+        data = csv.reader(f, delimiter="\t")
+
+        for i, row in enumerate(data):
+            if i == 100:
+                break
+
+            print(", ".join(row))
