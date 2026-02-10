@@ -14,8 +14,11 @@ class Qwen3:
         self.processor = None
         self.prompt = None
     
+    
     def load_model(self):
         """Load the Qwen3-VL model and processor."""
+
+     
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
             "Qwen/Qwen3-VL-8B-Instruct", dtype="auto", device_map="auto"
         )
@@ -59,7 +62,7 @@ class Qwen3:
 
         # Generation hyperparameters
         hyperparameters = {
-            "max_new_tokens": 200,
+            "max_new_tokens": 512,
         }
 
         with torch.inference_mode():

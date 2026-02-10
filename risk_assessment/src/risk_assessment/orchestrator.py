@@ -129,10 +129,3 @@ class Orchestrator:
         """Get the dictionary of majority votes by image name."""
         with self._lock:
             return self.majority_votes.copy()
-    
-
-
-
-if __name__ == "__main__":
-    orchestrator = Orchestrator()
-    orchestrator.run_all("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/1c1tf36b1k_tiff.jpg")
