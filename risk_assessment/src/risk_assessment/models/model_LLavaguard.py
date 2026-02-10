@@ -60,9 +60,9 @@ class LavaGuard:
 
         output_text = self.processor.decode(output[0], skip_special_tokens=True)
 
-
         assessment = parse_output(output_text)
-        print(assessment)
+        assessment["image"] = image_name
+        return assessment
 
 
 def run_lavaguard(orchestrator, image_path):
@@ -73,12 +73,16 @@ def run_lavaguard(orchestrator, image_path):
     
     orchestrator.update_model_state("model1", status=ModelStatus.RUNNING, current_task="Processing images...")
     
-    images = get_images(image_path)
-    for i, image in enumerate(images):
-        orchestrator.update_model_state("model1", current_task=f"Processing image {i+1}/{len(images)}")
-        model.process_image(image)
+    image_files = get_images(image_path)
+    assessments = []
+    for i, image_file in enumerate(image_files):
+        orchestrator.update_model_state("model1", current_task=f"Processing image {i+1}/{len(image_files)}")
+        image = Image.open(image_file).convert("RGB")
+        assessment = model.process_image(image, os.path.basename(image_file))
+        assessments.append(assessment)
     
     orchestrator.update_model_state("model1", status=ModelStatus.DONE, current_task="Done")
+    return assessments
 
 
 
