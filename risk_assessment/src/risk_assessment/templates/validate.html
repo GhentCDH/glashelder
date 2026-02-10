@@ -19,7 +19,7 @@
       }
 
       .container {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
         background: white;
         border-radius: 8px;
@@ -76,19 +76,34 @@
         padding: 30px;
       }
 
+      /* Majority vote banner */
+      .majority-vote {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 20px;
+        border-radius: 8px;
+        border: 2px solid #ddd;
+        background: #fafafa;
+      }
+
+      .majority-vote-label {
+        font-size: 18px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #666;
+        white-space: nowrap;
+      }
+
+      .majority-vote-value {
+        font-size: 18px;
+        font-weight: 700;
+      }
+
       .models-comparison {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 30px;
-      }
-
-      .models-comparison.three-models {
         grid-template-columns: 1fr 1fr 1fr;
-      }
-
-      .single-model-view {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
         gap: 30px;
       }
 
@@ -174,6 +189,7 @@
         text-decoration: none;
         display: inline-block;
         transition: all 0.2s;
+        font-family: 'JetBrains Mono', monospace;
       }
 
       .btn-primary {
@@ -220,9 +236,7 @@
       }
 
       @media (max-width: 768px) {
-        .models-comparison,
-        .models-comparison.three-models,
-        .single-model-view {
+        .models-comparison {
           grid-template-columns: 1fr;
         }
       }
@@ -233,7 +247,7 @@
       <div class="header">
         <h1>Risk Assessment Validation</h1>
         <div class="header-right">
-          <a href="/reload" class="btn-reload">↻ Reload</a>
+          <a href="/reload" class="btn-reload">&#8635; Reload</a>
           <div class="counter">{{ index + 1 }} / {{ total }}</div>
         </div>
       </div>
@@ -241,166 +255,125 @@
       <div class="content">
         <!-- Image Section -->
         <div class="image-section">
-          <img src="/image/{{ result_model1.image }}" alt="{{ result_model1.image }}" />
-          <div class="image-filename">{{ result_model1.image }}</div>
+          <img src="/image/{{ result.image }}" alt="{{ result.image }}" />
+          <div class="image-filename">{{ result.image }}</div>
+        </div>
+
+        <!-- Majority Vote Banner -->
+        <div class="majority-vote">
+          <span class="majority-vote-label">Majority Vote</span>
+          {% if result.majority_vote == "Safe" %}
+            <span class="majority-vote-value rating-safe">{{ result.majority_vote }}</span>
+          {% elif result.majority_vote == "Potentially Problematic" %}
+            <span class="majority-vote-value rating-potentially-problematic">{{ result.majority_vote }}</span>
+          {% else %}
+            <span class="majority-vote-value rating-unsafe">{{ result.majority_vote }}</span>
+          {% endif %}
         </div>
 
         <!-- Models Comparison -->
-        {% if has_model2 %}
-        <div class="models-comparison{% if has_model3 %} three-models{% endif %}">
-          <!-- LavaGuard Results -->
+        <div class="models-comparison">
+
+          <!-- LavaGuard -->
           <div class="model-section">
             <div class="model-header">LavaGuard</div>
             <div class="info-panel">
               <div class="info-item">
                 <div class="info-label">Rating</div>
                 <div class="info-value">
-                  {% if result_model1.rating == "Safe" %}
-                    <span class="rating-safe">{{ result_model1.rating }}</span>
-                  {% elif result_model1.rating == "Potentially Problematic" %}
-                    <span class="rating-potentially-problematic">{{ result_model1.rating }}</span>
+                  {% if result.lavaguard_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.lavaguard_rating }}</span>
+                  {% elif result.lavaguard_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.lavaguard_rating }}</span>
                   {% else %}
-                    <span class="rating-unsafe">{{ result_model1.rating }}</span>
+                    <span class="rating-unsafe">{{ result.lavaguard_rating }}</span>
                   {% endif %}
                 </div>
               </div>
-
               <div class="info-item">
                 <div class="info-label">Category</div>
-                <div class="info-value">{{ result_model1.category }}</div>
+                <div class="info-value">{{ result.lavaguard_category }}</div>
               </div>
-
               <div class="info-item">
                 <div class="info-label">Rationale</div>
-                <div class="info-value rationale-text">{{ result_model1.rationale }}</div>
+                <div class="info-value rationale-text">{{ result.lavaguard_rationale }}</div>
               </div>
             </div>
           </div>
 
-          <!-- Qwen3asGuard Results -->
+          <!-- Qwen3-VL-7B -->
           <div class="model-section">
-            <div class="model-header">Qwen3asGuard</div>
-            {% if result_model2 %}
+            <div class="model-header">Qwen3-VL-7B</div>
             <div class="info-panel">
               <div class="info-item">
                 <div class="info-label">Rating</div>
                 <div class="info-value">
-                  {% if result_model2.rating == "Safe" %}
-                    <span class="rating-safe">{{ result_model2.rating }}</span>
-                  {% elif result_model2.rating == "Potentially Problematic" %}
-                    <span class="rating-potentially-problematic">{{ result_model2.rating }}</span>
+                  {% if result.qwen_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.qwen_rating }}</span>
+                  {% elif result.qwen_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.qwen_rating }}</span>
                   {% else %}
-                    <span class="rating-unsafe">{{ result_model2.rating }}</span>
+                    <span class="rating-unsafe">{{ result.qwen_rating }}</span>
                   {% endif %}
                 </div>
               </div>
-
               <div class="info-item">
                 <div class="info-label">Category</div>
-                <div class="info-value">{{ result_model2.category }}</div>
+                <div class="info-value">{{ result.qwen_category }}</div>
               </div>
-
               <div class="info-item">
                 <div class="info-label">Rationale</div>
-                <div class="info-value rationale-text">{{ result_model2.rationale }}</div>
+                <div class="info-value rationale-text">{{ result.qwen_rationale }}</div>
               </div>
             </div>
-            {% else %}
-            <div class="info-value" style="color: #999; text-align: center; padding: 40px;">
-              No result available for this image
-            </div>
-            {% endif %}
           </div>
 
-          <!-- Pixtral12bQ8 Results -->
-          {% if has_model3 %}
+          <!-- Pixtral12bQ8 -->
           <div class="model-section">
             <div class="model-header">Pixtral12bQ8</div>
-            {% if result_model3 %}
             <div class="info-panel">
               <div class="info-item">
                 <div class="info-label">Rating</div>
                 <div class="info-value">
-                  {% if result_model3.rating == "Safe" %}
-                    <span class="rating-safe">{{ result_model3.rating }}</span>
-                  {% elif result_model3.rating == "Potentially Problematic" %}
-                    <span class="rating-potentially-problematic">{{ result_model3.rating }}</span>
+                  {% if result.pixtral_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.pixtral_rating }}</span>
+                  {% elif result.pixtral_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.pixtral_rating }}</span>
                   {% else %}
-                    <span class="rating-unsafe">{{ result_model3.rating }}</span>
+                    <span class="rating-unsafe">{{ result.pixtral_rating }}</span>
                   {% endif %}
                 </div>
               </div>
-
               <div class="info-item">
                 <div class="info-label">Category</div>
-                <div class="info-value">{{ result_model3.category }}</div>
+                <div class="info-value">{{ result.pixtral_category }}</div>
               </div>
-
               <div class="info-item">
                 <div class="info-label">Rationale</div>
-                <div class="info-value rationale-text">{{ result_model3.rationale }}</div>
+                <div class="info-value rationale-text">{{ result.pixtral_rationale }}</div>
               </div>
             </div>
-            {% else %}
-            <div class="info-value" style="color: #999; text-align: center; padding: 40px;">
-              No result available for this image
-            </div>
-            {% endif %}
           </div>
-          {% endif %}
+
         </div>
-        {% else %}
-        <!-- Single Model View -->
-        <div class="single-model-view">
-          <div class="info-panel">
-            <div class="info-item">
-              <div class="info-label">Rating</div>
-              <div class="info-value">
-                {% if result_model1.rating == "Safe" %}
-                  <span class="rating-safe">{{ result_model1.rating }}</span>
-                {% elif result_model1.rating == "Potentially Problematic" %}
-                  <span class="rating-potentially-problematic">{{ result_model1.rating }}</span>
-                {% else %}
-                  <span class="rating-unsafe">{{ result_model1.rating }}</span>
-                {% endif %}
-              </div>
-            </div>
-
-            <div class="info-item">
-              <div class="info-label">Category</div>
-              <div class="info-value">{{ result_model1.category }}</div>
-            </div>
-
-            <div class="info-item">
-              <div class="info-label">Rationale</div>
-              <div class="info-value rationale-text">{{ result_model1.rationale }}</div>
-            </div>
-          </div>
-
-          <div style="display: flex; align-items: center; justify-content: center; color: #999;">
-            <p>Configure CSV_PATH_MODEL2 in validate_results.py to enable comparison mode</p>
-          </div>
-        </div>
-        {% endif %}
       </div>
 
       <div class="navigation">
         {% if index > 0 %}
-          <a href="/result/{{ index - 1 }}" class="btn btn-primary">← Previous</a>
+          <a href="/result/{{ index - 1 }}" class="btn btn-primary">&#8592; Previous</a>
         {% else %}
-          <button class="btn btn-primary" disabled>← Previous</button>
+          <button class="btn btn-primary" disabled>&#8592; Previous</button>
         {% endif %}
 
         {% if index < total - 1 %}
-          <a href="/result/{{ index + 1 }}" class="btn btn-primary">Next →</a>
+          <a href="/result/{{ index + 1 }}" class="btn btn-primary">Next &#8594;</a>
         {% else %}
-          <button class="btn btn-primary" disabled>Next →</button>
+          <button class="btn btn-primary" disabled>Next &#8594;</button>
         {% endif %}
       </div>
     </div>
 
     <script>
-      // Add keyboard navigation
       document.addEventListener('keydown', function(e) {
         {% if index > 0 %}
           if (e.key === 'ArrowLeft' || e.key === 'p') {
