@@ -95,24 +95,24 @@
 </div>
 
 {% if classifier_type == 'ml' and features %}
-<div class="grid grid-cols-2 gap-4 mb-8">
-  <!-- SIFT Features Panel -->
+<div class="grid grid-cols-3 gap-4 mb-8">
+  <!-- ORB Features Panel -->
   <div class="border-2 border-purple-200 rounded p-4">
-    <h2 class="text-sm font-bold mb-3 text-purple-800">SIFT Geometric Features</h2>
+    <h2 class="text-sm font-bold mb-3 text-purple-800">ORB Geometric Features</h2>
     <div class="grid grid-cols-2 gap-2 text-sm">
       <div class="flex justify-between bg-purple-50 p-2 rounded">
         <span>Matches:</span>
-        <span class="font-bold">{{ features.sift_num_matches|int }}</span>
+        <span class="font-bold">{{ features.orb_num_matches|int }}</span>
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded">
         <span>Inliers:</span>
-        <span class="font-bold {% if features.sift_num_inliers > 10 %}text-green-600{% elif features.sift_num_inliers > 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
-          {{ features.sift_num_inliers|int }}
+        <span class="font-bold {% if features.orb_num_inliers > 10 %}text-green-600{% elif features.orb_num_inliers > 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.orb_num_inliers|int }}
         </span>
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded">
-        <span>SIFT Confidence:</span>
-        <span class="font-bold">{{ "%.4f"|format(features.sift_confidence) }}</span>
+        <span>Confidence:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.orb_confidence) }}</span>
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded">
         <span>Inlier Ratio:</span>
@@ -120,11 +120,43 @@
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded col-span-2">
         <span>Warp Stretch:</span>
-        <span class="font-bold {% if features.sift_warp_stretch < 2 %}text-green-600{% elif features.sift_warp_stretch < 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
-          {{ "%.2f"|format(features.sift_warp_stretch) }}
+        <span class="font-bold {% if features.orb_warp_stretch < 2 %}text-green-600{% elif features.orb_warp_stretch < 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ "%.2f"|format(features.orb_warp_stretch) }}
         </span>
       </div>
     </div>
+  </div>
+
+  <!-- Hash Features Panel -->
+  <div class="border-2 border-green-200 rounded p-4">
+    <h2 class="text-sm font-bold mb-3 text-green-800">Perceptual Hash Distance</h2>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>pHash:</span>
+        <span class="font-bold {% if features.phash_distance < 10 %}text-green-600{% elif features.phash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.phash_distance|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>dHash:</span>
+        <span class="font-bold {% if features.dhash_distance < 10 %}text-green-600{% elif features.dhash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.dhash_distance|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>wHash:</span>
+        <span class="font-bold {% if features.whash_distance < 10 %}text-green-600{% elif features.whash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.whash_distance|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>aHash:</span>
+        <span class="font-bold {% if features.ahash_distance < 10 %}text-green-600{% elif features.ahash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.ahash_distance|int }}
+        </span>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500 mt-2">Lower = more similar (0-64 scale)</p>
   </div>
 
   <!-- Key Embedding Features Panel -->
@@ -166,7 +198,7 @@
 <!-- All Features (collapsible) -->
 <details class="mb-8 border-2 border-neutral-200 rounded">
   <summary class="p-3 bg-neutral-100 cursor-pointer text-sm font-bold">
-    All 19 ML Features (click to expand)
+    All 23 ML Features (click to expand)
   </summary>
   <div class="p-4 grid grid-cols-3 gap-2 text-xs">
     {% for name, value in features.items() %}
