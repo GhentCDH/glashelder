@@ -447,12 +447,12 @@ def identify(
     type=int,
     default=1,
     show_default=True,
-    help="Number of parallel workers for SIFT feature extraction (1=sequential)",
+    help="Number of parallel workers for ORB/hash feature extraction (1=sequential)",
 )
 @click.option(
-    "--no-sift",
+    "--no-image-features",
     is_flag=True,
-    help="Skip SIFT feature extraction (faster, but less accurate)",
+    help="Skip ORB/hash feature extraction (faster, but less accurate)",
 )
 def train_classifier(
     dataset: str,
@@ -460,7 +460,7 @@ def train_classifier(
     n_estimators: int,
     cv_folds: int,
     workers: int,
-    no_sift: bool,
+    no_image_features: bool,
 ):
     """Train an ML classifier from a labeled dataset.
 
@@ -470,7 +470,7 @@ def train_classifier(
     The dataset should contain labeled examples in the format exported
     by the 'serve' command's "Download Dataset" button.
 
-    Use --workers to parallelize SIFT feature extraction across CPU cores.
+    Use --workers to parallelize ORB/hash feature extraction across CPU cores.
     For a 96-core machine, try --workers 48 or higher.
 
     Example:
@@ -487,7 +487,7 @@ def train_classifier(
             dataset,
             n_estimators=n_estimators,
             cv_folds=cv_folds,
-            extract_sift=not no_sift,
+            extract_image_features=not no_image_features,
             workers=workers,
         )
     except ValueError as e:
@@ -617,7 +617,7 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     type=int,
     default=8,
     show_default=True,
-    help="Number of parallel workers for SIFT extraction during search (ML classifier only)",
+    help="Number of parallel workers for ORB/hash extraction during search (ML classifier only)",
 )
 @click.option(
     "--search-batch-size",
@@ -643,15 +643,15 @@ def serve(
     """Start a web interface for labeling artwork matches.
 
     Use --classifier=ml with --ml-model to use a trained ML classifier.
-    Use --search-workers to parallelize SIFT extraction during search.
+    Use --search-workers to parallelize ORB/hash extraction during search.
     """
     from flask import Flask, render_template, send_file
 
     import clipcluster
     from image_matching.ml_classifier import (
         MLClassifier,
-        _extract_sift_worker,
-        _init_sift_worker,
+        _extract_orb_worker,
+        _init_orb_worker,
     )
 
     # Validate ML classifier options
@@ -808,7 +808,7 @@ def serve(
         return item
 
     def classify_batch_parallel(image_indices: list[int]) -> list[dict | None]:
-        """Classify multiple images in parallel (ML classifier with SIFT)."""
+        """Classify multiple images in parallel (ML classifier with ORB/hash)."""
         if ml_classifier_instance is None:
             # Simple classifier is fast, no need for parallelization
             return [classify_image(idx) for idx in image_indices]
@@ -853,29 +853,29 @@ def serve(
                 }
             )
 
-        # Prepare work items for parallel SIFT extraction
+        # Prepare work items for parallel ORB/hash extraction
         work_items = [
             (i, d["glashelder_path"], d["wikiart_path"], d["similarities"], 0)
             for i, d in enumerate(embedding_data)
         ]
 
-        # Extract SIFT features in parallel
-        sift_results: dict[int, dict] = {}
+        # Extract ORB/hash features in parallel
+        orb_results: dict[int, dict] = {}
         with ProcessPoolExecutor(
             max_workers=search_workers,
-            initializer=_init_sift_worker,
+            initializer=_init_orb_worker,
         ) as executor:
             future_to_idx = {
-                executor.submit(_extract_sift_worker, item): item[0]
+                executor.submit(_extract_orb_worker, item): item[0]
                 for item in work_items
             }
             for future in as_completed(future_to_idx):
                 idx, features, _ = future.result()
-                sift_results[idx] = features
+                orb_results[idx] = features
 
         # Build final results with ML predictions
         for i, data in enumerate(embedding_data):
-            features = sift_results[i]
+            features = orb_results[i]
             feature_vector = np.array(
                 [features.get(f, 0.0) for f in ml_classifier_instance.FEATURE_ORDER]
             ).reshape(1, -1)
@@ -909,7 +909,7 @@ def serve(
         if remaining <= 0:
             return None
 
-        # Process in batches for parallel SIFT extraction
+        # Process in batches for parallel ORB/hash extraction
         batch_size = search_batch_size if ml_classifier_instance else 1
 
         for batch_start in range(start_queue_pos, len(shuffled_indices), batch_size):

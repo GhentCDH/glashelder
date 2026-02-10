@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import ClassVar
 
 import cv2
+import imagehash
 import numpy as np
 from numpy.typing import NDArray
+from PIL import Image
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -25,8 +27,6 @@ from rich.progress import (
 
 from image_matching.stitching import (
     compute_homography,
-    create_flann_matcher,
-    extract_features,
     load_image,
 )
 
@@ -35,18 +35,18 @@ console = Console()
 
 
 # Global variables for worker processes
-_worker_sift = None
-_worker_flann = None
+_worker_orb = None
+_worker_bf = None
 
 
-def _init_sift_worker() -> None:
-    """Initialize worker process with SIFT detector and FLANN matcher."""
-    global _worker_sift, _worker_flann
-    _worker_sift = cv2.SIFT_create()
-    _worker_flann = create_flann_matcher()
+def _init_orb_worker() -> None:
+    """Initialize worker process with ORB detector and BFMatcher."""
+    global _worker_orb, _worker_bf
+    _worker_orb = cv2.ORB_create(nfeatures=1000)
+    _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
 
-def _extract_sift_worker(
+def _extract_orb_worker(
     args: tuple[int, str, str, list[float], int],
 ) -> tuple[int, dict[str, float], int]:
     """Worker function to extract features for a single entry.
@@ -57,31 +57,38 @@ def _extract_sift_worker(
     Returns:
         Tuple of (index, features_dict, label)
     """
-    global _worker_sift, _worker_flann
+    global _worker_orb, _worker_bf
     idx, glashelder_path, wikiart_path, similarities, label = args
 
     # Initialize if needed (shouldn't happen with initializer, but be safe)
-    if _worker_sift is None:
-        _worker_sift = cv2.SIFT_create()
-    if _worker_flann is None:
-        _worker_flann = create_flann_matcher()
+    if _worker_orb is None:
+        _worker_orb = cv2.ORB_create(nfeatures=1000)
+    if _worker_bf is None:
+        _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
     # Extract distribution features first (fast)
     features = _extract_distribution_features(similarities)
 
-    # Extract SIFT features (slow)
-    sift_feats = _extract_sift_features_worker(
-        glashelder_path, wikiart_path, _worker_sift, _worker_flann
+    # Extract ORB features
+    orb_feats = _extract_orb_features_worker(
+        glashelder_path, wikiart_path, _worker_orb, _worker_bf
     )
-    features["sift_num_matches"] = float(sift_feats["num_matches"])
-    features["sift_num_inliers"] = float(sift_feats["num_inliers"])
-    features["sift_confidence"] = sift_feats["confidence"]
-    features["sift_warp_stretch"] = sift_feats["warp_stretch"]
+    features["orb_num_matches"] = float(orb_feats["num_matches"])
+    features["orb_num_inliers"] = float(orb_feats["num_inliers"])
+    features["orb_confidence"] = orb_feats["confidence"]
+    features["orb_warp_stretch"] = orb_feats["warp_stretch"]
     features["inlier_match_ratio"] = (
-        sift_feats["num_inliers"] / sift_feats["num_matches"]
-        if sift_feats["num_matches"] > 0
+        orb_feats["num_inliers"] / orb_feats["num_matches"]
+        if orb_feats["num_matches"] > 0
         else 0.0
     )
+
+    # Extract perceptual hash features
+    hash_feats = _extract_hash_features_worker(glashelder_path, wikiart_path)
+    features["phash_distance"] = hash_feats["phash_distance"]
+    features["dhash_distance"] = hash_feats["dhash_distance"]
+    features["whash_distance"] = hash_feats["whash_distance"]
+    features["ahash_distance"] = hash_feats["ahash_distance"]
 
     # Sanitize to remove NaN/Inf values
     features = _sanitize_features(features)
@@ -97,6 +104,8 @@ def _sanitize_features(features: dict[str, float]) -> dict[str, float]:
             # Use 0 as default for most features, 1.0 for ratios and warp_stretch
             if "ratio" in key or "warp_stretch" in key:
                 sanitized[key] = 1.0
+            elif "hash_distance" in key:
+                sanitized[key] = 64.0  # Max hamming distance for 64-bit hash
             else:
                 sanitized[key] = 0.0
         else:
@@ -177,16 +186,20 @@ def _extract_distribution_features(similarities: list[float]) -> dict[str, float
     return features
 
 
-def _extract_sift_features_worker(
-    query_path: str, reference_path: str, sift, flann
+def _extract_orb_features_worker(
+    query_path: str, reference_path: str, orb, bf
 ) -> dict[str, float]:
-    """Extract SIFT features in worker process."""
+    """Extract ORB features in worker process (much faster than SIFT)."""
     try:
         query_img = load_image(query_path)
         ref_img = load_image(reference_path)
 
-        query_kp, query_des = extract_features(query_img, sift)
-        ref_kp, ref_des = extract_features(ref_img, sift)
+        # Convert to grayscale for ORB
+        query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
+        ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
+
+        query_kp, query_des = orb.detectAndCompute(query_gray, None)
+        ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
 
         if query_des is None or ref_des is None or len(query_kp) == 0:
             return {
@@ -196,9 +209,6 @@ def _extract_sift_features_worker(
                 "warp_stretch": 1.0,
             }
 
-        query_des = np.float32(query_des)
-        ref_des = np.float32(ref_des)
-
         if len(query_des) < 2 or len(ref_des) < 2:
             return {
                 "num_matches": 0,
@@ -207,13 +217,15 @@ def _extract_sift_features_worker(
                 "warp_stretch": 1.0,
             }
 
-        matches = flann.knnMatch(query_des, ref_des, k=2)
+        # Use knnMatch with ratio test for ORB (like SIFT)
+        matches = bf.knnMatch(query_des, ref_des, k=2)
 
         good_matches = []
         for match in matches:
             if len(match) == 2:
                 m, n = match
-                if m.distance < 0.7 * n.distance:
+                # Ratio test (slightly higher threshold for binary descriptors)
+                if m.distance < 0.75 * n.distance:
                     good_matches.append(m)
 
         num_matches = len(good_matches)
@@ -284,9 +296,53 @@ def _extract_sift_features_worker(
         }
 
 
+def _extract_hash_features_worker(
+    query_path: str, reference_path: str
+) -> dict[str, float]:
+    """Extract perceptual hash features (very fast).
+
+    Uses multiple hash types to capture different image properties.
+    All hashes work on grayscale internally, so color differences don't affect results.
+    """
+    try:
+        query_img = Image.open(query_path)
+        ref_img = Image.open(reference_path)
+
+        # Perceptual hash (DCT-based, good for similar images)
+        q_phash = imagehash.phash(query_img)
+        r_phash = imagehash.phash(ref_img)
+
+        # Difference hash (gradient-based, captures structure)
+        q_dhash = imagehash.dhash(query_img)
+        r_dhash = imagehash.dhash(ref_img)
+
+        # Wavelet hash (multi-resolution, good for scaled images)
+        q_whash = imagehash.whash(query_img)
+        r_whash = imagehash.whash(ref_img)
+
+        # Average hash (simple but fast)
+        q_ahash = imagehash.average_hash(query_img)
+        r_ahash = imagehash.average_hash(ref_img)
+
+        return {
+            "phash_distance": float(q_phash - r_phash),
+            "dhash_distance": float(q_dhash - r_dhash),
+            "whash_distance": float(q_whash - r_whash),
+            "ahash_distance": float(q_ahash - r_ahash),
+        }
+
+    except Exception:
+        return {
+            "phash_distance": 64.0,  # Max distance (no similarity)
+            "dhash_distance": 64.0,
+            "whash_distance": 64.0,
+            "ahash_distance": 64.0,
+        }
+
+
 @dataclass
-class SIFTFeatures:
-    """SIFT geometric verification features for a single image pair."""
+class ORBFeatures:
+    """ORB geometric verification features for a single image pair."""
 
     num_matches: int
     num_inliers: int
@@ -294,9 +350,29 @@ class SIFTFeatures:
     warp_stretch: float
 
     @classmethod
-    def empty(cls) -> "SIFTFeatures":
-        """Return empty SIFT features (when extraction fails)."""
+    def empty(cls) -> "ORBFeatures":
+        """Return empty ORB features (when extraction fails)."""
         return cls(num_matches=0, num_inliers=0, confidence=0.0, warp_stretch=1.0)
+
+
+@dataclass
+class HashFeatures:
+    """Perceptual hash features for a single image pair."""
+
+    phash_distance: float
+    dhash_distance: float
+    whash_distance: float
+    ahash_distance: float
+
+    @classmethod
+    def empty(cls) -> "HashFeatures":
+        """Return empty hash features (max distance = no similarity)."""
+        return cls(
+            phash_distance=64.0,
+            dhash_distance=64.0,
+            whash_distance=64.0,
+            ahash_distance=64.0,
+        )
 
 
 @dataclass
@@ -313,67 +389,66 @@ class FeatureExtractor:
     """Extract features for ML classification from similarities and image paths."""
 
     def __init__(self):
-        self._sift = None
-        self._flann = None
+        self._orb = None
+        self._bf = None
 
-    def _get_sift(self):
-        """Lazy initialization of SIFT detector."""
-        if self._sift is None:
-            self._sift = cv2.SIFT_create()
-        return self._sift
+    def _get_orb(self):
+        """Lazy initialization of ORB detector."""
+        if self._orb is None:
+            self._orb = cv2.ORB_create(nfeatures=1000)
+        return self._orb
 
-    def _get_flann(self):
-        """Lazy initialization of FLANN matcher."""
-        if self._flann is None:
-            self._flann = create_flann_matcher()
-        return self._flann
+    def _get_bf(self):
+        """Lazy initialization of BFMatcher for ORB."""
+        if self._bf is None:
+            self._bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        return self._bf
 
-    def extract_sift_features(
-        self, query_path: str, reference_path: str
-    ) -> SIFTFeatures:
-        """Extract SIFT geometric verification features between two images.
+    def extract_orb_features(self, query_path: str, reference_path: str) -> ORBFeatures:
+        """Extract ORB geometric verification features between two images.
 
         Args:
             query_path: Path to the query image (e.g., glashelder photo)
             reference_path: Path to the reference image (e.g., wikiart painting)
 
         Returns:
-            SIFTFeatures with geometric verification metrics
+            ORBFeatures with geometric verification metrics
         """
         try:
             # Load and extract features from both images
             query_img = load_image(query_path)
             ref_img = load_image(reference_path)
 
-            sift = self._get_sift()
-            flann = self._get_flann()
+            orb = self._get_orb()
+            bf = self._get_bf()
 
-            query_kp, query_des = extract_features(query_img, sift)
-            ref_kp, ref_des = extract_features(ref_img, sift)
+            # Convert to grayscale for ORB
+            query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
+            ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
+
+            query_kp, query_des = orb.detectAndCompute(query_gray, None)
+            ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
 
             if query_des is None or ref_des is None or len(query_kp) == 0:
-                return SIFTFeatures.empty()
-
-            # Find FLANN matches with ratio test
-            query_des = np.float32(query_des)
-            ref_des = np.float32(ref_des)
+                return ORBFeatures.empty()
 
             if len(query_des) < 2 or len(ref_des) < 2:
-                return SIFTFeatures.empty()
+                return ORBFeatures.empty()
 
-            matches = flann.knnMatch(query_des, ref_des, k=2)
+            # Use knnMatch with ratio test
+            matches = bf.knnMatch(query_des, ref_des, k=2)
 
             good_matches = []
             for match in matches:
                 if len(match) == 2:
                     m, n = match
-                    if m.distance < 0.7 * n.distance:
+                    if m.distance < 0.75 * n.distance:
                         good_matches.append(m)
 
             num_matches = len(good_matches)
 
             if num_matches < 4:
-                return SIFTFeatures(
+                return ORBFeatures(
                     num_matches=num_matches,
                     num_inliers=0,
                     confidence=0.0,
@@ -384,7 +459,7 @@ class FeatureExtractor:
             h = compute_homography(query_kp, ref_kp, good_matches)
 
             if h is None:
-                return SIFTFeatures(
+                return ORBFeatures(
                     num_matches=num_matches,
                     num_inliers=0,
                     confidence=0.0,
@@ -407,7 +482,7 @@ class FeatureExtractor:
             # Compute warp stretch from homography
             warp_stretch = self._compute_warp_stretch(h, query_img.shape[:2])
 
-            return SIFTFeatures(
+            return ORBFeatures(
                 num_matches=num_matches,
                 num_inliers=num_inliers,
                 confidence=confidence,
@@ -415,8 +490,51 @@ class FeatureExtractor:
             )
 
         except Exception as e:
-            logger.warning(f"SIFT feature extraction failed: {e}")
-            return SIFTFeatures.empty()
+            logger.warning(f"ORB feature extraction failed: {e}")
+            return ORBFeatures.empty()
+
+    def extract_hash_features(
+        self, query_path: str, reference_path: str
+    ) -> HashFeatures:
+        """Extract perceptual hash features between two images.
+
+        Args:
+            query_path: Path to the query image
+            reference_path: Path to the reference image
+
+        Returns:
+            HashFeatures with hash distance metrics
+        """
+        try:
+            query_img = Image.open(query_path)
+            ref_img = Image.open(reference_path)
+
+            # Perceptual hash (DCT-based)
+            q_phash = imagehash.phash(query_img)
+            r_phash = imagehash.phash(ref_img)
+
+            # Difference hash (gradient-based)
+            q_dhash = imagehash.dhash(query_img)
+            r_dhash = imagehash.dhash(ref_img)
+
+            # Wavelet hash (multi-resolution)
+            q_whash = imagehash.whash(query_img)
+            r_whash = imagehash.whash(ref_img)
+
+            # Average hash
+            q_ahash = imagehash.average_hash(query_img)
+            r_ahash = imagehash.average_hash(ref_img)
+
+            return HashFeatures(
+                phash_distance=float(q_phash - r_phash),
+                dhash_distance=float(q_dhash - r_dhash),
+                whash_distance=float(q_whash - r_whash),
+                ahash_distance=float(q_ahash - r_ahash),
+            )
+
+        except Exception as e:
+            logger.warning(f"Hash feature extraction failed: {e}")
+            return HashFeatures.empty()
 
     def _compute_warp_stretch(self, h: NDArray, img_shape: tuple[int, int]) -> float:
         """Compute how much a homography stretches/distorts an image.
@@ -554,39 +672,51 @@ class FeatureExtractor:
         glashelder_path: str | None = None,
         wikiart_path: str | None = None,
     ) -> dict[str, float]:
-        """Extract all 19 features for ML classification.
+        """Extract all features for ML classification.
 
         Args:
             similarities: List of top-k similarity scores
-            glashelder_path: Path to glashelder image (optional, for SIFT)
-            wikiart_path: Path to wikiart image (optional, for SIFT)
+            glashelder_path: Path to glashelder image (optional, for ORB/hash)
+            wikiart_path: Path to wikiart image (optional, for ORB/hash)
 
         Returns:
-            Dictionary with all 19 features
+            Dictionary with all features (distribution + ORB + hash)
         """
         features = self.extract_distribution_features(similarities)
 
-        # SIFT features (if image paths provided)
+        # ORB and hash features (if image paths provided)
         if glashelder_path and wikiart_path:
-            sift_feats = self.extract_sift_features(glashelder_path, wikiart_path)
-            features["sift_num_matches"] = float(sift_feats.num_matches)
-            features["sift_num_inliers"] = float(sift_feats.num_inliers)
-            features["sift_confidence"] = sift_feats.confidence
-            features["sift_warp_stretch"] = sift_feats.warp_stretch
+            # ORB features
+            orb_feats = self.extract_orb_features(glashelder_path, wikiart_path)
+            features["orb_num_matches"] = float(orb_feats.num_matches)
+            features["orb_num_inliers"] = float(orb_feats.num_inliers)
+            features["orb_confidence"] = orb_feats.confidence
+            features["orb_warp_stretch"] = orb_feats.warp_stretch
 
             # Inlier/match ratio
             features["inlier_match_ratio"] = (
-                sift_feats.num_inliers / sift_feats.num_matches
-                if sift_feats.num_matches > 0
+                orb_feats.num_inliers / orb_feats.num_matches
+                if orb_feats.num_matches > 0
                 else 0.0
             )
+
+            # Hash features
+            hash_feats = self.extract_hash_features(glashelder_path, wikiart_path)
+            features["phash_distance"] = hash_feats.phash_distance
+            features["dhash_distance"] = hash_feats.dhash_distance
+            features["whash_distance"] = hash_feats.whash_distance
+            features["ahash_distance"] = hash_feats.ahash_distance
         else:
-            # Placeholder SIFT features when paths not available
-            features["sift_num_matches"] = 0.0
-            features["sift_num_inliers"] = 0.0
-            features["sift_confidence"] = 0.0
-            features["sift_warp_stretch"] = 1.0
+            # Placeholder features when paths not available
+            features["orb_num_matches"] = 0.0
+            features["orb_num_inliers"] = 0.0
+            features["orb_confidence"] = 0.0
+            features["orb_warp_stretch"] = 1.0
             features["inlier_match_ratio"] = 0.0
+            features["phash_distance"] = 64.0
+            features["dhash_distance"] = 64.0
+            features["whash_distance"] = 64.0
+            features["ahash_distance"] = 64.0
 
         # Sanitize to remove NaN/Inf values
         return _sanitize_features(features)
@@ -614,10 +744,10 @@ class MLClassifier:
         "gap_01",
         "gap_02",
         "gap_12",
-        "sift_num_matches",
-        "sift_num_inliers",
-        "sift_confidence",
-        "sift_warp_stretch",
+        "orb_num_matches",
+        "orb_num_inliers",
+        "orb_confidence",
+        "orb_warp_stretch",
         "mean_1to9",
         "std_1to9",
         "sim_0_zscore",
@@ -627,6 +757,10 @@ class MLClassifier:
         "poly_diff",
         "sim_ratio_01",
         "inlier_match_ratio",
+        "phash_distance",
+        "dhash_distance",
+        "whash_distance",
+        "ahash_distance",
     ]
 
     def __init__(self, threshold: float = 0.5):
@@ -648,7 +782,7 @@ class MLClassifier:
         dataset_path: str,
         n_estimators: int = 100,
         cv_folds: int = 5,
-        extract_sift: bool = True,
+        extract_image_features: bool = True,
         workers: int = 1,
     ) -> TrainingMetrics:
         """Train the classifier from a labeled JSON dataset.
@@ -657,8 +791,8 @@ class MLClassifier:
             dataset_path: Path to labeling_dataset.json from the web UI
             n_estimators: Number of trees in the Random Forest
             cv_folds: Number of cross-validation folds
-            extract_sift: Whether to extract SIFT features from image paths
-            workers: Number of parallel workers for SIFT extraction (1=sequential)
+            extract_image_features: Whether to extract ORB/hash features from image paths
+            workers: Number of parallel workers for feature extraction (1=sequential)
 
         Returns:
             TrainingMetrics with CV accuracy and feature importance
@@ -695,13 +829,13 @@ class MLClassifier:
         console.print(f"[cyan]Found {n_entries} labeled samples[/cyan]")
 
         # Extract features (parallel or sequential)
-        if extract_sift and workers > 1:
+        if extract_image_features and workers > 1:
             features_list, labels_list = self._extract_features_parallel(
                 entries_with_labels, workers
             )
         else:
             features_list, labels_list = self._extract_features_sequential(
-                entries_with_labels, extract_sift
+                entries_with_labels, extract_image_features
             )
 
         features_array = np.array(features_list)
@@ -783,7 +917,7 @@ class MLClassifier:
     def _extract_features_sequential(
         self,
         entries_with_labels: list[tuple[dict, int]],
-        extract_sift: bool,
+        extract_image_features: bool,
     ) -> tuple[list[NDArray], list[int]]:
         """Extract features sequentially with progress bar."""
         features_list = []
@@ -805,7 +939,7 @@ class MLClassifier:
             )
 
             for entry, label in entries_with_labels:
-                features = self._extract_entry_features(entry, extract_sift)
+                features = self._extract_entry_features(entry, extract_image_features)
                 features_list.append(self._features_to_array(features))
                 labels_list.append(label)
                 progress.advance(task)
@@ -833,7 +967,7 @@ class MLClassifier:
 
         n_items = len(work_items)
         console.print(
-            f"[cyan]Starting {workers} worker processes for SIFT extraction...[/cyan]"
+            f"[cyan]Starting {workers} worker processes for ORB/hash extraction...[/cyan]"
         )
 
         # Results storage (indexed by original position)
@@ -850,17 +984,17 @@ class MLClassifier:
             console=console,
         ) as progress:
             task = progress.add_task(
-                "[cyan]Extracting SIFT features...",
+                "[cyan]Extracting ORB/hash features...",
                 total=n_items,
             )
 
             with ProcessPoolExecutor(
                 max_workers=workers,
-                initializer=_init_sift_worker,
+                initializer=_init_orb_worker,
             ) as executor:
                 # Submit all tasks
                 future_to_idx = {
-                    executor.submit(_extract_sift_worker, item): item[0]
+                    executor.submit(_extract_orb_worker, item): item[0]
                     for item in work_items
                 }
 
@@ -881,13 +1015,15 @@ class MLClassifier:
         return features_list, labels_list
 
     def _extract_entry_features(
-        self, entry: dict, extract_sift: bool
+        self, entry: dict, extract_image_features: bool
     ) -> dict[str, float]:
         """Extract features from a dataset entry."""
         similarities = entry.get("similarities", [])
 
-        glashelder_path = entry.get("glashelder_path") if extract_sift else None
-        wikiart_path = entry.get("wikiart_path") if extract_sift else None
+        glashelder_path = (
+            entry.get("glashelder_path") if extract_image_features else None
+        )
+        wikiart_path = entry.get("wikiart_path") if extract_image_features else None
 
         return self._feature_extractor.extract_all_features(
             similarities, glashelder_path, wikiart_path
