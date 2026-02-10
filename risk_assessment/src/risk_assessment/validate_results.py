@@ -141,7 +141,7 @@ def reload():
         try:
             index = int(referer.split('/result/')[-1])
             # Make sure index is still valid after reload
-            if index >= len(results):
+            if index >= len(results_model1):
                 index = max(0, len(results) - 1)
             return redirect(url_for('show_result', index=index))
         except (ValueError, IndexError):
