@@ -1,6 +1,8 @@
 import json
 import re
 import os
+import csv
+from collections import Counter
 
 def get_prompt(prompt_file="models/taxonomy.txt"):
     with open(prompt_file, 'r', encoding='utf-8') as f:
@@ -108,3 +110,84 @@ def parse_output(output_text, model_type="lava"):
             "category": "NA: None applying",
             "rationale": f"Error parsing output: {str(e)}. Raw output: {output_text[:500]}"
         }
+
+
+def write_combined_csv(assessments_lavaguard, assessments_qwen, assessments_pixtral, output_csv="combined_risk_assessment_results.csv"):
+    """Write combined assessment results from all three models to a single CSV.
+    
+    Args:
+        assessments_lavaguard: List of assessment dictionaries from LavaGuard
+        assessments_qwen: List of assessment dictionaries from Qwen3
+        assessments_pixtral: List of assessment dictionaries from Pixtral
+        output_csv: Path to the output CSV file
+    """
+    # Create a dictionary to group assessments by image name
+    combined = {}
+    
+    for assessment in assessments_lavaguard:
+        image_name = assessment.get("image", "")
+        if image_name not in combined:
+            combined[image_name] = {"image": image_name}
+        combined[image_name]["lavaguard_rating"] = assessment.get("rating", "Unknown")
+        combined[image_name]["lavaguard_category"] = assessment.get("category", "NA: None applying")
+        combined[image_name]["lavaguard_rationale"] = assessment.get("rationale", "")
+    
+    for assessment in assessments_qwen:
+        image_name = assessment.get("image", "")
+        if image_name not in combined:
+            combined[image_name] = {"image": image_name}
+        combined[image_name]["qwen_rating"] = assessment.get("rating", "Unknown")
+        combined[image_name]["qwen_category"] = assessment.get("category", "NA: None applying")
+        combined[image_name]["qwen_rationale"] = assessment.get("rationale", "")
+    
+    for assessment in assessments_pixtral:
+        image_name = assessment.get("image", "")
+        if image_name not in combined:
+            combined[image_name] = {"image": image_name}
+        combined[image_name]["pixtral_rating"] = assessment.get("rating", "Unknown")
+        combined[image_name]["pixtral_category"] = assessment.get("category", "NA: None applying")
+        combined[image_name]["pixtral_rationale"] = assessment.get("rationale", "")
+    
+    # Calculate majority voting for each image
+    for image_name, row in combined.items():
+        ratings = [
+            row.get("lavaguard_rating", "Unknown"),
+            row.get("qwen_rating", "Unknown"),
+            row.get("pixtral_rating", "Unknown")
+        ]
+        
+        # Count occurrences of each rating
+        rating_counts = Counter(ratings)
+        most_common = rating_counts.most_common()
+        
+        # Get the majority vote (most common rating)
+        if most_common:
+            majority_rating, count = most_common[0]
+            # If there's a tie (all different or 2-way tie), note it
+            if len(most_common) == 3:  # All three different
+                row["majority_vote"] = "No Consensus (all different)"
+            elif len(most_common) > 1 and most_common[0][1] == most_common[1][1]:  # Tie between top ratings
+                row["majority_vote"] = f"Tie: {most_common[0][0]} / {most_common[1][0]}"
+            else:
+                row["majority_vote"] = majority_rating
+        else:
+            row["majority_vote"] = "Unknown"
+    
+    # Define CSV header
+    header = [
+        "image",
+        "majority_vote",
+        "lavaguard_rating", "lavaguard_category", "lavaguard_rationale",
+        "qwen_rating", "qwen_category", "qwen_rationale",
+        "pixtral_rating", "pixtral_category", "pixtral_rationale"
+    ]
+    
+    # Write to CSV
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=header, extrasaction='ignore')
+        writer.writeheader()
+        for row in combined.values():
+            writer.writerow(row)
+    
+    print(f"\nCombined results saved to {output_csv}")
+    print(f"Total images processed: {len(combined)}")
