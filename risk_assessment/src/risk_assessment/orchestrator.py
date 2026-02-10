@@ -9,6 +9,10 @@ class ModelStatus(Enum):
     DONE = "Done ✅"
     ERROR = "Error ❌"
 
+
+class ModelLoadError(Exception):
+    pass
+
 @dataclass
 class ModelState:
     name: str
@@ -68,17 +72,55 @@ class Orchestrator:
                     )
                     self.majority_votes[image_name] = majority
     
-    def run_all(self):
+    def run_all(self, path):
         from risk_assessment.models.model_LLavaguard import run_lavaguard
         from risk_assessment.models.model_Qwen3 import run_qwen
         from risk_assessment.models.model_Pixtral import run_pixtral
         from risk_assessment.models.utils import write_combined_csv
 
-        image_path = "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/sn01004006_tiff.jpg"
-        
-        run_lavaguard(self, image_path)
-        run_qwen(self, image_path)
-        run_pixtral(self, image_path)
+        def handle_fatal_load_error(exc: Exception) -> None:
+            for model_id in self.models:
+                self.update_model_state(
+                    model_id,
+                    status=ModelStatus.ERROR,
+                    current_task=f"Aborted due to model load failure: {exc}",
+                )
+
+        try:
+            run_lavaguard(self, path)
+        except ModelLoadError as exc:
+            handle_fatal_load_error(exc)
+            return
+        except Exception as exc:
+            self.update_model_state(
+                "model1",
+                status=ModelStatus.ERROR,
+                current_task=f"Failed: {exc}",
+            )
+
+        try:
+            run_qwen(self, path)
+        except ModelLoadError as exc:
+            handle_fatal_load_error(exc)
+            return
+        except Exception as exc:
+            self.update_model_state(
+                "model2",
+                status=ModelStatus.ERROR,
+                current_task=f"Failed: {exc}",
+            )
+
+        try:
+            run_pixtral(self, path)
+        except ModelLoadError as exc:
+            handle_fatal_load_error(exc)
+            return
+        except Exception as exc:
+            self.update_model_state(
+                "model3",
+                status=ModelStatus.ERROR,
+                current_task=f"Failed: {exc}",
+            )
         
         # Write combined results to CSV
         write_combined_csv(self.assessments_lavaguard, self.assessments_qwen, self.assessments_pixtral)
@@ -93,4 +135,4 @@ class Orchestrator:
 
 if __name__ == "__main__":
     orchestrator = Orchestrator()
-    orchestrator.run_all()
+    orchestrator.run_all("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/1c1tf36b1k_tiff.jpg")

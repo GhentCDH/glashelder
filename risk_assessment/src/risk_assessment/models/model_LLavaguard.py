@@ -4,7 +4,7 @@ import torch
 import os
 
 from risk_assessment.models.utils import get_prompt, parse_output, get_images
-from risk_assessment.orchestrator import ModelStatus
+from risk_assessment.orchestrator import ModelStatus, ModelLoadError
 
 
 class LavaGuard:
@@ -69,16 +69,36 @@ def run_lavaguard(orchestrator, image_path):
     orchestrator.update_model_state("model1", status=ModelStatus.LOADING, current_task="Loading LavaGuard model...")
     
     model = LavaGuard()
-    model.load_model()
+    try:
+        model.load_model()
+    except Exception as exc:
+        orchestrator.update_model_state(
+            "model1",
+            status=ModelStatus.ERROR,
+            current_task=f"Model load failed: {exc}",
+        )
+        raise ModelLoadError(str(exc)) from exc
     
     orchestrator.update_model_state("model1", status=ModelStatus.RUNNING, current_task="Processing images...")
     
     image_files = get_images(image_path)
     for i, image_file in enumerate(image_files):
         image_name = os.path.basename(image_file)
-        orchestrator.update_model_state("model1", current_task=f"Processing image {i+1}/{len(image_files)}", latest_image=image_name)
-        image = Image.open(image_file).convert("RGB")
-        assessment = model.process_image(image, image_name)
+        orchestrator.update_model_state(
+            "model1",
+            current_task=f"Processing image {i+1}/{len(image_files)}",
+            latest_image=image_name,
+        )
+        try:
+            image = Image.open(image_file).convert("RGB")
+            assessment = model.process_image(image, image_name)
+        except Exception as exc:
+            orchestrator.update_model_state(
+                "model1",
+                current_task=f"Skipped {image_name}: {exc}",
+            )
+            continue
+
         orchestrator.assessments_lavaguard.append(assessment)
         orchestrator.update_model_state("model1", latest_rating=assessment.get("rating", "Unknown"))
         orchestrator.update_majority_votes_live()

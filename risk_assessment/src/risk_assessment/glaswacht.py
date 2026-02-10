@@ -133,7 +133,7 @@ class MonitorApp(App):
         results_container.mount(self.majority_panel)
         
         # Start models in background
-        threading.Thread(target=self.orchestrator.run_all, daemon=True).start()
+        threading.Thread(target=self.orchestrator.run_all, args=("//mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop",), daemon=True).start()
         
         # Update display every 100ms
         self.set_interval(0.1, self.update_display)
