@@ -13,13 +13,6 @@ from PIL import Image
 from common import ASSETS_DIR, PROJECT_ROOT
 from common.clipmodel import get_device
 
-from .embed import (
-    CLIP_MODEL_ID,
-    get_embedder,
-    load_embeddings,
-    save_embeddings,
-)
-
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
@@ -139,6 +132,10 @@ def cluster(
     image_dir, embeddings, sample_size, batch_size, output_files, count, reduce, model
 ):
     from .cluster import create_clusterer, reduce_dimensions
+    from .embed import (
+        get_embedder,
+        load_embeddings,
+    )
     from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
 
     device = get_device()
@@ -282,6 +279,11 @@ def search(
     prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_size, model
 ):
     """Search for images matching a text prompt using embedding similarity"""
+    from .embed import (
+        get_embedder,
+        load_embeddings,
+    )
+
     logger.info(f"Searching for: '{prompt}'")
     logger.info(f"Looking for top {top_k} matches")
 
@@ -375,6 +377,11 @@ def search(
 )
 def generate_embeddings(image_dir, save_path, count, batch_size, model):
     """Generate image embeddings using the specified model."""
+    from .embed import (
+        get_embedder,
+        save_embeddings,
+    )
+
     device = get_device()
 
     logger.info(f"Loading embedding model: {model}")
@@ -407,6 +414,11 @@ def serve(embeddings, host, port):
     import io
 
     from flask import Flask, render_template, request, send_from_directory
+
+    from .embed import (
+        get_embedder,
+        load_embeddings,
+    )
 
     app = Flask(
         __name__,
@@ -746,6 +758,11 @@ def analyze(
         create_clusterer,
         reduce_dimensions,
         save_cluster_statistics,
+    )
+    from .embed import (
+        CLIP_MODEL_ID,
+        get_embedder,
+        load_embeddings,
     )
     from .rr import init_rerun, log_clustered_points_density
 

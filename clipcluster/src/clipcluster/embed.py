@@ -4,11 +4,16 @@ This module provides a unified interface for generating image embeddings
 using different models like CLIP, DINOv2, and Qwen3-VL.
 """
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-import torch
 from PIL import Image
+
+if TYPE_CHECKING:
+    import torch
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +137,8 @@ class CLIPEmbedder(EmbeddingModel):
         image_paths: list[str],
         batch_size: int = 64,
     ) -> tuple[torch.Tensor, list[str]]:
+        import torch
+
         from common.dataloader import get_dataloader
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
@@ -156,6 +163,8 @@ class CLIPEmbedder(EmbeddingModel):
         return torch.cat(all_embeddings), processed_paths
 
     def encode_text(self, text: str) -> torch.Tensor | None:
+        import torch
+
         with torch.no_grad():
             inputs = self._processor(text=[text], return_tensors="pt", padding=True).to(
                 self._device
@@ -164,6 +173,8 @@ class CLIPEmbedder(EmbeddingModel):
             return text_embedding / text_embedding.norm(dim=-1, keepdim=True)
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        import torch
+
         with torch.no_grad():
             inputs = self._processor(images=image, return_tensors="pt").to(self._device)
             embedding = self._model.get_image_features(**inputs)
@@ -209,6 +220,8 @@ class DINOv2Embedder(EmbeddingModel):
         image_paths: list[str],
         batch_size: int = 64,
     ) -> tuple[torch.Tensor, list[str]]:
+        import torch
+
         from common.dataloader import get_dataloader
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
@@ -235,6 +248,8 @@ class DINOv2Embedder(EmbeddingModel):
         return torch.cat(all_embeddings), processed_paths
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        import torch
+
         with torch.no_grad():
             inputs = self._processor(images=image, return_tensors="pt").to(self._device)
             outputs = self._model(**inputs)
@@ -271,6 +286,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
         return True
 
     def load(self, device: str) -> None:
+        import torch
         from transformers import Qwen3VLModel, Qwen3VLProcessor
 
         logger.info(f"Loading Qwen3-VL-Embedding model: {self.model_id}")
@@ -286,6 +302,8 @@ class Qwen3VLEmbedder(EmbeddingModel):
         self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
         """Extract embedding from the last valid token (EOS) position."""
+        import torch
+
         # Find the last non-padding position for each sequence
         sequence_lengths = attention_mask.sum(dim=1) - 1
         batch_size = hidden_states.shape[0]
@@ -298,6 +316,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
         image_paths: list[str],
         batch_size: int = 8,
     ) -> tuple[torch.Tensor, list[str]]:
+        import torch
         from qwen_vl_utils import process_vision_info
 
         all_embeddings = []
@@ -369,6 +388,8 @@ class Qwen3VLEmbedder(EmbeddingModel):
         return torch.cat(all_embeddings), processed_paths
 
     def encode_text(self, text: str) -> torch.Tensor | None:
+        import torch
+
         messages = [
             {
                 "role": "user",
@@ -399,6 +420,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
         return embedding.float()
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        import torch
         from qwen_vl_utils import process_vision_info
 
         messages = [
