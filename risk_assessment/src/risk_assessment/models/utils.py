@@ -112,6 +112,55 @@ def parse_output(output_text, model_type="lava"):
         }
 
 
+def calculate_majority_vote(lavaguard_rating, qwen_rating, pixtral_rating):
+    """Calculate the majority vote from three model ratings.
+    
+    Uses majority voting with tie-breaking based on conservative priority:
+    Unsafe > Potentially Problematic > Safe > Unknown > Error
+    
+    Args:
+        lavaguard_rating: Rating from LavaGuard model
+        qwen_rating: Rating from Qwen3 model
+        pixtral_rating: Rating from Pixtral model
+        
+    Returns:
+        str: The majority vote rating
+    """
+    ratings = [lavaguard_rating, qwen_rating, pixtral_rating]
+    
+    # Count occurrences of each rating
+    rating_counts = Counter(ratings)
+    most_common = rating_counts.most_common()
+    
+    # Define priority order (most conservative first)
+    priority_order = ["Unsafe", "Potentially Problematic", "Safe", "Unknown", "Error"]
+    
+    # Get the majority vote (most common rating)
+    if most_common:
+        majority_rating, count = most_common[0]
+        
+        # Check if there's a clear majority (one rating appears more than others)
+        if len(most_common) == 1 or (len(most_common) > 1 and most_common[0][1] > most_common[1][1]):
+            # Clear majority
+            return majority_rating
+        else:
+            # Tie or no consensus - select most conservative option
+            # Get all ratings involved in the tie
+            available_ratings = [r for r in ratings if r != "Unknown"]
+            if not available_ratings:
+                available_ratings = ratings
+            
+            # Select the most conservative (first in priority order)
+            for priority_rating in priority_order:
+                if priority_rating in available_ratings:
+                    return priority_rating
+            
+            # Fallback
+            return majority_rating
+    else:
+        return "Unknown"
+
+
 def write_combined_csv(assessments_lavaguard, assessments_qwen, assessments_pixtral, output_csv="combined_risk_assessment_results.csv"):
     """Write combined assessment results from all three models to a single CSV.
     
@@ -150,28 +199,11 @@ def write_combined_csv(assessments_lavaguard, assessments_qwen, assessments_pixt
     
     # Calculate majority voting for each image
     for image_name, row in combined.items():
-        ratings = [
-            row.get("lavaguard_rating", "Unknown"),
-            row.get("qwen_rating", "Unknown"),
-            row.get("pixtral_rating", "Unknown")
-        ]
+        lavaguard_rating = row.get("lavaguard_rating", "Unknown")
+        qwen_rating = row.get("qwen_rating", "Unknown")
+        pixtral_rating = row.get("pixtral_rating", "Unknown")
         
-        # Count occurrences of each rating
-        rating_counts = Counter(ratings)
-        most_common = rating_counts.most_common()
-        
-        # Get the majority vote (most common rating)
-        if most_common:
-            majority_rating, count = most_common[0]
-            # If there's a tie (all different or 2-way tie), note it
-            if len(most_common) == 3:  # All three different
-                row["majority_vote"] = "No Consensus (all different)"
-            elif len(most_common) > 1 and most_common[0][1] == most_common[1][1]:  # Tie between top ratings
-                row["majority_vote"] = f"Tie: {most_common[0][0]} / {most_common[1][0]}"
-            else:
-                row["majority_vote"] = majority_rating
-        else:
-            row["majority_vote"] = "Unknown"
+        row["majority_vote"] = calculate_majority_vote(lavaguard_rating, qwen_rating, pixtral_rating)
     
     # Define CSV header
     header = [
