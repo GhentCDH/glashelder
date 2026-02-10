@@ -79,10 +79,27 @@ def parse_output(output_text, model_type="lava"):
 
             json_str = output_text[start_idx:end_idx]
 
+        # Ensure JSON string is closed if the model omitted trailing braces
+        if json_str:
+            brace_balance = 0
+            for ch in json_str:
+                if ch == '{':
+                    brace_balance += 1
+                elif ch == '}':
+                    brace_balance -= 1
+            if brace_balance > 0:
+                json_str = json_str + ("}" * brace_balance)
+
         # Try to parse the JSON
         try:
             assessment = json.loads(json_str)
-            return assessment
+            if isinstance(assessment, dict):
+                return assessment
+            return {
+                "rating": "Error",
+                "category": "NA: None applying",
+                "rationale": "Parsed JSON was not an object.",
+            }
         except json.JSONDecodeError:
             # Fallback: extract using regex
             rating_match = re.search(r'"rating"\s*:\s*"([^"]*)"', json_str)
