@@ -79,6 +79,10 @@
         gap: 30px;
       }
 
+      .models-comparison.three-models {
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+
       .single-model-view {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -214,6 +218,7 @@
 
       @media (max-width: 768px) {
         .models-comparison,
+        .models-comparison.three-models,
         .single-model-view {
           grid-template-columns: 1fr;
         }
@@ -239,7 +244,7 @@
 
         <!-- Models Comparison -->
         {% if has_model2 %}
-        <div class="models-comparison">
+        <div class="models-comparison{% if has_model3 %} three-models{% endif %}">
           <!-- LavaGuard Results -->
           <div class="model-section">
             <div class="model-header">LavaGuard</div>
@@ -303,6 +308,43 @@
             </div>
             {% endif %}
           </div>
+
+          <!-- Pixtral12bQ8 Results -->
+          {% if has_model3 %}
+          <div class="model-section">
+            <div class="model-header">Pixtral12bQ8</div>
+            {% if result_model3 %}
+            <div class="info-panel">
+              <div class="info-item">
+                <div class="info-label">Rating</div>
+                <div class="info-value">
+                  {% if result_model3.rating == "Safe" %}
+                    <span class="rating-safe">{{ result_model3.rating }}</span>
+                  {% elif result_model3.rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result_model3.rating }}</span>
+                  {% else %}
+                    <span class="rating-unsafe">{{ result_model3.rating }}</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="info-item">
+                <div class="info-label">Category</div>
+                <div class="info-value">{{ result_model3.category }}</div>
+              </div>
+
+              <div class="info-item">
+                <div class="info-label">Rationale</div>
+                <div class="info-value rationale-text">{{ result_model3.rationale }}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="info-value" style="color: #999; text-align: center; padding: 40px;">
+              No result available for this image
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
         </div>
         {% else %}
         <!-- Single Model View -->
