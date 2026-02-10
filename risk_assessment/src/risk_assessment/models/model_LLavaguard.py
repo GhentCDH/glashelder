@@ -74,15 +74,17 @@ def run_lavaguard(orchestrator, image_path):
     orchestrator.update_model_state("model1", status=ModelStatus.RUNNING, current_task="Processing images...")
     
     image_files = get_images(image_path)
-    assessments = []
     for i, image_file in enumerate(image_files):
-        orchestrator.update_model_state("model1", current_task=f"Processing image {i+1}/{len(image_files)}")
+        image_name = os.path.basename(image_file)
+        orchestrator.update_model_state("model1", current_task=f"Processing image {i+1}/{len(image_files)}", latest_image=image_name)
         image = Image.open(image_file).convert("RGB")
-        assessment = model.process_image(image, os.path.basename(image_file))
-        assessments.append(assessment)
+        assessment = model.process_image(image, image_name)
+        orchestrator.assessments_lavaguard.append(assessment)
+        orchestrator.update_model_state("model1", latest_rating=assessment.get("rating", "Unknown"))
+        orchestrator.update_majority_votes_live()
     
     orchestrator.update_model_state("model1", status=ModelStatus.DONE, current_task="Done")
-    return assessments
+    return orchestrator.assessments_lavaguard
 
 
 

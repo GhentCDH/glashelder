@@ -94,13 +94,16 @@ def run_qwen(orchestrator, image_path):
     assessments = []
 
     for i, image_file in enumerate(images):
-        orchestrator.update_model_state("model2", current_task=f"Processing image {i+1}/{len(images)}")
+        image_name = os.path.basename(image_file)
+        orchestrator.update_model_state("model2", current_task=f"Processing image {i+1}/{len(images)}", latest_image=image_name)
         image = Image.open(image_file).convert("RGB")
-        assessment = model.process_image(image, os.path.basename(image_file))
-        assessments.append(assessment)
+        assessment = model.process_image(image, image_name)
+        orchestrator.assessments_qwen.append(assessment)
+        orchestrator.update_model_state("model2", latest_rating=assessment.get("rating", "Unknown"))
+        orchestrator.update_majority_votes_live()
     
     orchestrator.update_model_state("model2", status=ModelStatus.DONE, current_task="Done")
-    return assessments
+    return orchestrator.assessments_qwen
     
     orchestrator.update_model_state("model2", status=ModelStatus.DONE, current_task="Done")
     return assessments
