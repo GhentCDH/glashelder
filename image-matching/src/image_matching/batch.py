@@ -139,6 +139,9 @@ class FeatureCache:
     def __len__(self) -> int:
         return len(self._cache)
 
+    def __bool__(self) -> bool:
+        return True
+
 
 def compute_embedding_similarities(
     glashelder_emb: torch.Tensor,
@@ -283,8 +286,7 @@ def extract_features_batch(
                     and cache_save_interval > 0
                     and n_completed % cache_save_interval == 0
                 ):
-                    # TODO: set `quiet` back to True eventually
-                    cache.save(quiet=False)
+                    cache.save(quiet=True)
 
                 n_completed += 1
                 progress.advance(task)
