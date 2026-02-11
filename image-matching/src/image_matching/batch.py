@@ -386,64 +386,48 @@ def batch_classify(
         work_items, workers, cache, timeout_per_item, cache_save_interval
     )
 
-    # Phase 3: ML Classification
+    # Phase 3: ML Classification (vectorized batch prediction)
     console.print("\n[cyan]Phase 3: Running ML classification...[/cyan]")
     classifier.threshold = threshold
 
+    # Build all feature vectors at once (vectorized)
+    feature_matrix = np.array(
+        [
+            [features_map[i].get(f, 0.0) for f in classifier.FEATURE_ORDER]
+            for i in range(n_glashelder)
+        ]
+    )
+
+    # Batch predict all at once - much faster than one-by-one
+    all_proba = classifier._model.predict_proba(feature_matrix)  # type:ignore
+    confidences = all_proba[:, 1].astype(float)
+    is_match_arr = confidences >= threshold
+    n_matches = int(is_match_arr.sum())
+
+    # Build results list
     results: list[BatchClassifyResult] = []
-    n_matches = 0
+    for i in range(n_glashelder):
+        confidence = confidences[i]
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task(
-            "[cyan]Classifying...",
-            total=n_glashelder,
+        # Apply min_confidence filter
+        if min_confidence is not None and confidence < min_confidence:
+            continue
+
+        wikiart_idx = int(top_indices[i, 0])
+        result = BatchClassifyResult(
+            glashelder_path=glashelder_paths[i],
+            glashelder_index=i,
+            wikiart_path=wikiart_paths[wikiart_idx],
+            wikiart_index=wikiart_idx,
+            similarities=top_sims[i].tolist(),
+            is_match=bool(is_match_arr[i]),
+            confidence=float(confidence),
+            threshold=threshold,
+            features=features_map[i],
         )
+        results.append(result)
 
-        for i in range(n_glashelder):
-            features = features_map[i]
-            similarities = top_sims[i].tolist()
-
-            # Build feature vector
-            feature_vector = np.array(
-                [features.get(f, 0.0) for f in classifier.FEATURE_ORDER]
-            ).reshape(1, -1)
-
-            # Get prediction
-            proba = classifier._model.predict_proba(feature_vector)[0]  # type:ignore
-            confidence = float(proba[1])
-            is_match = confidence >= threshold
-
-            if is_match:
-                n_matches += 1
-
-            # Apply min_confidence filter
-            if min_confidence is not None and confidence < min_confidence:
-                progress.advance(task)
-                continue
-
-            wikiart_idx = int(top_indices[i, 0])
-            result = BatchClassifyResult(
-                glashelder_path=glashelder_paths[i],
-                glashelder_index=i,
-                wikiart_path=wikiart_paths[wikiart_idx],
-                wikiart_index=wikiart_idx,
-                similarities=similarities,
-                is_match=is_match,
-                confidence=confidence,
-                threshold=threshold,
-                features=features,
-            )
-            results.append(result)
-            progress.advance(task)
+    console.print(f"[green]Classified {n_glashelder} images[/green]")
 
     # Build output
     end_time = datetime.now()
