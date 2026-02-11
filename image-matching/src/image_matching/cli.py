@@ -570,8 +570,8 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     "--wikiart-embeddings",
     "-w",
     type=str,
-    required=True,
-    help="Path to the wikiart embeddings '.pkl' file",
+    default=None,
+    help="Path to the wikiart embeddings '.pkl' file (not needed with --results-json)",
 )
 @click.option(
     "--glashelder-embeddings",
@@ -626,8 +626,15 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     show_default=True,
     help="Number of images to check in parallel when searching for matches",
 )
+@click.option(
+    "--results-json",
+    "-r",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to pre-computed batch_classify JSON output. Skips on-the-fly computation.",
+)
 def serve(
-    wikiart_embeddings: str,
+    wikiart_embeddings: str | None,
     glashelder_embeddings: str | None,
     model: Literal["clip", "dinov2", "qwen3vl"],
     image_dir: str,
@@ -639,10 +646,14 @@ def serve(
     ml_model: str | None,
     search_workers: int,
     search_batch_size: int,
+    results_json: str | None,
 ):
     """Start a web interface for labeling artwork matches.
 
-    Use --classifier=ml with --ml-model to use a trained ML classifier.
+    Use --results-json to load pre-computed results from batch_classify.
+    The threshold can still be adjusted interactively in the UI.
+
+    Or use --classifier=ml with --ml-model to compute on the fly.
     Use --search-workers to parallelize ORB/hash extraction during search.
     """
     from flask import Flask, render_template, send_file
@@ -654,16 +665,294 @@ def serve(
         _init_orb_worker,
     )
 
-    # Validate ML classifier options
-    if classifier == "ml" and ml_model is None:
-        click.echo("Error: --ml-model is required when using --classifier=ml", err=True)
-        return
+    # Validate options
+    if results_json is None:
+        if wikiart_embeddings is None:
+            click.echo(
+                "Error: --wikiart-embeddings is required unless using --results-json",
+                err=True,
+            )
+            return
+        if classifier == "ml" and ml_model is None:
+            click.echo(
+                "Error: --ml-model is required when using --classifier=ml", err=True
+            )
+            return
 
     app = Flask(
         __name__,
         template_folder=PACKAGE_ROOT / "templates",
     )
 
+    # If results_json is provided, use pre-computed results mode
+    if results_json is not None:
+        logger.info(f"Loading pre-computed results from {results_json}...")
+        with open(results_json) as f:
+            precomputed_data = json.load(f)
+
+        precomputed_results = precomputed_data["results"]
+        logger.info(f"Loaded {len(precomputed_results)} pre-computed results")
+
+        # Build path mappings from results
+        glashelder_paths = [r["glashelder_path"] for r in precomputed_results]
+        wikiart_paths_set: dict[int, str] = {}
+        for r in precomputed_results:
+            wikiart_paths_set[r["wikiart_index"]] = r["wikiart_path"]
+        # Build a list for indexing (may have gaps, fill with empty strings)
+        max_wikiart_idx = max(wikiart_paths_set.keys()) if wikiart_paths_set else 0
+        wikiart_paths = [""] * (max_wikiart_idx + 1)
+        for idx, path in wikiart_paths_set.items():
+            wikiart_paths[idx] = path
+
+        # Create shuffled order of indices
+        shuffled_indices = list(range(len(glashelder_paths)))
+        random.shuffle(shuffled_indices)
+        logger.info(f"Shuffled {len(shuffled_indices)} images for random traversal")
+
+        # Build lookup from glashelder_index to result
+        # Note: glashelder_index in JSON refers to original batch index, but we
+        # re-index based on position in the results list
+        result_by_position: dict[int, dict] = {}
+        for i, r in enumerate(precomputed_results):
+            result_by_position[i] = r
+
+        # State for tracking
+        state: dict = {
+            "queue_position": 0,
+            "current_item": None,
+            "threshold": threshold,
+            "dataset": {
+                "positives": [],
+                "negatives": [],
+                "false_positives": [],
+                "false_negatives": [],
+            },
+        }
+
+        def classify_image_precomputed(position: int) -> dict | None:
+            """Get classification for image at position using pre-computed results."""
+            if position < 0 or position >= len(precomputed_results):
+                return None
+
+            r = precomputed_results[position]
+            current_threshold = state["threshold"]
+
+            # Recompute is_match based on current threshold
+            confidence = r["confidence"]
+            is_match = confidence >= current_threshold
+
+            return {
+                "glashelder_index": position,
+                "glashelder_path": r["glashelder_path"],
+                "top_indices": [r["wikiart_index"]],
+                "similarities": r["similarities"],
+                "is_match": is_match,
+                "diff": confidence,
+                "threshold": current_threshold,
+                "classifier_type": "precomputed",
+                "features": r.get("features", {}),
+            }
+
+        def find_next_in_queue_precomputed(
+            start_queue_pos: int, want_match: bool
+        ) -> dict | None:
+            """Find next image in queue matching criteria using pre-computed results."""
+            for queue_pos in range(start_queue_pos, len(shuffled_indices)):
+                position = shuffled_indices[queue_pos]
+                item = classify_image_precomputed(position)
+                if item and item["is_match"] == want_match:
+                    state["queue_position"] = queue_pos
+                    state["current_item"] = item
+                    return item
+            return None
+
+        def get_dataset_counts() -> dict:
+            return {
+                "positives": len(state["dataset"]["positives"]),
+                "negatives": len(state["dataset"]["negatives"]),
+                "false_positives": len(state["dataset"]["false_positives"]),
+                "false_negatives": len(state["dataset"]["false_negatives"]),
+                "total": sum(len(v) for v in state["dataset"].values()),
+            }
+
+        def render_content(item: dict | None, want_match: bool) -> str:
+            if item is None:
+                return render_template(
+                    "content.html",
+                    error=f"No more {'matches' if want_match else 'negatives'} to show.",
+                    dataset_counts=get_dataset_counts(),
+                )
+
+            wikiart_idx = item["top_indices"][0]
+            return render_template(
+                "content.html",
+                error=None,
+                current_index=item["glashelder_index"],
+                total_images=len(glashelder_paths),
+                glashelder_path=item["glashelder_path"],
+                wikiart_path=wikiart_paths[wikiart_idx]
+                if wikiart_idx < len(wikiart_paths)
+                else "",
+                top_match_index=wikiart_idx,
+                similarities=item["similarities"],
+                is_match=item["is_match"],
+                diff=item["diff"],
+                threshold=item["threshold"],
+                dataset_counts=get_dataset_counts(),
+                classifier_type=item.get("classifier_type", "precomputed"),
+                features=item.get("features", {}),
+            )
+
+        @app.route("/")
+        def index():
+            item = find_next_in_queue_precomputed(0, True)
+            if item is None and shuffled_indices:
+                item = classify_image_precomputed(shuffled_indices[0])
+                state["queue_position"] = 0
+                state["current_item"] = item
+
+            wikiart_idx = item["top_indices"][0] if item else 0
+            return render_template(
+                "labeler.html",
+                error=None if item else "No images found.",
+                current_index=item["glashelder_index"] if item else 0,
+                total_images=len(glashelder_paths),
+                glashelder_path=item["glashelder_path"] if item else "",
+                wikiart_path=wikiart_paths[wikiart_idx]
+                if item and wikiart_idx < len(wikiart_paths)
+                else "",
+                top_match_index=wikiart_idx if item else 0,
+                similarities=item["similarities"] if item else [],
+                is_match=item["is_match"] if item else False,
+                diff=item["diff"] if item else 0.0,
+                threshold=item["threshold"] if item else state["threshold"],
+                dataset_counts=get_dataset_counts(),
+                classifier_type=item.get("classifier_type", "precomputed")
+                if item
+                else "precomputed",
+                features=item.get("features", {}) if item else {},
+            )
+
+        @app.route("/next-match", methods=["POST"])
+        def next_match():
+            item = find_next_in_queue_precomputed(state["queue_position"] + 1, True)
+            return render_content(item, True)
+
+        @app.route("/next-negative", methods=["POST"])
+        def next_negative():
+            item = find_next_in_queue_precomputed(state["queue_position"] + 1, False)
+            return render_content(item, False)
+
+        @app.route("/set-threshold", methods=["POST"])
+        def set_threshold():
+            from flask import request
+
+            new_threshold = request.form.get("threshold", type=float)
+            if new_threshold is not None:
+                state["threshold"] = new_threshold
+            if state["current_item"]:
+                # Re-classify with new threshold
+                position = state["current_item"]["glashelder_index"]
+                item = classify_image_precomputed(position)
+                state["current_item"] = item
+            else:
+                item = None
+            return render_content(item, True)
+
+        @app.route("/label-correct", methods=["POST"])
+        def label_correct():
+            item = state["current_item"]
+            if item:
+                wikiart_idx = item["top_indices"][0]
+                entry = {
+                    "glashelder_index": item["glashelder_index"],
+                    "glashelder_path": item["glashelder_path"],
+                    "wikiart_index": wikiart_idx,
+                    "wikiart_path": wikiart_paths[wikiart_idx]
+                    if wikiart_idx < len(wikiart_paths)
+                    else "",
+                    "diff": item["diff"],
+                    "threshold": item["threshold"],
+                    "similarities": item["similarities"],
+                }
+                if item["is_match"]:
+                    state["dataset"]["positives"].append(entry)
+                else:
+                    state["dataset"]["negatives"].append(entry)
+
+            next_item = find_next_in_queue_precomputed(
+                state["queue_position"] + 1, True
+            )
+            if next_item is None:
+                next_item = find_next_in_queue_precomputed(
+                    state["queue_position"] + 1, False
+                )
+            return render_content(next_item, True)
+
+        @app.route("/label-incorrect", methods=["POST"])
+        def label_incorrect():
+            item = state["current_item"]
+            if item:
+                wikiart_idx = item["top_indices"][0]
+                entry = {
+                    "glashelder_index": item["glashelder_index"],
+                    "glashelder_path": item["glashelder_path"],
+                    "wikiart_index": wikiart_idx,
+                    "wikiart_path": wikiart_paths[wikiart_idx]
+                    if wikiart_idx < len(wikiart_paths)
+                    else "",
+                    "diff": item["diff"],
+                    "threshold": item["threshold"],
+                    "similarities": item["similarities"],
+                }
+                if item["is_match"]:
+                    state["dataset"]["false_positives"].append(entry)
+                else:
+                    state["dataset"]["false_negatives"].append(entry)
+
+            next_item = find_next_in_queue_precomputed(
+                state["queue_position"] + 1, True
+            )
+            if next_item is None:
+                next_item = find_next_in_queue_precomputed(
+                    state["queue_position"] + 1, False
+                )
+            return render_content(next_item, True)
+
+        @app.route("/download-dataset")
+        def download_dataset():
+            from flask import Response
+
+            dataset_json = json.dumps(state["dataset"], indent=2)
+            return Response(
+                dataset_json,
+                mimetype="application/json",
+                headers={
+                    "Content-Disposition": "attachment;filename=labeling_dataset.json"
+                },
+            )
+
+        @app.route("/glashelder-image/<int:index>")
+        def serve_glashelder_image(index: int):
+            if index < 0 or index >= len(glashelder_paths):
+                return "Image not found", 404
+            return send_file(glashelder_paths[index])
+
+        @app.route("/wikiart-image/<int:index>")
+        def serve_wikiart_image(index: int):
+            if index < 0 or index >= len(wikiart_paths):
+                return "Image not found", 404
+            path = wikiart_paths[index]
+            if not path:
+                return "Image not found", 404
+            return send_file(path)
+
+        logger.info(f"Starting Flask server on {host}:{port}...")
+        logger.info(f"Open http://localhost:{port} in your browser")
+        app.run(host=host, port=port, debug=True)
+        return
+
+    # Original on-the-fly computation mode
     device = get_device()
     logger.info(f"Using device: {device}")
 
