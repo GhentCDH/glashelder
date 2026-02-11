@@ -3,6 +3,7 @@
 import json
 import logging
 import pickle
+import signal
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,7 +48,7 @@ def _init_orb_worker() -> None:
 
 
 def _extract_orb_worker(
-    args: tuple[int, str, str, list[float], int],
+    args: tuple[int, str, str, list[float], int], timeout=25
 ) -> tuple[int, dict[str, float], int]:
     """Worker function to extract features for a single entry.
 
@@ -58,42 +59,73 @@ def _extract_orb_worker(
         Tuple of (index, features_dict, label)
     """
     global _worker_orb, _worker_bf
-    idx, glashelder_path, wikiart_path, similarities, label = args
 
-    # Initialize if needed (shouldn't happen with initializer, but be safe)
-    if _worker_orb is None:
-        _worker_orb = cv2.ORB_create(nfeatures=1000)
-    if _worker_bf is None:
-        _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    def handler(signum, frame):
+        raise TimeoutError("Worker timeout")
 
-    # Extract distribution features first (fast)
-    features = _extract_distribution_features(similarities)
+    old = signal.signal(signal.SIGALRM, handler)
+    signal.alarm(timeout)
 
-    # Extract ORB features
-    orb_feats = _extract_orb_features_worker(
-        glashelder_path, wikiart_path, _worker_orb, _worker_bf
-    )
-    features["orb_num_matches"] = float(orb_feats["num_matches"])
-    features["orb_num_inliers"] = float(orb_feats["num_inliers"])
-    features["orb_confidence"] = orb_feats["confidence"]
-    features["orb_warp_stretch"] = orb_feats["warp_stretch"]
-    features["inlier_match_ratio"] = (
-        orb_feats["num_inliers"] / orb_feats["num_matches"]
-        if orb_feats["num_matches"] > 0
-        else 0.0
-    )
+    try:
+        idx, glashelder_path, wikiart_path, similarities, label = args
 
-    # Extract perceptual hash features
-    hash_feats = _extract_hash_features_worker(glashelder_path, wikiart_path)
-    features["phash_distance"] = hash_feats["phash_distance"]
-    features["dhash_distance"] = hash_feats["dhash_distance"]
-    features["whash_distance"] = hash_feats["whash_distance"]
-    features["ahash_distance"] = hash_feats["ahash_distance"]
+        # Initialize if needed (shouldn't happen with initializer, but be safe)
+        if _worker_orb is None:
+            _worker_orb = cv2.ORB_create(nfeatures=1000)  # type:ignore
+        if _worker_bf is None:
+            _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
-    # Sanitize to remove NaN/Inf values
-    features = _sanitize_features(features)
+        # Extract distribution features first (fast)
+        features = _extract_distribution_features(similarities)
 
-    return (idx, features, label)
+        # Extract ORB features
+        orb_feats = _extract_orb_features_worker(
+            glashelder_path, wikiart_path, _worker_orb, _worker_bf
+        )
+        features["orb_num_matches"] = float(orb_feats["num_matches"])
+        features["orb_num_inliers"] = float(orb_feats["num_inliers"])
+        features["orb_confidence"] = orb_feats["confidence"]
+        features["orb_warp_stretch"] = orb_feats["warp_stretch"]
+        features["inlier_match_ratio"] = (
+            orb_feats["num_inliers"] / orb_feats["num_matches"]
+            if orb_feats["num_matches"] > 0
+            else 0.0
+        )
+
+        # Extract perceptual hash features
+        hash_feats = _extract_hash_features_worker(glashelder_path, wikiart_path)
+        features["phash_distance"] = hash_feats["phash_distance"]
+        features["dhash_distance"] = hash_feats["dhash_distance"]
+        features["whash_distance"] = hash_feats["whash_distance"]
+        features["ahash_distance"] = hash_feats["ahash_distance"]
+
+        # Sanitize to remove NaN/Inf values
+        features = _sanitize_features(features)
+
+        return (idx, features, label)
+
+    except TimeoutError:
+        idx, glashelder_path, _, similarities, label = args
+        logger.warning(f"Worker timeout for {glashelder_path}")
+        features = _extract_distribution_features(similarities)
+        # Fill in defaults for image-based features
+        features.update(
+            {
+                "orb_num_matches": 0.0,
+                "orb_num_inliers": 0.0,
+                "orb_confidence": 0.0,
+                "orb_warp_stretch": 1.0,
+                "inlier_match_ratio": 0.0,
+                "phash_distance": 64.0,
+                "dhash_distance": 64.0,
+                "whash_distance": 64.0,
+                "ahash_distance": 64.0,
+            }
+        )
+        return (idx, _sanitize_features(features), label)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def _sanitize_features(features: dict[str, float]) -> dict[str, float]:
