@@ -277,16 +277,17 @@ def extract_features_batch(
                     results[idx] = _get_default_features(similarities)
                     n_failed += 1
 
-                n_completed += 1
-                progress.advance(task)
-
                 # Periodically save cache to disk for crash recovery
                 if (
                     cache
                     and cache_save_interval > 0
                     and n_completed % cache_save_interval == 0
                 ):
-                    cache.save(quiet=True)
+                    # TODO: set `quiet` back to True eventually
+                    cache.save(quiet=False)
+
+                n_completed += 1
+                progress.advance(task)
 
         except TimeoutError:
             # Global timeout - cancel remaining futures and use defaults
