@@ -164,10 +164,30 @@ def compute_embedding_similarities(
     return top_indices.cpu().numpy(), top_values.cpu().numpy()
 
 
+def _get_default_features(similarities: list[float]) -> dict[str, float]:
+    """Return default features when extraction fails."""
+    from image_matching.ml_classifier import _extract_distribution_features
+
+    features = _extract_distribution_features(similarities)
+    # Add default ORB features
+    features["orb_num_matches"] = 0.0
+    features["orb_num_inliers"] = 0.0
+    features["orb_confidence"] = 0.0
+    features["orb_warp_stretch"] = 1.0
+    features["inlier_match_ratio"] = 0.0
+    # Add default hash features (max distance = no similarity)
+    features["phash_distance"] = 64.0
+    features["dhash_distance"] = 64.0
+    features["whash_distance"] = 64.0
+    features["ahash_distance"] = 64.0
+    return features
+
+
 def extract_features_batch(
     work_items: list[tuple[int, str, str, list[float], int]],
     workers: int,
     cache: FeatureCache | None = None,
+    timeout_per_item: float = 30.0,
 ) -> dict[int, dict[str, float]]:
     """Extract ORB/hash features for a batch of image pairs in parallel.
 
@@ -175,6 +195,7 @@ def extract_features_batch(
         work_items: List of (index, glashelder_path, wikiart_path, similarities, label)
         workers: Number of parallel workers
         cache: Optional feature cache
+        timeout_per_item: Timeout in seconds per item (default 30s)
 
     Returns:
         Dict mapping index to feature dict
@@ -196,6 +217,13 @@ def extract_features_batch(
         return results
 
     # Extract features in parallel for uncached items
+    n_failed = 0
+    n_completed = 0
+
+    # Calculate a reasonable global timeout
+    # Allow timeout_per_item seconds per item, but at least 5 minutes
+    global_timeout = max(300, len(uncached_items) * timeout_per_item / workers)
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -220,16 +248,51 @@ def extract_features_batch(
                 for item in uncached_items
             }
 
-            for future in as_completed(future_to_item):
-                idx, features, _ = future.result()
-                results[idx] = features
+            try:
+                for future in as_completed(future_to_item, timeout=global_timeout):
+                    item = future_to_item[future]
+                    idx = item[0]
+                    similarities = item[3]
 
-                # Update cache
-                item = future_to_item[future]
-                if cache:
-                    cache.set(item[1], item[2], features)
+                    try:
+                        # Add timeout to prevent hanging on result retrieval
+                        _, features, _ = future.result(timeout=timeout_per_item)
+                        results[idx] = features
 
-                progress.advance(task)
+                        # Update cache
+                        if cache:
+                            cache.set(item[1], item[2], features)
+                    except TimeoutError:
+                        logger.warning(f"Timeout extracting features for {item[1]}")
+                        results[idx] = _get_default_features(similarities)
+                        n_failed += 1
+                    except Exception as e:
+                        logger.warning(f"Error extracting features for {item[1]}: {e}")
+                        results[idx] = _get_default_features(similarities)
+                        n_failed += 1
+
+                    n_completed += 1
+                    progress.advance(task)
+
+            except TimeoutError:
+                # Global timeout - cancel remaining futures and use defaults
+                console.print(
+                    f"[yellow]Global timeout reached after {n_completed} items[/yellow]"
+                )
+                for future, item in future_to_item.items():
+                    if not future.done():
+                        future.cancel()
+                        idx = item[0]
+                        similarities = item[3]
+                        if idx not in results:
+                            results[idx] = _get_default_features(similarities)
+                            n_failed += 1
+                            progress.advance(task)
+
+    if n_failed > 0:
+        console.print(
+            f"[yellow]Warning: {n_failed} items failed feature extraction[/yellow]"
+        )
 
     return results
 
@@ -245,6 +308,7 @@ def batch_classify(
     workers: int = 8,
     min_confidence: float | None = None,
     cache: FeatureCache | None = None,
+    timeout_per_item: float = 30.0,
 ) -> BatchClassifyOutput:
     """Batch classify all glashelder images against wikiart.
 
@@ -259,6 +323,7 @@ def batch_classify(
         workers: Number of parallel workers for feature extraction
         min_confidence: Only include results above this confidence (None = include all)
         cache: Optional feature cache
+        timeout_per_item: Timeout in seconds per item for feature extraction
 
     Returns:
         BatchClassifyOutput with metadata, summary, and results
@@ -292,7 +357,7 @@ def batch_classify(
         work_items.append((i, glashelder_path, wikiart_path, similarities, 0))
 
     # Extract features in parallel
-    features_map = extract_features_batch(work_items, workers, cache)
+    features_map = extract_features_batch(work_items, workers, cache, timeout_per_item)
 
     # Phase 3: ML Classification
     console.print("\n[cyan]Phase 3: Running ML classification...[/cyan]")
