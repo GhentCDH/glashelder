@@ -118,15 +118,20 @@ class FeatureCache:
                 logger.warning(f"Failed to load cache: {e}")
                 self._cache = {}
 
-    def save(self) -> None:
-        """Save cache to disk."""
+    def save(self, quiet: bool = False) -> None:
+        """Save cache to disk.
+
+        Args:
+            quiet: If True, don't print success message (for periodic saves)
+        """
         if self.cache_path and self._dirty:
             try:
                 with open(self.cache_path, "wb") as f:
                     pickle.dump(self._cache, f)
-                console.print(
-                    f"[green]Saved {len(self._cache)} cached features to {self.cache_path}[/green]"
-                )
+                if not quiet:
+                    console.print(
+                        f"[green]Saved {len(self._cache)} cached features to {self.cache_path}[/green]"
+                    )
                 self._dirty = False
             except Exception as e:
                 logger.warning(f"Failed to save cache: {e}")
@@ -188,6 +193,7 @@ def extract_features_batch(
     workers: int,
     cache: FeatureCache | None = None,
     timeout_per_item: float = 30.0,
+    cache_save_interval: int = 100,
 ) -> dict[int, dict[str, float]]:
     """Extract ORB/hash features for a batch of image pairs in parallel.
 
@@ -196,6 +202,7 @@ def extract_features_batch(
         workers: Number of parallel workers
         cache: Optional feature cache
         timeout_per_item: Timeout in seconds per item (default 30s)
+        cache_save_interval: Save cache to disk every N items (default 100)
 
     Returns:
         Dict mapping index to feature dict
@@ -239,55 +246,68 @@ def extract_features_batch(
             total=len(uncached_items),
         )
 
-        with ProcessPoolExecutor(
-            max_workers=workers,
-            initializer=_init_orb_worker,
-        ) as executor:
+        executor = ProcessPoolExecutor(
+            max_workers=workers, initializer=_init_orb_worker
+        )
+
+        try:
             future_to_item = {
                 executor.submit(_extract_orb_worker, item): item
                 for item in uncached_items
             }
+            for future in as_completed(future_to_item, timeout=global_timeout):
+                item = future_to_item[future]
+                idx = item[0]
+                similarities = item[3]
 
-            try:
-                for future in as_completed(future_to_item, timeout=global_timeout):
-                    item = future_to_item[future]
+                try:
+                    # Add timeout to prevent hanging on result retrieval
+                    _, features, _ = future.result(timeout=timeout_per_item)
+                    results[idx] = features
+
+                    # Update cache
+                    if cache:
+                        cache.set(item[1], item[2], features)
+                except TimeoutError:
+                    logger.warning(f"Timeout extracting features for {item[1]}")
+                    results[idx] = _get_default_features(similarities)
+                    n_failed += 1
+                except Exception as e:
+                    logger.warning(f"Error extracting features for {item[1]}: {e}")
+                    results[idx] = _get_default_features(similarities)
+                    n_failed += 1
+
+                n_completed += 1
+                progress.advance(task)
+
+                # Periodically save cache to disk for crash recovery
+                if (
+                    cache
+                    and cache_save_interval > 0
+                    and n_completed % cache_save_interval == 0
+                ):
+                    cache.save(quiet=True)
+
+        except TimeoutError:
+            # Global timeout - cancel remaining futures and use defaults
+            console.print(
+                f"[yellow]Global timeout reached after {n_completed} items[/yellow]"
+            )
+            for future, item in future_to_item.items():
+                if not future.done():
+                    future.cancel()
                     idx = item[0]
                     similarities = item[3]
-
-                    try:
-                        # Add timeout to prevent hanging on result retrieval
-                        _, features, _ = future.result(timeout=timeout_per_item)
-                        results[idx] = features
-
-                        # Update cache
-                        if cache:
-                            cache.set(item[1], item[2], features)
-                    except TimeoutError:
-                        logger.warning(f"Timeout extracting features for {item[1]}")
+                    if idx not in results:
                         results[idx] = _get_default_features(similarities)
                         n_failed += 1
-                    except Exception as e:
-                        logger.warning(f"Error extracting features for {item[1]}: {e}")
-                        results[idx] = _get_default_features(similarities)
-                        n_failed += 1
+                        progress.advance(task)
 
-                    n_completed += 1
-                    progress.advance(task)
-
-            except TimeoutError:
-                # Global timeout - cancel remaining futures and use defaults
-                console.print(
-                    f"[yellow]Global timeout reached after {n_completed} items[/yellow]"
-                )
-                for future, item in future_to_item.items():
-                    if not future.done():
-                        future.cancel()
-                        idx = item[0]
-                        similarities = item[3]
-                        if idx not in results:
-                            results[idx] = _get_default_features(similarities)
-                            n_failed += 1
-                            progress.advance(task)
+            # Save cache on timeout for crash recovery
+            if cache:
+                cache.save()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     if n_failed > 0:
         console.print(
@@ -309,6 +329,7 @@ def batch_classify(
     min_confidence: float | None = None,
     cache: FeatureCache | None = None,
     timeout_per_item: float = 30.0,
+    cache_save_interval: int = 100,
 ) -> BatchClassifyOutput:
     """Batch classify all glashelder images against wikiart.
 
@@ -324,6 +345,7 @@ def batch_classify(
         min_confidence: Only include results above this confidence (None = include all)
         cache: Optional feature cache
         timeout_per_item: Timeout in seconds per item for feature extraction
+        cache_save_interval: Save cache to disk every N items (0 to disable)
 
     Returns:
         BatchClassifyOutput with metadata, summary, and results
@@ -357,7 +379,9 @@ def batch_classify(
         work_items.append((i, glashelder_path, wikiart_path, similarities, 0))
 
     # Extract features in parallel
-    features_map = extract_features_batch(work_items, workers, cache, timeout_per_item)
+    features_map = extract_features_batch(
+        work_items, workers, cache, timeout_per_item, cache_save_interval
+    )
 
     # Phase 3: ML Classification
     console.print("\n[cyan]Phase 3: Running ML classification...[/cyan]")

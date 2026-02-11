@@ -1182,6 +1182,13 @@ def serve(
     help="Path for feature cache",
 )
 @click.option(
+    "--cache-save-interval",
+    type=int,
+    default=100,
+    show_default=True,
+    help="Save cache to disk every N items (0 to disable periodic saves)",
+)
+@click.option(
     "--timeout",
     type=float,
     default=30.0,
@@ -1207,6 +1214,7 @@ def batch_classify(
     min_confidence: float | None,
     cache_features: bool,
     cache_path: str,
+    cache_save_interval: int,
     timeout: float,
     model: Literal["clip", "dinov2", "qwen3vl"],
 ):
@@ -1300,6 +1308,7 @@ def batch_classify(
         min_confidence=min_confidence,
         cache=cache,
         timeout_per_item=timeout,
+        cache_save_interval=cache_save_interval,
     )
 
     # Write output
