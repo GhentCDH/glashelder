@@ -1182,6 +1182,13 @@ def serve(
     help="Path for feature cache",
 )
 @click.option(
+    "--timeout",
+    type=float,
+    default=30.0,
+    show_default=True,
+    help="Timeout in seconds per item for feature extraction",
+)
+@click.option(
     "--model",
     default="clip",
     type=click.Choice(["clip", "dinov2", "qwen3vl"]),
@@ -1200,6 +1207,7 @@ def batch_classify(
     min_confidence: float | None,
     cache_features: bool,
     cache_path: str,
+    timeout: float,
     model: Literal["clip", "dinov2", "qwen3vl"],
 ):
     """Batch classify all glashelder images for artwork matches.
@@ -1291,6 +1299,7 @@ def batch_classify(
         workers=workers,
         min_confidence=min_confidence,
         cache=cache,
+        timeout_per_item=timeout,
     )
 
     # Write output
