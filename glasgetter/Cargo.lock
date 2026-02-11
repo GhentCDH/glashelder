@@ -482,6 +482,7 @@ dependencies = [
 name = "glasgetter"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "clap",
  "futures",
  "indicatif",

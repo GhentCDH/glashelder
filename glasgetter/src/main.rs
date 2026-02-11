@@ -1,16 +1,24 @@
-use std::{io::stdout, path::PathBuf};
+use std::{
+    io::stdout,
+    path::{Path, PathBuf},
+};
 
 use clap::{Parser, Subcommand};
 use futures::{Stream, StreamExt, stream};
-use indicatif::ProgressStyle;
+use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
-use scraper::{Html, Selector};
 
-use crate::model::{Artist, Artwork};
-
-const BASE_URL: &str = "https://www.wikiart.org";
-
+mod client;
+mod error;
 mod model;
+mod scraper;
+
+use client::{build_client, fetch_bytes};
+use error::Result;
+use model::{Artist, Artwork};
+use scraper::{get_artwork_image_url, list_artists_by_letter, list_works_by_artist};
+
+use crate::error::Error;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -49,158 +57,81 @@ enum Command {
     },
 }
 
-#[inline]
-fn wiki_url(resource: &str) -> String {
-    match resource.chars().next().is_some_and(|c| c == '/') {
-        true => format!("{BASE_URL}{resource}"),
-        false => format!("{BASE_URL}/{resource}"),
-    }
-}
-
-async fn list_works_by(client: &Client, artist: Artist) -> Vec<model::Artwork> {
-    let response_html = client
-        .get(format!(
-            "{}/all-works/text-list",
-            wiki_url(&artist.resource)
-        ))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    let doc = Html::parse_document(&response_html);
-    let sel = Selector::parse(".painting-list-text-row > a[href]").unwrap();
-    doc.select(&sel)
-        .filter_map(|el| {
-            let resource = String::from(el.value().attr("href")?);
-            let name = el.inner_html();
-            Some(model::Artwork {
-                name,
-                resource,
-                artist_name: artist.name.clone(),
-                artist_resource: artist.resource.clone(),
-            })
-        })
-        .collect()
-}
-
-async fn get_work_image_url(client: &Client, artwork: &Artwork) -> Option<String> {
-    // wiki-layout-artist-image-wrapper
-    let response_html = client
-        .get(wiki_url(&artwork.resource))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    let doc = Html::parse_document(&response_html);
-    let sel = Selector::parse(".wiki-layout-artist-image-wrapper > img[src]").unwrap();
-    let src = doc
-        .select(&sel)
-        .next()
-        .and_then(|el| el.value().attr("src").map(|e| e.to_string()))?;
-
-    Some(match src.split_once('!') {
-        Some((src, _)) => src.to_string(),
-        None => src,
-    })
-}
-
-async fn list_artist_starting_with_letter(client: &Client, letter: char) -> Vec<model::Artist> {
-    let response_html = client
-        .get(wiki_url(&format!("/en/Alphabet/{letter}/text-list")))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    let doc = Html::parse_document(&response_html);
-    let sel = Selector::parse(".masonry-text-view-all li").unwrap();
-    let link_sel = Selector::parse("a[href]").unwrap();
-    let span_sel = Selector::parse("span").unwrap();
-    doc.select(&sel)
-        .filter_map(|li| {
-            let a = li.select(&link_sel).next()?;
-            let resource = String::from(a.value().attr("href")?);
-            let name = a.inner_html();
-            let artwork_count = li
-                .select(&span_sel)
-                .map(|s| s.inner_html())
-                .find(|text| text.contains("artwork"))?
-                .chars()
-                .filter(|c| c.is_ascii_digit())
-                .collect::<String>()
-                .parse()
-                .unwrap_or(0);
-            Some(model::Artist {
-                name,
-                resource,
-                artwork_count,
-            })
-        })
-        .collect()
-}
-
-fn list_all_artists<'a>(client: &'a Client) -> impl Stream<Item = model::Artist> + 'a {
+fn list_all_artists(client: &Client) -> impl Stream<Item = Result<Artist>> + '_ {
     stream::iter('a'..='z')
-        .map(move |letter| list_artist_starting_with_letter(client, letter))
+        .map(move |letter| async move { list_artists_by_letter(client, letter).await })
         .buffer_unordered(10)
-        .flat_map(stream::iter)
+        .flat_map(|result| match result {
+            Ok(artists) => stream::iter(artists.into_iter().map(Ok).collect::<Vec<_>>()),
+            Err(e) => {
+                eprintln!("error fetching artists: {e}");
+                stream::iter(vec![])
+            }
+        })
 }
 
-async fn list_all_artworks(buffer: usize) -> Vec<Artwork> {
-    let client = Client::new();
+async fn list_all_artworks(client: &Client, buffer: usize, pb: &ProgressBar) -> Vec<Artwork> {
+    let artists: Vec<_> = list_all_artists(client)
+        .filter_map(|r| async { r.ok() })
+        .collect()
+        .await;
 
-    let artists: Vec<_> = list_all_artists(&client).collect().await;
     let total_artworks: u64 = artists.iter().map(|a| a.artwork_count).sum();
-    let pb = indicatif::ProgressBar::new(total_artworks);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{bar:40} {pos}/{len} artworks [{elapsed_precise} / {eta_precise}]")
-            .unwrap(),
-    );
+    pb.set_length(total_artworks);
 
-    let artworks: Vec<Artwork> = stream::iter(artists)
-        .map(|artist| list_works_by(&client, artist))
+    stream::iter(artists)
+        .map(|artist| async move {
+            match list_works_by_artist(client, &artist).await {
+                Ok(works) => works,
+                Err(e) => {
+                    eprintln!("error fetching works for {}: {e}", artist.name);
+                    vec![]
+                }
+            }
+        })
         .buffer_unordered(buffer)
         .flat_map(stream::iter)
         .map(|work| {
             pb.inc(1);
-            let pb = pb.clone();
-            async move {
-                pb.println(format!("{work}"));
-                work
-            }
+            work
         })
-        .buffered(1)
         .collect()
-        .await;
-
-    pb.finish_with_message("All artworks found.");
-
-    artworks
+        .await
 }
 
-async fn write_all_artworks(buffer: usize, output: Option<PathBuf>) {
-    let artworks = list_all_artworks(buffer).await;
+async fn write_all_artworks(buffer: usize, output: Option<PathBuf>) -> Result<()> {
+    let client = build_client()?;
+
+    let pb = ProgressBar::new(0);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{bar:40} {pos}/{len} artworks [{elapsed_precise} / {eta_precise}]")
+            .expect("static template should be valid"),
+    );
+
+    let artworks = list_all_artworks(&client, buffer, &pb).await;
+    pb.finish_with_message("all artworks found.");
 
     if let Some(output_file) = output {
-        let mut file = std::fs::OpenOptions::new()
+        let file = std::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(output_file)
-            .unwrap();
-        serde_json::to_writer(&mut file, &artworks).unwrap();
+            .open(&output_file)?;
+        serde_json::to_writer(file, &artworks)?;
+        eprintln!(
+            "wrote {} artworks to {}",
+            artworks.len(),
+            output_file.display()
+        );
     } else {
-        serde_json::to_writer(stdout(), &artworks).unwrap();
+        serde_json::to_writer(stdout(), &artworks)?;
     }
+
+    Ok(())
 }
 
-fn image_exists(output_dir: &PathBuf, filename: &str) -> bool {
+fn image_exists(output_dir: &Path, filename: &str) -> bool {
     for ext in ["jpg", "jpeg", "png", "gif", "webp"] {
         if output_dir.join(format!("{filename}.{ext}")).exists() {
             return true;
@@ -209,7 +140,12 @@ fn image_exists(output_dir: &PathBuf, filename: &str) -> bool {
     false
 }
 
-async fn download_image(client: &Client, artwork: &Artwork, output_dir: &PathBuf) {
+async fn download_image(
+    client: &Client,
+    artwork: &Artwork,
+    output_dir: &Path,
+    pb: &ProgressBar,
+) -> Result<()> {
     let filename = artwork
         .resource
         .trim_start_matches('/')
@@ -218,45 +154,60 @@ async fn download_image(client: &Client, artwork: &Artwork, output_dir: &PathBuf
         .to_lowercase();
 
     if image_exists(output_dir, &filename) {
-        return;
+        return Ok(());
     }
 
-    let Some(image_url) = get_work_image_url(client, artwork).await else {
-        return;
+    let image_url = match get_artwork_image_url(client, artwork).await? {
+        Some(url) => url,
+        None => {
+            pb.println(format!("warning: no image found for {}", artwork.name));
+            return Ok(());
+        }
     };
 
-    let extension = image_url
-        .rsplit('.')
-        .next()
-        .unwrap_or("jpg");
-
+    let extension = image_url.rsplit('.').next().unwrap_or("jpg");
     let filepath = output_dir.join(format!("{filename}.{extension}"));
 
-    let bytes = client.get(&image_url).send().await.unwrap().bytes().await.unwrap();
-    std::fs::write(&filepath, &bytes).unwrap();
+    let bytes = fetch_bytes(client, &image_url).await?;
+    std::fs::write(&filepath, &bytes)?;
+
+    Ok(())
 }
 
-async fn download_all_images(buffer: usize, input: PathBuf, output: PathBuf) {
-    let client = Client::new();
+async fn download_all_images(buffer: usize, input: PathBuf, output: PathBuf) -> Result<()> {
+    let client = build_client()?;
 
-    std::fs::create_dir_all(&output).unwrap();
+    std::fs::create_dir_all(&output)?;
 
-    let artworks: Vec<Artwork> = serde_json::from_reader(std::fs::File::open(&input).unwrap()).unwrap();
+    let file = std::fs::File::open(&input)?;
+    let artworks: Vec<Artwork> = serde_json::from_reader(file)?;
     let total = artworks.len() as u64;
 
-    let pb = indicatif::ProgressBar::new(total);
+    let pb = ProgressBar::new(total);
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{bar:40} {pos}/{len} images [{elapsed_precise} / {eta_precise}]")
-            .unwrap(),
+            .expect("static template should be valid"),
     );
+
+    let errors = std::sync::atomic::AtomicU64::new(0);
+    let restricted = std::sync::atomic::AtomicU64::new(0);
 
     stream::iter(artworks)
         .map(|artwork| {
             let client = &client;
             let output = &output;
+            let pb = &pb;
+            let errors = &errors;
+            let restricted = &restricted;
             async move {
-                download_image(client, &artwork, output).await;
+                if let Err(e) = download_image(client, &artwork, output, pb).await {
+                    pb.println(format!("error downloading {}: {e}", artwork.name));
+                    if let Error::Restricted = e {
+                        restricted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
             }
         })
         .buffer_unordered(buffer)
@@ -266,17 +217,31 @@ async fn download_all_images(buffer: usize, input: PathBuf, output: PathBuf) {
         })
         .await;
 
-    pb.finish_with_message("All images downloaded.");
+    let error_count = errors.load(std::sync::atomic::Ordering::Relaxed);
+    if error_count > 0 {
+        pb.finish_with_message(format!("done with {error_count} errors."));
+    } else {
+        pb.finish_with_message("all images downloaded.");
+    }
+
+    Ok(())
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
 
-    match args.command {
+    let result = match args.command {
         Command::ListArtworks { buffer, output } => write_all_artworks(buffer, output).await,
-        Command::DownloadImages { buffer, input, output } => {
-            download_all_images(buffer, input, output).await
-        }
+        Command::DownloadImages {
+            buffer,
+            input,
+            output,
+        } => download_all_images(buffer, input, output).await,
+    };
+
+    if let Err(e) = result {
+        eprintln!("error: {e}");
+        std::process::exit(1);
     }
 }
