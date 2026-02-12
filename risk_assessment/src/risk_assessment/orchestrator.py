@@ -1,6 +1,15 @@
 from enum import Enum
-
 from dataclasses import dataclass
+import logging
+import traceback
+from pathlib import Path
+
+_LOG_PATH = Path(__file__).parent / "glaswacht.log"
+logging.basicConfig(
+    filename=_LOG_PATH,
+    level=logging.DEBUG,
+    format="%(asctime)s  %(levelname)s  %(message)s",
+)
 
 class ModelStatus(Enum):
     CHILLING = "Chilling 😎"
@@ -89,9 +98,11 @@ class Orchestrator:
         try:
             run_lavaguard(self, path)
         except ModelLoadError as exc:
+            logging.error("LLavaGuard load error:\n%s", traceback.format_exc())
             handle_fatal_load_error(exc)
             return
         except Exception as exc:
+            logging.error("LLavaGuard runtime error:\n%s", traceback.format_exc())
             self.update_model_state(
                 "model1",
                 status=ModelStatus.ERROR,
@@ -101,9 +112,11 @@ class Orchestrator:
         try:
             run_qwen(self, path)
         except ModelLoadError as exc:
+            logging.error("Qwen load error:\n%s", traceback.format_exc())
             handle_fatal_load_error(exc)
             return
         except Exception as exc:
+            logging.error("Qwen runtime error:\n%s", traceback.format_exc())
             self.update_model_state(
                 "model2",
                 status=ModelStatus.ERROR,
@@ -113,9 +126,11 @@ class Orchestrator:
         try:
             run_pixtral(self, path)
         except ModelLoadError as exc:
+            logging.error("Pixtral load error:\n%s", traceback.format_exc())
             handle_fatal_load_error(exc)
             return
         except Exception as exc:
+            logging.error("Pixtral runtime error:\n%s", traceback.format_exc())
             self.update_model_state(
                 "model3",
                 status=ModelStatus.ERROR,
@@ -129,3 +144,33 @@ class Orchestrator:
         """Get the dictionary of majority votes by image name."""
         with self._lock:
             return self.majority_votes.copy()
+
+    def run_test(self, image_path: str | None = None):
+        """Run the full pipeline on a single image for debugging.
+
+        If *image_path* is None a small synthetic JPEG is created in a
+        temporary directory and used as the test image.  Pass an explicit
+        path to test with a real image instead.
+        """
+        import os
+        import tempfile
+        from PIL import Image as PILImage
+
+        if image_path is None:
+            test_dir = tempfile.mkdtemp(prefix="glaswacht_test_")
+            img = PILImage.new("RGB", (64, 64), color=(100, 149, 237))
+            test_image_path = "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/sn01004006_tiff.jpg"
+            img.save(test_image_path)
+            logging.info("Test image created at: %s", test_image_path)
+            path = test_image_path
+        else:
+            path = image_path
+
+        logging.info("Starting test run with: %s", path)
+        self.run_all(path)
+        logging.info("Test run complete. Majority votes: %s", self.majority_votes)
+
+
+if __name__ == "__main__":
+    orchestrator = Orchestrator()
+    orchestrator.run_test()

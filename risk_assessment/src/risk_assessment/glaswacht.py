@@ -174,6 +174,7 @@ class MenuItem(Static):
 
 _MENU_LABELS = ["RUN", "TAXONOMY", "VALIDATE USING WEBVIEWER", "QUIT"]
 _WEB_PY_PATH = Path(__file__).parent / "web.py"
+_LOG_PATH = Path(__file__).parent / "glaswacht.log"
 
 
 class MonitorApp(App):
@@ -323,7 +324,7 @@ class MonitorApp(App):
 
         def _run():
             self.orchestrator.run_all(
-                "//mnt/UGent_Share/glashelder/Experimentele Dataset/quick-test"
+                "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop"
             )
             self.call_from_thread(self._on_run_complete)
 
@@ -342,10 +343,11 @@ class MonitorApp(App):
     def _start_webviewer(self):
         # Only launch if not already running
         if self._web_process is None or self._web_process.poll() is not None:
+            log_file = open(_LOG_PATH, "a")
             self._web_process = subprocess.Popen(
                 [sys.executable, str(_WEB_PY_PATH)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=log_file,
             )
         self._content_mode = "webviewer"
         self.content_panel.show_webviewer()

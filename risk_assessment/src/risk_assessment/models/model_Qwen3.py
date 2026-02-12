@@ -20,10 +20,10 @@ class Qwen3:
 
      
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            "Qwen/Qwen3-VL-8B-Instruct", dtype="auto", device_map="auto"
+            "Qwen/Qwen3-VL-4B-Instruct", dtype="auto", device_map="auto"
         )
         self.model.eval()
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct")
     
     def message_constructor(self):
         """Construct the message for Qwen3."""
