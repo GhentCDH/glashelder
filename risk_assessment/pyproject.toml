@@ -18,6 +18,9 @@ dependencies = [
     "transformers==5.1.0",
 ]
 
+[project.scripts]
+risk-assessment = "risk_assessment.cli:risk_assessment"
+
 [project.optional-dependencies]
 gpu = [
     "ninja>=1.13.0",
