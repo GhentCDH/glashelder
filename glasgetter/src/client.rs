@@ -20,6 +20,12 @@ pub fn build_client() -> Result<Client> {
 /// Construct a full WikiArt URL from a resource path
 #[inline]
 pub fn wiki_url(resource: &str) -> String {
+    // The resource possibly isn't a relative path, if it refers to an
+    // external resource
+    if resource.contains("http:") {
+        return String::from(resource);
+    }
+
     match resource.chars().next().is_some_and(|c| c == '/') {
         true => format!("{BASE_URL}{resource}"),
         false => format!("{BASE_URL}/{resource}"),
