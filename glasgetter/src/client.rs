@@ -1,35 +1,31 @@
 use std::time::Duration;
 
-use reqwest::{Client, Response, StatusCode};
+use reqwest::{Client, Response, StatusCode, header};
 
 use crate::error::{Error, Result};
 
-const BASE_URL: &str = "https://www.wikiart.org";
 const MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 1000;
 
-/// Build a configured HTTP client
+/// Build a configured HTTP client with cookie support and compression
 pub fn build_client() -> Result<Client> {
+    let mut headers = header::HeaderMap::new();
+    headers.insert(
+        header::ACCEPT,
+        header::HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+    );
+
     Client::builder()
         .timeout(Duration::from_secs(30))
-        .user_agent("glasgetter/0.1.0 (artwork research tool)")
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0")
+        .default_headers(headers)
+        .cookie_store(true)
+        .gzip(true)
+        .brotli(true)
+        .deflate(true)
+        .zstd(true)
         .build()
         .map_err(Error::Http)
-}
-
-/// Construct a full WikiArt URL from a resource path
-#[inline]
-pub fn wiki_url(resource: &str) -> String {
-    // The resource possibly isn't a relative path, if it refers to an
-    // external resource
-    if resource.contains("http:") {
-        return String::from(resource);
-    }
-
-    match resource.chars().next().is_some_and(|c| c == '/') {
-        true => format!("{BASE_URL}{resource}"),
-        false => format!("{BASE_URL}/{resource}"),
-    }
 }
 
 /// Fetch a URL with automatic retry on transient failures
