@@ -86,13 +86,22 @@ impl ArtSource for BalatSource {
     }
 }
 
+/// Parse total results count from the info box
+/// Format: <div class="info-box">... results:<strong> 82473</strong>)</div>
+fn parse_total_results(html: &str) -> Option<u32> {
+    let doc = Html::parse_document(html);
+    let info_sel = Selector::parse("div.info-box strong").ok()?;
+    doc.select(&info_sel)
+        .next()
+        .and_then(|el| el.text().collect::<String>().trim().parse().ok())
+}
+
 /// Parse BALAT search results page
 fn parse_search_results(html: &str) -> Result<Vec<BalatEntry>> {
     let doc = Html::parse_document(html);
 
     // Select list items in the results
-    let li_sel = Selector::parse("li.item.artwork")
-        .expect("static selector should be valid");
+    let li_sel = Selector::parse("li.item.artwork").expect("static selector should be valid");
     let img_sel =
         Selector::parse("img[src*='iiif.kikirpa.be']").expect("static selector should be valid");
     let link_sel = Selector::parse("h5 > a[href]").expect("static selector should be valid");
@@ -129,7 +138,10 @@ fn parse_search_results(html: &str) -> Result<Vec<BalatEntry>> {
             // Strip number prefix like "1. " or "123. "
             let title = text
                 .strip_prefix(|c: char| c.is_ascii_digit())
-                .map(|s| s.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.').trim_start())
+                .map(|s| {
+                    s.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+                        .trim_start()
+                })
                 .unwrap_or(&text)
                 .to_string();
             (title, href)
@@ -164,58 +176,77 @@ async fn init_session(client: &Client, role: &str) -> Result<()> {
     Ok(())
 }
 
-/// Fetch a single page of BALAT results
-async fn fetch_page(
+/// Fetch first page and return entries + total count
+async fn fetch_first_page(
     source: &BalatSource,
     client: &Client,
-    start_from: Option<u32>,
-    is_first: bool,
-) -> Result<Vec<BalatEntry>> {
-    // Initialize session on first request
-    if is_first {
-        init_session(client, &source.role).await?;
-    }
+) -> Result<(Vec<BalatEntry>, u32)> {
+    // Initialize session
+    init_session(client, &source.role).await?;
 
-    // First page uses full query URL, subsequent pages just use startfrom
-    // (query is saved in session cookie)
-    let url = match start_from {
-        None => source.initial_search_url(),
-        Some(sf) => source.pagination_url(sf),
-    };
+    let url = source.initial_search_url();
+    eprintln!("[BALAT] Fetching first page: {url}");
     let html = fetch_html(client, &url).await?;
-    parse_search_results(&html)
+
+    let total = parse_total_results(&html).unwrap_or(0);
+    let entries = parse_search_results(&html)?;
+    eprintln!(
+        "[BALAT] First page: {} entries, total results: {}",
+        entries.len(),
+        total
+    );
+
+    Ok((entries, total))
 }
 
-/// Stream all artworks from BALAT using pagination
+/// Fetch a single page of BALAT results by page number
+async fn fetch_page(source: &BalatSource, client: &Client, page: u32) -> Result<Vec<BalatEntry>> {
+    let url = source.pagination_url(page);
+    let html = fetch_html(client, &url).await?;
+    let entries = parse_search_results(&html)?;
+    eprintln!("[BALAT] Page {}: {} entries", page, entries.len());
+    Ok(entries)
+}
+
+/// Stream all artworks from BALAT using parallel pagination
 fn list_all_artworks_stream<'a>(
     source: &'a BalatSource,
     client: &'a Client,
 ) -> impl Stream<Item = Result<UnifiedArtwork>> + Send + 'a {
-    // Use unfold to handle pagination
-    // State: (start_from: Option<u32>, is_first: bool)
-    // First request: start_from=None, then subsequent: start_from=Some(offset)
-    stream::unfold(Some((None::<u32>, true)), move |state| async move {
-        let (start_from, is_first) = state?;
-
-        match fetch_page(source, client, start_from, is_first).await {
-            Ok(entries) => {
-                if entries.is_empty() {
-                    // No more results, end the stream
-                    None
-                } else {
-                    let count = entries.len() as u32;
-                    // Next offset is current offset + count (or just count if first page)
-                    let next_start = start_from.unwrap_or(1) + count;
-                    Some((entries, Some((Some(next_start), false))))
-                }
-            }
+    // Use once + flatten to handle async setup, then stream pages in parallel
+    stream::once(async move {
+        // Fetch first page to get total and establish session
+        let (first_entries, total) = match fetch_first_page(source, client).await {
+            Ok(result) => result,
             Err(e) => {
-                eprintln!("error fetching BALAT page at offset {start_from:?}: {e}");
-                // Stop on error
-                None
+                eprintln!("[BALAT] Error fetching first page: {e}");
+                return stream::empty().boxed();
             }
-        }
+        };
+
+        let total_pages = (total + source.limit - 1) / source.limit;
+        eprintln!(
+            "[BALAT] Total: {} results, {} pages (limit={})",
+            total, total_pages, source.limit
+        );
+
+        // Stream first page entries first
+        let first_stream = stream::iter(first_entries);
+
+        // Then stream remaining pages in parallel, yielding entries as each page completes
+        let remaining_stream = stream::iter(2..=total_pages)
+            .map(move |page| async move { fetch_page(source, client, page).await })
+            .buffer_unordered(10)
+            .flat_map(|result| match result {
+                Ok(entries) => stream::iter(entries).boxed(),
+                Err(e) => {
+                    eprintln!("[BALAT] Error fetching page: {e}");
+                    stream::empty().boxed()
+                }
+            });
+
+        first_stream.chain(remaining_stream).boxed()
     })
-    .flat_map(stream::iter)
+    .flatten()
     .map(|entry| Ok(UnifiedArtwork::from(entry)))
 }
