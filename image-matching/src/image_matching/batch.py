@@ -147,29 +147,27 @@ def compute_embedding_similarities(
     glashelder_emb: torch.Tensor,
     wikiart_emb: torch.Tensor,
     top_k: int,
+    chunk_size: int = 2 ^ 15,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute top-k similar wikiart images for each glashelder image.
-
-    Args:
-        glashelder_emb: Glashelder embeddings tensor (N x D)
-        wikiart_emb: Wikiart embeddings tensor (M x D)
-        top_k: Number of top matches to return per image
-
-    Returns:
-        Tuple of (indices, similarities) arrays, each shape (N, top_k)
-    """
-    # Normalize embeddings
     glashelder_norm = glashelder_emb / glashelder_emb.norm(dim=-1, keepdim=True)
     wikiart_norm = wikiart_emb / wikiart_emb.norm(dim=-1, keepdim=True)
 
-    # Compute all pairwise similarities (N x M)
-    similarities = glashelder_norm @ wikiart_norm.T
-
-    # Get top-k for each glashelder image
     actual_k = min(top_k, wikiart_emb.shape[0])
-    top_values, top_indices = torch.topk(similarities, actual_k, dim=1)
+    all_indices = []
+    all_values = []
 
-    return top_indices.cpu().numpy(), top_values.cpu().numpy()
+    for i in range(0, glashelder_norm.shape[0], chunk_size):
+        chunk = glashelder_norm[i : i + chunk_size]
+        sim = chunk @ wikiart_norm.T  # (chunk_size x M)
+        values, indices = torch.topk(sim, actual_k, dim=1)
+        all_indices.append(indices.cpu())
+        all_values.append(values.cpu())
+        del sim
+
+    return (
+        torch.cat(all_indices).numpy(),
+        torch.cat(all_values).numpy(),
+    )
 
 
 def _get_default_features(similarities: list[float]) -> dict[str, float]:
