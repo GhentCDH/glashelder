@@ -9,22 +9,24 @@ authors = [
   { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
 ]
 dependencies = [
-  "common",
-  "clipcluster",
-  "click>=8.3.1",
-  "python-dotenv>=1.1.0",
-  "opencv-python>=4.11.0.86",
-  "rich>=13.9.4",
-  "classification",
-  "preprocessing",
-  "qwenvlm",
-  "workspace>=0.3.1",
-  "transformers>=4.57.0",
-  "pillow>=12.0.0",
-  "torch>=2.6.0",
-  "torchvision>=0.24.0",
-  "rerun-sdk>=0.27.2",
-  "jupyter>=1.1.1",
+    "common",
+    "clipcluster",
+    "click>=8.3.1",
+    "python-dotenv>=1.1.0",
+    "classification",
+    "preprocessing",
+    "risk-assessment",
+    "accelerate==1.12.0",
+    "opencv-python>=4.11.0.86",
+    "rich>=13.9.4",
+    "qwenvlm",
+    "workspace>=0.3.1",
+    "transformers>=4.57.0",
+    "pillow>=12.0.0",
+    "torch>=2.6.0",
+    "torchvision>=0.24.0",
+    "rerun-sdk>=0.27.2",
+    "jupyter>=1.1.1",
 ]
 
 [project.scripts]
@@ -37,15 +39,15 @@ torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 classification = { workspace = true }
 preprocessing = { workspace = true }
-qwenvlm = { workspace = true }
+risk-assessment = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-  "clipcluster",
-  "common",
-  "classification",
-  "preprocessing",
-  "qwenvlm",
+    "clipcluster",
+    "common",
+    "classification",
+    "preprocessing",
+    "risk_assessment",
 ]
 
 [[tool.uv.index]]

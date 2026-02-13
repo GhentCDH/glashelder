@@ -42,13 +42,10 @@ def register_commands():
     from classification.cli import classification
     from clipcluster.cli import clipcluster
     from preprocessing.cli import preprocessing
-    from qwenvlm.cli import qwenvlm
+    from risk_assessment.cli import risk_assessment
 
     main.add_command(clipcluster)
     main.add_command(qwenvlm)
     main.add_command(preprocessing)
     main.add_command(classification)
-
-
-if __name__ == "glashelder":
-    register_commands()
+    main.add_command(risk_assessment)
