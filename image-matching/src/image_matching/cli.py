@@ -1,4 +1,4 @@
-"""CLI for image matching and stitching."""
+"""CLI for matching images from the Glashelder dataset to images from scraped databases (like WikiArt or KIK-IRPA)"""
 
 import glob
 import json
