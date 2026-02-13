@@ -144,6 +144,7 @@ async fn wikiart_list(_buffer: usize, output: Option<PathBuf>) -> Result<()> {
             .expect("static template should be valid"),
     );
     pb.set_message("Fetching artworks from WikiArt...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let mut artworks: Vec<UnifiedArtwork> = Vec::new();
     let mut stream = source.list_artworks(&client);
@@ -188,6 +189,7 @@ async fn balat_list(
             .expect("static template should be valid"),
     );
     pb.set_message("Fetching artworks from BALAT...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let mut artworks: Vec<UnifiedArtwork> = Vec::new();
     let mut stream = source.list_artworks(&client);
