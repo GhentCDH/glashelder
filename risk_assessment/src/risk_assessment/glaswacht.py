@@ -1,13 +1,15 @@
-from pathlib import Path
-from textual.app import App
-from textual.widgets import Static
-from textual.containers import VerticalScroll, Horizontal, Vertical
-from textual.reactive import reactive
-from risk_assessment.orchestrator import Orchestrator, ModelStatus
-from risk_assessment.models.utils import get_prompt
 import subprocess
 import sys
 import threading
+from pathlib import Path
+
+from textual.app import App
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.reactive import reactive
+from textual.widgets import Static
+
+from risk_assessment.models.utils import get_prompt
+from risk_assessment.orchestrator import ModelStatus, Orchestrator
 
 LOGO = """\
 ░██████╗░██╗░░░░░░█████╗░░██████╗░██╗░░░░░░░██╗░█████╗░░█████╗░██╗░░██╗████████╗
@@ -23,13 +25,13 @@ INFO = "Scripted by @bvercru and @mpeeters at The Ghent Centre for Digital Human
 TAXONOMY_PATH = Path(__file__).parent / "models" / "taxonomy.txt"
 
 # Sepia palette
-_SEPIA_BRIGHT = "#F5DEB3"   # wheat  – primary text
-_SEPIA_MID    = "#C8A96E"   # tan    – labels / dim text
-_SEPIA_SAFE   = "#D4A843"   # amber  – safe
-_SEPIA_WARN   = "#C87941"   # burnt sienna – potentially problematic
-_SEPIA_DANGER = "#8B2500"   # dark rust – unsafe / error
-_SEPIA_BORDER = "#8B6914"   # dark gold – borders
-_SEPIA_BG     = "#1A1008"   # near-black brown – background
+_SEPIA_BRIGHT = "#F5DEB3"  # wheat  - primary text
+_SEPIA_MID = "#C8A96E"  # tan    - labels / dim text
+_SEPIA_SAFE = "#D4A843"  # amber  - safe
+_SEPIA_WARN = "#C87941"  # burnt sienna - potentially problematic
+_SEPIA_DANGER = "#8B2500"  # dark rust - unsafe / error
+_SEPIA_BORDER = "#8B6914"  # dark gold - borders
+_SEPIA_BG = "#1A1008"  # near-black brown - background
 
 
 def _rating_markup(rating: str) -> str:
@@ -45,10 +47,10 @@ def _rating_markup(rating: str) -> str:
 def _status_markup(status: ModelStatus) -> str:
     color_map = {
         ModelStatus.CHILLING: _SEPIA_MID,
-        ModelStatus.LOADING:  _SEPIA_WARN,
-        ModelStatus.RUNNING:  _SEPIA_BRIGHT,
-        ModelStatus.DONE:     _SEPIA_SAFE,
-        ModelStatus.ERROR:    _SEPIA_DANGER,
+        ModelStatus.LOADING: _SEPIA_WARN,
+        ModelStatus.RUNNING: _SEPIA_BRIGHT,
+        ModelStatus.DONE: _SEPIA_SAFE,
+        ModelStatus.ERROR: _SEPIA_DANGER,
     }
     color = color_map.get(status, _SEPIA_MID)
     return f"[{color}]{status.value}[/{color}]"
@@ -72,8 +74,16 @@ class ModelPanel(Static):
 
     def update_state(self, state):
         rating_markup = _rating_markup(state.latest_rating)
-        image_display = f"[dim]{state.latest_image}[/dim]" if state.latest_image else f"[{_SEPIA_MID}]—[/{_SEPIA_MID}]"
-        task_display  = f"[dim]{state.current_task}[/dim]" if state.current_task  else f"[{_SEPIA_MID}]—[/{_SEPIA_MID}]"
+        image_display = (
+            f"[dim]{state.latest_image}[/dim]"
+            if state.latest_image
+            else f"[{_SEPIA_MID}]—[/{_SEPIA_MID}]"
+        )
+        task_display = (
+            f"[dim]{state.current_task}[/dim]"
+            if state.current_task
+            else f"[{_SEPIA_MID}]—[/{_SEPIA_MID}]"
+        )
 
         self.update(
             f"[{_SEPIA_MID}]STATUS :[/{_SEPIA_MID}] {_status_markup(state.status)}\n"
@@ -103,13 +113,21 @@ class ContentPanel(Static):
 
         summary_parts = []
         if vote_counts["Safe"] > 0:
-            summary_parts.append(f"[{_SEPIA_SAFE}]{vote_counts['Safe']} Safe[/{_SEPIA_SAFE}]")
+            summary_parts.append(
+                f"[{_SEPIA_SAFE}]{vote_counts['Safe']} Safe[/{_SEPIA_SAFE}]"
+            )
         if vote_counts["Potentially Problematic"] > 0:
-            summary_parts.append(f"[{_SEPIA_WARN}]{vote_counts['Potentially Problematic']} Potentially Problematic[/{_SEPIA_WARN}]")
+            summary_parts.append(
+                f"[{_SEPIA_WARN}]{vote_counts['Potentially Problematic']} Potentially Problematic[/{_SEPIA_WARN}]"
+            )
         if vote_counts["Unsafe"] > 0:
-            summary_parts.append(f"[{_SEPIA_DANGER}]{vote_counts['Unsafe']} Unsafe[/{_SEPIA_DANGER}]")
+            summary_parts.append(
+                f"[{_SEPIA_DANGER}]{vote_counts['Unsafe']} Unsafe[/{_SEPIA_DANGER}]"
+            )
         if vote_counts["Other"] > 0:
-            summary_parts.append(f"[{_SEPIA_MID}]{vote_counts['Other']} Other[/{_SEPIA_MID}]")
+            summary_parts.append(
+                f"[{_SEPIA_MID}]{vote_counts['Other']} Other[/{_SEPIA_MID}]"
+            )
 
         header = (
             f"[bold {_SEPIA_BRIGHT}][ MAJORITY VOTES ][/bold {_SEPIA_BRIGHT}]"
@@ -144,7 +162,7 @@ class ContentPanel(Static):
 
 class MenuItem(Static):
     selected: reactive[bool] = reactive(False)
-    enabled:  reactive[bool] = reactive(True)
+    enabled: reactive[bool] = reactive(True)
 
     def __init__(self, label: str, **kwargs):
         super().__init__(**kwargs)
@@ -238,7 +256,7 @@ class MonitorApp(App):
         self.menu_widgets: list[MenuItem] = []
         self._selected_index = 0
         self._is_running = False
-        self._content_mode = "votes"   # "votes" | "taxonomy" | "webviewer"
+        self._content_mode = "votes"  # "votes" | "taxonomy" | "webviewer"
         self._web_process: subprocess.Popen | None = None
 
     def compose(self):
@@ -248,9 +266,9 @@ class MonitorApp(App):
         yield Vertical(id="menu")
 
     def on_mount(self):
-        models_container  = self.query_one("#models")
+        models_container = self.query_one("#models")
         content_container = self.query_one("#content-scroll")
-        menu_container    = self.query_one("#menu")
+        menu_container = self.query_one("#menu")
 
         for model_id, state in self.orchestrator.get_state().items():
             panel = ModelPanel(model_name=state.name)
@@ -264,7 +282,7 @@ class MonitorApp(App):
 
         for i, label in enumerate(_MENU_LABELS):
             item = MenuItem(label)
-            item.selected = (i == 0)
+            item.selected = i == 0
             self.menu_widgets.append(item)
             menu_container.mount(item)
 
@@ -324,7 +342,8 @@ class MonitorApp(App):
 
         def _run():
             self.orchestrator.run_all(
-                "/mnt/UGent_Share/glashelder/Experimentele Dataset/test-data")
+                "/mnt/UGent_Share/glashelder/Experimentele Dataset/test-data"
+            )
             self.call_from_thread(self._on_run_complete)
 
         threading.Thread(target=_run, daemon=True).start()

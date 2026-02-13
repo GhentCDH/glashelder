@@ -4,7 +4,6 @@ Script to create a copy of contro-set using the cropped versions from assets-cro
 This will copy the cropped variants of files from assets-crop that exist in contro-set.
 """
 
-import os
 import shutil
 from pathlib import Path
 
@@ -12,6 +11,7 @@ from pathlib import Path
 CONTRO_SET_PATH = Path("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set")
 ASSETS_CROP_PATH = Path("/mnt/UGent_Share/glashelder/assets-crop")
 OUTPUT_PATH = Path("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop")
+
 
 def main():
     # Create output directory if it doesn't exist
@@ -32,7 +32,7 @@ def main():
         filename = file_path.name
 
         # Skip system files
-        if filename in ['Thumbs.db', 'image_id.txt']:
+        if filename in ["Thumbs.db", "image_id.txt"]:
             print(f"Skipping system file: {filename}")
             skipped += 1
             continue
@@ -50,13 +50,14 @@ def main():
             not_found += 1
 
     # Summary
-    print(f"\n{'='*60}")
-    print(f"Summary:")
+    print(f"\n{'=' * 60}")
+    print("Summary:")
     print(f"  Files copied: {copied}")
     print(f"  Files not found: {not_found}")
     print(f"  Files skipped: {skipped}")
     print(f"  Output directory: {OUTPUT_PATH}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
+
 
 if __name__ == "__main__":
     main()

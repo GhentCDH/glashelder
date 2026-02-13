@@ -1,24 +1,27 @@
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
-from PIL import Image
-import torch
 import os
 
-from risk_assessment.models.utils import get_prompt, parse_output, get_images
-from risk_assessment.orchestrator import ModelStatus, ModelLoadError
+import torch
+from PIL import Image
+from risk_assessment.models.utils import get_images, get_prompt, parse_output
+from risk_assessment.orchestrator import ModelLoadError, ModelStatus
+from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 
 
 class LavaGuard:
-
     def __init__(self):
         self.model = None
         self.processor = None
         self.message = None
-    
+
     def load_model(self):
-        model_id = 'AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf'
-        self.model = LlavaOnevisionForConditionalGeneration.from_pretrained(model_id).to('cuda:0').eval()
+        model_id = "AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf"
+        self.model = (
+            LlavaOnevisionForConditionalGeneration.from_pretrained(model_id)
+            .to("cuda:0")
+            .eval()
+        )
         self.processor = AutoProcessor.from_pretrained(model_id)
-    
+
     def message_constructor(self):
         taxonomy = get_prompt()
 
@@ -40,9 +43,11 @@ class LavaGuard:
         if self.message is None:
             self.message_constructor()
 
-        text_prompt = self.processor.apply_chat_template(self.message, add_generation_prompt=True)  # ty:ignore[possibly-missing-attribute]
+        text_prompt = self.processor.apply_chat_template(
+            self.message, add_generation_prompt=True
+        )  # ty:ignore[possibly-missing-attribute]
         inputs = self.processor(text=text_prompt, images=image, return_tensors="pt")  # ty:ignore[call-non-callable]
-        inputs = {k: v.to('cuda:0') for k, v in inputs.items()}
+        inputs = {k: v.to("cuda:0") for k, v in inputs.items()}
 
         # Generation hyperparameters
         hyperparameters = {
@@ -66,8 +71,10 @@ class LavaGuard:
 
 
 def run_lavaguard(orchestrator, image_path):
-    orchestrator.update_model_state("model1", status=ModelStatus.LOADING, current_task="Loading LavaGuard model...")
-    
+    orchestrator.update_model_state(
+        "model1", status=ModelStatus.LOADING, current_task="Loading LavaGuard model..."
+    )
+
     model = LavaGuard()
     try:
         model.load_model()
@@ -78,15 +85,17 @@ def run_lavaguard(orchestrator, image_path):
             current_task=f"Model load failed: {exc}",
         )
         raise ModelLoadError(str(exc)) from exc
-    
-    orchestrator.update_model_state("model1", status=ModelStatus.RUNNING, current_task="Processing images...")
-    
+
+    orchestrator.update_model_state(
+        "model1", status=ModelStatus.RUNNING, current_task="Processing images..."
+    )
+
     image_files = get_images(image_path)
     for i, image_file in enumerate(image_files):
         image_name = os.path.basename(image_file)
         orchestrator.update_model_state(
             "model1",
-            current_task=f"Processing image {i+1}/{len(image_files)}",
+            current_task=f"Processing image {i + 1}/{len(image_files)}",
             latest_image=image_name,
         )
         try:
@@ -100,14 +109,12 @@ def run_lavaguard(orchestrator, image_path):
             continue
 
         orchestrator.assessments_lavaguard.append(assessment)
-        orchestrator.update_model_state("model1", latest_rating=assessment.get("rating", "Unknown"))
+        orchestrator.update_model_state(
+            "model1", latest_rating=assessment.get("rating", "Unknown")
+        )
         orchestrator.update_majority_votes_live()
-    
-    orchestrator.update_model_state("model1", status=ModelStatus.DONE, current_task="Done")
+
+    orchestrator.update_model_state(
+        "model1", status=ModelStatus.DONE, current_task="Done"
+    )
     return orchestrator.assessments_lavaguard
-
-
-
-
-
-    

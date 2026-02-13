@@ -1,15 +1,32 @@
 import csv
+import logging
 import os
 from pathlib import Path
-from flask import Flask, render_template, send_from_directory, redirect, url_for, request
-import logging
+
+from flask import (
+    Flask,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration — set RA_CSV_PATH / RA_IMAGES_DIR env vars to override
-CSV_PATH = Path(os.environ.get("RA_CSV_PATH", Path(__file__).parent / "combined_risk_assessment_results.csv"))
-IMAGES_DIR = Path(os.environ.get("RA_IMAGES_DIR", "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop"))
+CSV_PATH = Path(
+    os.environ.get(
+        "RA_CSV_PATH", Path(__file__).parent / "combined_risk_assessment_results.csv"
+    )
+)
+IMAGES_DIR = Path(
+    os.environ.get(
+        "RA_IMAGES_DIR",
+        "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop",
+    )
+)
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 app = Flask(__name__, template_folder=str(TEMPLATES_DIR))
@@ -21,7 +38,7 @@ results = []
 def load_results():
     """Load results from the combined CSV file."""
     global results
-    with open(CSV_PATH, 'r') as f:
+    with open(CSV_PATH) as f:
         reader = csv.DictReader(f)
         results = list(reader)
     logger.info(f"Loaded {len(results)} results from {CSV_PATH}")
@@ -75,16 +92,16 @@ def reload():
     load_results()
 
     referer = request.referrer
-    if referer and '/result/' in referer:
+    if referer and "/result/" in referer:
         try:
-            index = int(referer.split('/result/')[-1])
+            index = int(referer.split("/result/")[-1])
             if index >= len(results):
                 index = max(0, len(results) - 1)
-            return redirect(url_for('show_result', index=index))
+            return redirect(url_for("show_result", index=index))
         except (ValueError, IndexError):
             pass
 
-    return redirect(url_for('index'))
+    return redirect(url_for("index"))
 
 
 def main():
