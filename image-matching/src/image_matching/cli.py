@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image
 
 from common import ASSETS_DIR
-from common.clipmodel import get_device
+from embed import get_device
 from image_matching.similarity_classifier import SimpleClassifier
 from image_matching.stitching import (
     extract_features,
