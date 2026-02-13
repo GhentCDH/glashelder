@@ -1,25 +1,39 @@
-import shutil
-import json
 import logging
+import shutil
 from pathlib import Path
-import pickle
 
-import torch
-
-from common.clipmodel import get_model, get_processor, get_device
-from common.dataloader import get_dataloader
 from common import PROJECT_ROOT
+from common.clipmodel import get_device, get_model, get_processor
+from common.dataloader import get_dataloader
 
 logger = logging.getLogger(__name__)
 
-def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, prompts : list = ['a photo of a human'], labels : list = ['human'], confidence=0.4 , output_folder=None):
+
+def classify(
+    image_dir,
+    model="openai/clip-vit-large-patch14",
+    max_batches=10,
+    prompts: list | None = None,
+    labels: list | None = None,
+    confidence=0.4,
+    output_folder=None,
+):
+    import torch
+
+    if prompts is None:
+        prompts = ["a photo of a human"]
+
+    if labels is None:
+        labels = ["human"]
 
     device = get_device()
     model = get_model(model).to(device)
     processor = get_processor(model)
 
     if len(prompts) != len(labels):
-        logger.error("Invalid configuration: number of prompts must match number of labels!")
+        logger.error(
+            "Invalid configuration: number of prompts must match number of labels!"
+        )
         raise ValueError("Number of prompts must match number of labels!")
 
     # Encode text once
@@ -30,7 +44,9 @@ def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, p
 
     # Load images
     image_paths = list(Path(image_dir).glob("*.jpg"))
-    dataloader = get_dataloader(image_paths, processor, batch_size=256, dataset_type="imagepath")
+    dataloader = get_dataloader(
+        image_paths, processor, batch_size=256, dataset_type="imagepath"
+    )
     results = []
 
     model.eval()
@@ -54,11 +70,13 @@ def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, p
             logits_per_image = logit_scale * (image_embeds @ text_embeds.T)
             probs = logits_per_image.softmax(dim=-1)
 
-            for path, p in zip(paths, probs):
+            for path, p in zip(paths, probs, strict=False):
                 p = p.detach().cpu()
-                
+
                 # Debug: log the probabilities
-                logger.debug(f"Image: {Path(path).name}, Probs: {[float(p[i]) for i in range(len(labels))]}")
+                logger.debug(
+                    f"Image: {Path(path).name}, Probs: {[float(p[i]) for i in range(len(labels))]}"
+                )
 
                 # Get all labels above threshold
                 above_threshold = [
@@ -66,7 +84,7 @@ def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, p
                     for i in range(len(labels))
                     if float(p[i]) >= confidence
                 ]
-                
+
                 logger.debug(f"Above threshold ({confidence}): {above_threshold}")
 
                 if above_threshold:
@@ -75,7 +93,7 @@ def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, p
                     assigned_labels = [label for label, weight in above_threshold]
                 else:
                     assigned_labels = ["not_classified"]
-                
+
                 logger.debug(f"Assigned labels: {assigned_labels}")
 
                 results.append(
@@ -83,11 +101,7 @@ def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, p
                         "path": path,
                         "predicted": {
                             "labels": assigned_labels,
-                            "weights": {
-                                label: weight for label, weight in above_threshold
-                            }
-                            if above_threshold
-                            else {},
+                            "weights": dict(above_threshold) if above_threshold else {},
                         },
                     }
                 )
@@ -104,7 +118,7 @@ def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, p
 
     # Ensure output directories exist and collect their paths
     output_dirs = {}
-    for label in list(labels) + ["not_classified"]:
+    for label in [*list(labels), "not_classified"]:
         if not output_folder:
             dest_dir = PROJECT_ROOT / "data" / "classification" / label
         else:
@@ -122,7 +136,9 @@ def classify(image_dir, model="openai/clip-vit-large-patch14", max_batches=10, p
 
         # Copy image to all matching label folders
         for label in assigned_labels:
-            dest_path = output_dirs.get(label, output_dirs["not_classified"]) / src_path.name
+            dest_path = (
+                output_dirs.get(label, output_dirs["not_classified"]) / src_path.name
+            )
             logger.info(f"Moving {src_path.name} to {label}")
             shutil.copy2(src_path, dest_path)
 

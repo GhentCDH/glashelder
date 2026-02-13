@@ -1,14 +1,15 @@
-from typing import Optional
+import logging
 
-from PIL import Image
 import numpy as np
 import rerun as rr
+from PIL import Image
 
 RERUN_ID = "clipcluster"
 
-image_count = 0
+logger = logging.getLogger(__name__)
 
-def init_rerun(address: Optional[str]):
+
+def init_rerun(address: str | None):
     if address:
         rr.init(RERUN_ID, spawn=False)
         if address.startswith("rerun+http"):
@@ -22,7 +23,9 @@ def init_rerun(address: Optional[str]):
         rr.init(RERUN_ID, spawn=True)
 
 
-def log_reduced(latent: np.ndarray, count: Optional[int] = None, base_path: str = "latent"):
+def log_reduced(
+    latent: np.ndarray, count: int | None = None, base_path: str = "latent"
+):
     """
     Log 3D points to Rerun
 
@@ -43,7 +46,7 @@ def log_reduced(latent: np.ndarray, count: Optional[int] = None, base_path: str 
 def log_clustered_points(
     latent: np.ndarray,
     labels: np.ndarray,
-    count: Optional[int] = None,
+    count: int | None = None,
     base_path: str = "clusters",
 ):
     """
@@ -79,6 +82,47 @@ def log_clustered_points(
 
         rr.log(path, rr.Points3D(positions, colors=color, radii=0.02))
 
+
+def log_clustered_points_density(
+    latent: np.ndarray,
+    labels: np.ndarray,
+    stats: dict,
+    count: int | None = None,
+    base_path: str = "clusters",
+):
+    """
+    Log 3D points to Rerun, with each cluster on a separate entity path.
+
+    Args:
+        latent: The reduced embeddings, shape (N, D) where D >= 3.
+        labels: Cluster labels for each point, shape (N,). -1 indicates noise.
+        count: Number of points to sample. If None, logs all points.
+        base_path: The base Rerun entity path. Clusters logged as {base_path}/{cluster_id}.
+    """
+    n_points = len(latent)
+
+    if count is not None and count < n_points:
+        indices = np.random.choice(n_points, size=count, replace=False)
+        latent = latent[indices]
+        labels = labels[indices]
+
+    unique_labels = np.unique(labels)
+    cmap = _generate_density_colormap(unique_labels, stats, "magma")
+
+    for label in unique_labels:
+        mask = labels == label
+        positions = latent[mask, :3]
+
+        if label == -1:
+            path = f"{base_path}/noise"
+            color = [128, 128, 128]
+        else:
+            path = f"{base_path}/{label}"
+            color = [cmap[label]]
+
+        rr.log(path, rr.Points3D(positions, colors=color, radii=0.02))
+
+
 def log_image_3d(
     position: np.ndarray,
     image_path: str,
@@ -106,23 +150,29 @@ def log_image_3d(
     half = size
 
     # Define rectangle corners (in XY plane, centered at position)
-    positions = np.array([
-        [x - half, y - half, z],
-        [x + half, y - half, z],
-        [x + half, y + half, z],
-        [x - half, y + half, z],
-    ], dtype=np.float32)
+    positions = np.array(
+        [
+            [x - half, y - half, z],
+            [x + half, y - half, z],
+            [x + half, y + half, z],
+            [x - half, y + half, z],
+        ],
+        dtype=np.float32,
+    )
 
     # Two triangles to form a quad
     indices = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.uint32)
 
     # UV coordinates for texture mapping
-    texcoords = np.array([
-        [0.0, 1.0],  # bottom-left
-        [1.0, 1.0],  # bottom-right
-        [1.0, 0.0],  # top-right
-        [0.0, 0.0],  # top-left
-    ], dtype=np.float32)
+    texcoords = np.array(
+        [
+            [0.0, 1.0],  # bottom-left
+            [1.0, 1.0],  # bottom-right
+            [1.0, 0.0],  # top-right
+            [0.0, 0.0],  # top-left
+        ],
+        dtype=np.float32,
+    )
 
     rr.log(
         entity_path,
@@ -140,7 +190,7 @@ def log_images_3d(
     image_paths: list[str],
     count: int,
     base_path: str = "images",
-    size: float = 0.15,
+    size: float = 0.3,
 ):
     """
     Log `count` random images at their 3D positions in Rerun.
@@ -178,34 +228,46 @@ def _generate_colormap(n: int) -> np.ndarray:
     return np.array(colors, dtype=np.uint8)
 
 
-def log_images_3d(
-    latent: np.ndarray,
-    image_paths: list[str],
-    count: int,
-    base_path: str = "images",
-    size: float = 0.3,
-):
-    """
-    Log `count` random images at their 3D positions in Rerun.
+def _generate_density_colormap(
+    labels, stats, cmap_name: str = "plasma"
+) -> dict[str, list[int]]:
+    """Generate n distinct colours from a matplotlib colormap."""
+    import math
 
-    Args:
-        latent: The reduced embeddings, shape (N, D) where D >= 3.
-        image_paths: List of paths to images, corresponding to latent rows.
-        count: Number of random images to log.
-        base_path: The base Rerun entity path.
-        size: Size of each image in 3D space.
-    """
-    n_points = len(latent)
-    count = min(count, n_points)
+    import matplotlib.pyplot as plt
 
-    indices = np.random.choice(n_points, size=count, replace=False)
+    colors: dict[str, list[int]] = {}
 
-    for i, idx in enumerate(indices):
-        position = latent[idx]
-        image_path = image_paths[idx]
-        entity_path = f"{base_path}/{i}"
+    cmap = plt.get_cmap(cmap_name)
+    max_density: float = max([stat["density"] for stat in stats["clusters"]])
 
-        log_image_3d(position, image_path, entity_path, size=size)
+    def _cmap(x: float) -> list[int]:
+        rgba = cmap(x)
+        r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
+        return [r, g, b]
+
+    def _get_color(label) -> list[int]:
+        cluster = next(
+            (
+                stat
+                for stat in stats["clusters"]
+                if str(stat["cluster_id"]) == str(label)
+            ),
+            None,
+        )
+
+        if cluster is None:
+            logger.warning(f"Couldn't find stats for cluster {label}")
+            return _cmap(0)
+
+        density = cluster["density"]
+
+        return _cmap(math.sqrt(density / max_density))
+
+    for label in labels:
+        colors[label] = _get_color(label)
+
+    return colors
 
 
 def _hsv_to_rgb(h: float, s: float, v: float) -> tuple[float, float, float]:

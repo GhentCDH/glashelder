@@ -45,6 +45,7 @@ def register_commands():
     from risk_assessment.cli import risk_assessment
 
     main.add_command(clipcluster)
+    main.add_command(qwenvlm)
     main.add_command(preprocessing)
     main.add_command(classification)
     main.add_command(risk_assessment)
