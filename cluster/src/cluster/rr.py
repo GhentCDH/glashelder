@@ -4,7 +4,7 @@ import numpy as np
 import rerun as rr
 from PIL import Image
 
-RERUN_ID = "clipcluster"
+RERUN_ID = "cluster"
 
 logger = logging.getLogger(__name__)
 

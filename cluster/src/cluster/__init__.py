@@ -1,7 +1,7 @@
-"""Clipcluster package - Image clustering and matching using CLIP embeddings."""
+"""Cluster package - Image clustering and matching using generated embeddings."""
 
-from clipcluster.cli import perform_search
-from clipcluster.embed import (
+from cluster.cli import perform_search
+from cluster.embed import (
     CLIPEmbedder,
     DINOv2Embedder,
     EmbeddingModel,
