@@ -1,3 +1,17 @@
+/*!
+* Scrape Wikiart and KIK-IRPA datasets for all images of artworks
+* paintings
+*
+* # Usage
+* ```bash
+* # generate a json of the artworks on wikiarts.org
+* glasgetter wikiart list
+*
+* # get information about the commands and subcommands by appending '--help'
+* glasgetter --help
+* ```
+*/
+
 use std::{
     io::stdout,
     path::{Path, PathBuf},
@@ -19,7 +33,7 @@ use model::{Source, UnifiedArtwork};
 use source::{ArtSource, BalatSource, WikiArtSource};
 
 #[derive(Parser)]
-#[command(version, about = "Multi-source artwork scraper", long_about = None)]
+#[command(version, about, long_about)]
 struct Args {
     #[command(subcommand)]
     command: Command,
@@ -53,7 +67,7 @@ enum Command {
 
 #[derive(Subcommand)]
 enum WikiartCommand {
-    /// List all artworks on WikiArt
+    /// List all artworks on WikiArt in json format
     List {
         #[arg(short, long, default_value_t = 10)]
         /// The amount of in-flight requests to allow
@@ -83,14 +97,17 @@ enum WikiartCommand {
 
 #[derive(Subcommand)]
 enum BalatCommand {
-    /// List artworks from BALAT
+    /// List artworks from BALAT in json format
     List {
         #[arg(short, long, default_value = "schilder")]
         /// Creator role to filter by (e.g., "schilder" for painters)
         role: String,
 
         #[arg(short, long, default_value_t = 240)]
-        /// Results per page
+        /// Results per page.
+        ///
+        /// If a page has an issue, lower values will loose less data.
+        /// However, lower values will probably take longer and send more requests.
         limit: u32,
 
         #[arg(short, long)]
@@ -133,8 +150,8 @@ fn create_progress_bar(total: u64, message: &str) -> ProgressBar {
 }
 
 // WikiArt list command
-async fn wikiart_list(_buffer: usize, output: Option<PathBuf>) -> Result<()> {
-    let client = build_client()?;
+async fn wikiart_list(buffer: usize, output: Option<PathBuf>) -> Result<()> {
+    let client = build_client(buffer)?;
     let source = WikiArtSource::new();
 
     let pb = ProgressBar::new_spinner();
@@ -179,7 +196,7 @@ async fn balat_list(
     max: Option<usize>,
     output: Option<PathBuf>,
 ) -> Result<()> {
-    let client = build_client()?;
+    let client = build_client(limit as usize)?;
     let source = BalatSource::new().with_role(&role).with_limit(limit);
 
     let pb = ProgressBar::new_spinner();
@@ -304,7 +321,7 @@ async fn download_images_with_source(
     input: PathBuf,
     output: PathBuf,
 ) -> Result<()> {
-    let client = build_client()?;
+    let client = build_client(buffer)?;
 
     std::fs::create_dir_all(&output)?;
 
@@ -353,7 +370,7 @@ async fn download_images_with_source(
 
 // Unified download that auto-detects source from JSON
 async fn download_unified(buffer: usize, input: PathBuf, output: PathBuf) -> Result<()> {
-    let client = build_client()?;
+    let client = build_client(buffer)?;
 
     std::fs::create_dir_all(&output)?;
 

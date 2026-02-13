@@ -39,4 +39,3 @@ cluster_analysis_*
 clipcluster/**/*.pdf
 clipcluster/analysis_report/*.json
 clipcluster/analysis_report/data
-/glasgetter/target
