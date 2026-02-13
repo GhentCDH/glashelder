@@ -49,3 +49,7 @@ def register_commands():
     main.add_command(preprocessing)
     main.add_command(classification)
     main.add_command(risk_assessment)
+
+
+# Register commands on import so the CLI sees them.
+register_commands()
