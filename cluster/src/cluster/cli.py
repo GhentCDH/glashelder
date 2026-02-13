@@ -16,7 +16,7 @@ from common.clipmodel import get_device
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
-PACKAGE_ROOT = PROJECT_ROOT / "clipcluster"
+PACKAGE_ROOT = PROJECT_ROOT / "cluster"
 EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 
 logger = logging.getLogger(__name__)
@@ -93,12 +93,12 @@ def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self
 
 
 @click.group()
-def clipcluster():
+def cluster():
     load_dotenv()
     pass
 
 
-@clipcluster.command()
+@cluster.command(name="cluster")
 @click.option(
     "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
@@ -128,7 +128,7 @@ def clipcluster():
     type=click.Choice(["clip", "dinov2", "qwen3vl"]),
     help="Embedding model to use if generating embeddings",
 )
-def cluster(
+def do_clustering(
     image_dir, embeddings, sample_size, batch_size, output_files, count, reduce, model
 ):
     from .cluster import create_clusterer, reduce_dimensions
@@ -253,7 +253,7 @@ def cluster(
     print(f"\nSamples saved to: {output_dir}")
 
 
-@clipcluster.command()
+@cluster.command()
 @click.argument("prompt")
 @click.option("--top-k", default=10, help="Number of top matching images to return")
 @click.option(
@@ -358,7 +358,7 @@ def search(
     logger.info(f"\nTop {top_k} images saved to: {output_path}")
 
 
-@clipcluster.command()
+@cluster.command()
 @click.option(
     "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
@@ -403,7 +403,7 @@ def generate_embeddings(image_dir, save_path, count, batch_size, model):
     save_embeddings(save_path, processed_paths, embeddings, embedder)
 
 
-@clipcluster.command()
+@cluster.command()
 @click.option(
     "--embeddings", default=EMBEDDINGS_PATH, help="Path to embeddings pickle file"
 )
@@ -704,7 +704,7 @@ def serve(embeddings, host, port):
     app.run(host=host, port=port, debug=True)
 
 
-@clipcluster.command()
+@cluster.command()
 @click.option(
     "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )

@@ -515,12 +515,12 @@ def train_classifier(
     help="Path to the Glashelder images",
 )
 def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_dir: str):
-    import clipcluster
+    import cluster
 
     """Create labels for images' similarity score plots"""
 
     device = get_device()
-    data = clipcluster.load_embeddings(embeddings)
+    data = cluster.load_embeddings(embeddings)
 
     if data.get("model", "clip") != model:
         logger.error(
@@ -531,7 +531,7 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     embeddings = data["embeddings"].to(device)
     wikiart_paths: list[str] = data["images"]
 
-    embedder = clipcluster.get_embedder(model)
+    embedder = cluster.get_embedder(model)
     embedder.load(device)
 
     image_paths = glob.glob(f"{image_dir}/**/*.jpg", recursive=True)
@@ -543,7 +543,7 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
 
         embedding = embedder.encode_pil_image(image)
 
-        top_indices, top_values = clipcluster.perform_search(
+        top_indices, top_values = cluster.perform_search(
             10, embedding, embeddings, image_paths
         )
 
@@ -658,7 +658,7 @@ def serve(
     """
     from flask import Flask, render_template, send_file
 
-    import clipcluster
+    import cluster
     from image_matching.ml_classifier import (
         MLClassifier,
         _extract_orb_worker,
@@ -959,7 +959,7 @@ def serve(
 
     # Load wikiart embeddings
     logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
-    wikiart_data = clipcluster.load_embeddings(wikiart_embeddings)
+    wikiart_data = cluster.load_embeddings(wikiart_embeddings)
     wikiart_emb = wikiart_data["embeddings"].to(device)
     wikiart_paths: list[str] = wikiart_data["images"]
     embedding_model_name = wikiart_data.get("model", "clip")
@@ -976,13 +976,13 @@ def serve(
     # Load or generate glashelder embeddings
     if glashelder_embeddings is not None:
         logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
-        glashelder_data = clipcluster.load_embeddings(glashelder_embeddings)
+        glashelder_data = cluster.load_embeddings(glashelder_embeddings)
         glashelder_emb = glashelder_data["embeddings"].to(device)
         glashelder_paths: list[str] = glashelder_data["images"]
         logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
     else:
         logger.info(f"Loading embedder model: {model}")
-        embedder = clipcluster.get_embedder(model)
+        embedder = cluster.get_embedder(model)
         embedder.load(device)
 
         glashelder_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
@@ -1023,7 +1023,7 @@ def serve(
     def get_embedding_results(image_index: int) -> tuple[list[int], list[float]]:
         """Get embedding search results for an image (fast)."""
         emb = glashelder_emb[image_index]
-        top_indices, top_values = clipcluster.perform_search(
+        top_indices, top_values = cluster.perform_search(
             top_k, emb.unsqueeze(0), wikiart_emb, wikiart_paths
         )
         return top_indices.cpu().numpy().tolist(), top_values.cpu().numpy().tolist()
@@ -1514,7 +1514,7 @@ def batch_classify(
             -o results.json \\
             --workers 32
     """
-    import clipcluster
+    import cluster
     from image_matching.batch import (
         FeatureCache,
         write_csv_output,
@@ -1535,7 +1535,7 @@ def batch_classify(
 
     # Load wikiart embeddings
     logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
-    wikiart_data = clipcluster.load_embeddings(wikiart_embeddings)
+    wikiart_data = cluster.load_embeddings(wikiart_embeddings)
     wikiart_emb = wikiart_data["embeddings"].to(device)
     wikiart_paths: list[str] = wikiart_data["images"]
     embedding_model_name = wikiart_data.get("model", "clip")
@@ -1552,13 +1552,13 @@ def batch_classify(
     # Load or generate glashelder embeddings
     if glashelder_embeddings is not None:
         logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
-        glashelder_data = clipcluster.load_embeddings(glashelder_embeddings)
+        glashelder_data = cluster.load_embeddings(glashelder_embeddings)
         glashelder_emb = glashelder_data["embeddings"].to(device)
         glashelder_paths: list[str] = glashelder_data["images"]
         logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
     else:
         logger.info(f"Loading embedder model: {model}")
-        embedder = clipcluster.get_embedder(model)
+        embedder = cluster.get_embedder(model)
         embedder.load(device)
 
         glashelder_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))

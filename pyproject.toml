@@ -10,7 +10,7 @@ authors = [
 ]
 dependencies = [
   "common",
-  "clipcluster",
+  "cluster",
   "click>=8.3.1",
   "python-dotenv>=1.1.0",
   "opencv-python>=4.11.0.86",
@@ -19,6 +19,7 @@ dependencies = [
   "preprocessing",
   "qwenvlm",
   "workspace>=0.3.1",
+  "umap-learn>=0.5.7",
   "transformers>=4.57.0",
   "pillow>=12.0.0",
   "torch>=2.6.0",
@@ -28,6 +29,7 @@ dependencies = [
   "image-matching",
   "risk-assessment",
   "accelerate==1.12.0",
+  "llvmlite>=0.43",
 ]
 
 [project.scripts]
@@ -35,7 +37,7 @@ glashelder = "glashelder:main"
 
 [tool.uv.sources]
 common = { workspace = true }
-clipcluster = { workspace = true }
+cluster = { workspace = true }
 torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 classification = { workspace = true }
@@ -46,7 +48,7 @@ image-matching = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-  "clipcluster",
+  "cluster",
   "common",
   "classification",
   "preprocessing",
@@ -89,7 +91,7 @@ indent-style = "space"
 known-first-party = [
   "glashelder",
   "common",
-  "clipcluster",
+  "cluster",
   "classification",
   "preprocessing",
   "qwenvlm",
@@ -100,7 +102,7 @@ known-first-party = [
 [tool.ty.environment]
 root = [
   "common",
-  "clipcluster",
+  "cluster",
   "classification",
   "preprocessing",
   "qwenvlm",

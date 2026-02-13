@@ -9,7 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "classification",
-    "clipcluster",
+    "cluster",
     "common",
     "glashelder",
     "image-matching",
@@ -342,9 +342,9 @@ wheels = [
 ]
 
 [[package]]
-name = "clipcluster"
+name = "cluster"
 version = "0.1.0"
-source = { editable = "clipcluster" }
+source = { editable = "cluster" }
 dependencies = [
     { name = "anywidget", extra = ["dev"] },
     { name = "click" },
@@ -633,10 +633,11 @@ dependencies = [
     { name = "accelerate" },
     { name = "classification" },
     { name = "click" },
-    { name = "clipcluster" },
+    { name = "cluster" },
     { name = "common" },
     { name = "image-matching" },
     { name = "jupyter" },
+    { name = "llvmlite" },
     { name = "opencv-python" },
     { name = "pillow" },
     { name = "preprocessing" },
@@ -648,6 +649,7 @@ dependencies = [
     { name = "torch" },
     { name = "torchvision" },
     { name = "transformers" },
+    { name = "umap-learn" },
     { name = "workspace" },
 ]
 
@@ -661,10 +663,11 @@ requires-dist = [
     { name = "accelerate", specifier = "==1.12.0" },
     { name = "classification", editable = "classification" },
     { name = "click", specifier = ">=8.3.1" },
-    { name = "clipcluster", editable = "clipcluster" },
+    { name = "cluster", editable = "cluster" },
     { name = "common", editable = "common" },
     { name = "image-matching", editable = "image-matching" },
     { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "llvmlite", specifier = ">=0.43" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
     { name = "pillow", specifier = ">=12.0.0" },
     { name = "preprocessing", editable = "preprocessing" },
@@ -676,6 +679,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", specifier = ">=0.24.0", index = "https://download.pytorch.org/whl/cu130" },
     { name = "transformers", specifier = ">=4.57.0" },
+    { name = "umap-learn", specifier = ">=0.5.7" },
     { name = "workspace", specifier = ">=0.3.1" },
 ]
 

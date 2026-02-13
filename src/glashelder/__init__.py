@@ -40,12 +40,14 @@ def main():
 def register_commands():
     # register cli commands defined in other files
     from classification.cli import classification
-    from clipcluster.cli import clipcluster
+    from cluster.cli import cluster
     from image_matching.cli import image_matching
     from preprocessing.cli import preprocessing
+    from qwenvlm.cli import qwenvlm
     from risk_assessment.cli import risk_assessment
 
-    main.add_command(clipcluster)
+    main.add_command(cluster)
+    main.add_command(qwenvlm)
     main.add_command(preprocessing)
     main.add_command(classification)
     main.add_command(image_matching)
