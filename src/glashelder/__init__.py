@@ -41,6 +41,7 @@ def register_commands():
     # register cli commands defined in other files
     from classification.cli import classification
     from cluster.cli import cluster
+    from embed.cli import embed
     from image_matching.cli import image_matching
     from preprocessing.cli import preprocessing
     from qwenvlm.cli import qwenvlm
@@ -52,6 +53,7 @@ def register_commands():
     main.add_command(classification)
     main.add_command(image_matching)
     main.add_command(risk_assessment)
+    main.add_command(embed)
 
 
 # Register commands on import so the CLI sees them.

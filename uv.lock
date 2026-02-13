@@ -11,6 +11,7 @@ members = [
     "classification",
     "cluster",
     "common",
+    "embed",
     "glashelder",
     "image-matching",
     "preprocessing",
@@ -316,6 +317,7 @@ version = "0.1.0"
 source = { editable = "classification" }
 dependencies = [
     { name = "common" },
+    { name = "embed" },
     { name = "pillow" },
     { name = "torch" },
     { name = "transformers" },
@@ -324,6 +326,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "common", editable = "common" },
+    { name = "embed", editable = "embed" },
     { name = "pillow", specifier = ">=12.0.0" },
     { name = "torch", specifier = ">=2.9.1", index = "https://download.pytorch.org/whl/cu130" },
     { name = "transformers", specifier = ">=4.47.0" },
@@ -547,6 +550,17 @@ wheels = [
 ]
 
 [[package]]
+name = "embed"
+version = "0.1.0"
+source = { editable = "embed" }
+dependencies = [
+    { name = "click" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "click", specifier = ">=8.3.1" }]
+
+[[package]]
 name = "executing"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -635,6 +649,7 @@ dependencies = [
     { name = "click" },
     { name = "cluster" },
     { name = "common" },
+    { name = "embed" },
     { name = "image-matching" },
     { name = "jupyter" },
     { name = "llvmlite" },
@@ -665,6 +680,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.3.1" },
     { name = "cluster", editable = "cluster" },
     { name = "common", editable = "common" },
+    { name = "embed", editable = "embed" },
     { name = "image-matching", editable = "image-matching" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "llvmlite", specifier = ">=0.43" },

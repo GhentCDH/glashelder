@@ -16,12 +16,6 @@ def classification():
     help="Directory where the images reside. Default is the assets directory.",
 )
 @click.option(
-    "-m",
-    "--model",
-    default="openai/clip-vit-large-patch14",
-    help="CLIP model to use for classification. Default is 'openai/clip-vit-large-patch14'",
-)
-@click.option(
     "-b",
     "--max_batches",
     default=None,
@@ -56,8 +50,8 @@ def classification():
     help="Folder to save the classified images",
 )
 def classify_images(
-    image_dir, model, max_batches, prompts, labels, confidence, output_folder=None
+    image_dir, max_batches, prompts, labels, confidence, output_folder=None
 ):
     from .main import classify as cf
 
-    cf(image_dir, model, max_batches, prompts, labels, confidence, output_folder)
+    cf(image_dir, max_batches, prompts, labels, confidence, output_folder)
