@@ -1,5 +1,6 @@
 import glob
 import logging
+from pathlib import Path
 
 import click
 
@@ -44,16 +45,20 @@ def generate_embeddings(image_dir, save_path, count, batch_size, model):
         save_embeddings,
     )
 
-    device = get_device()
-
-    logger.info(f"Loading embedding model: {model}")
-    embedder = get_embedder(model)
-    embedder.load(device)
+    assert image_dir is not None and Path(image_dir).is_dir(), (
+        "The image directory (`--image-dir`) needs to exist and needs to be a directory!"
+    )
 
     input_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[:count]
     logger.info(
         f"Generating embeddings for {len(input_paths)} images with batch size {batch_size}"
     )
+
+    device = get_device()
+
+    logger.info(f"Loading embedding model: {model}")
+    embedder = get_embedder(model)
+    embedder.load(device)
 
     embeddings, processed_paths = embedder.encode_images(input_paths, batch_size)
 
