@@ -1,6 +1,6 @@
-import shutil
-import random
 import argparse
+import random
+import shutil
 from pathlib import Path
 
 

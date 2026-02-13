@@ -1,7 +1,7 @@
-from enum import Enum
-from dataclasses import dataclass
 import logging
 import traceback
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 _LOG_PATH = Path(__file__).parent / "glaswacht.log"
@@ -10,6 +10,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s  %(levelname)s  %(message)s",
 )
+
 
 class ModelStatus(Enum):
     CHILLING = "Chilling 😎"
@@ -21,6 +22,7 @@ class ModelStatus(Enum):
 
 class ModelLoadError(Exception):
     pass
+
 
 @dataclass
 class ModelState:
@@ -42,7 +44,7 @@ class Orchestrator:
         self.assessments_qwen = []
         self.assessments_pixtral = []
         self.majority_votes = {}
-        self._lock = __import__('threading').Lock()
+        self._lock = __import__("threading").Lock()
 
     def update_status(self, model_name: str, new_status: ModelStatus):
         if model_name in self.models:
@@ -50,41 +52,56 @@ class Orchestrator:
             print(f"{model_name} status updated to: {new_status.value}")
         else:
             print(f"Model {model_name} not found.")
-    
+
     def get_state(self):
         return self.models.copy()
-    
+
     def update_model_state(self, model_id: str, **kwargs):
         for key, value in kwargs.items():
             setattr(self.models[model_id], key, value)
-    
+
     def update_majority_votes_live(self):
         """Recalculate majority votes based on current assessments."""
         from risk_assessment.models.utils import calculate_majority_vote
-        
+
         with self._lock:
             # Create dictionaries keyed by image name
-            lava_dict = {a.get("image"): a.get("rating", "Unknown") for a in self.assessments_lavaguard}
-            qwen_dict = {a.get("image"): a.get("rating", "Unknown") for a in self.assessments_qwen}
-            pixtral_dict = {a.get("image"): a.get("rating", "Unknown") for a in self.assessments_pixtral}
-            
+            lava_dict = {
+                a.get("image"): a.get("rating", "Unknown")
+                for a in self.assessments_lavaguard
+            }
+            qwen_dict = {
+                a.get("image"): a.get("rating", "Unknown")
+                for a in self.assessments_qwen
+            }
+            pixtral_dict = {
+                a.get("image"): a.get("rating", "Unknown")
+                for a in self.assessments_pixtral
+            }
+
             # Get all image names
-            all_images = set(lava_dict.keys()) | set(qwen_dict.keys()) | set(pixtral_dict.keys())
-            
+            all_images = (
+                set(lava_dict.keys()) | set(qwen_dict.keys()) | set(pixtral_dict.keys())
+            )
+
             # Calculate majority for images that have all three assessments
             for image_name in all_images:
-                if image_name in lava_dict and image_name in qwen_dict and image_name in pixtral_dict:
+                if (
+                    image_name in lava_dict
+                    and image_name in qwen_dict
+                    and image_name in pixtral_dict
+                ):
                     majority = calculate_majority_vote(
                         lava_dict[image_name],
                         qwen_dict[image_name],
-                        pixtral_dict[image_name]
+                        pixtral_dict[image_name],
                     )
                     self.majority_votes[image_name] = majority
-    
+
     def run_all(self, path):
         from risk_assessment.models.model_LLavaguard import run_lavaguard
-        from risk_assessment.models.model_Qwen3 import run_qwen
         from risk_assessment.models.model_Pixtral import run_pixtral
+        from risk_assessment.models.model_Qwen3 import run_qwen
         from risk_assessment.models.utils import write_combined_csv
 
         def handle_fatal_load_error(exc: Exception) -> None:
@@ -136,10 +153,12 @@ class Orchestrator:
                 status=ModelStatus.ERROR,
                 current_task=f"Failed: {exc}",
             )
-        
+
         # Write combined results to CSV
-        write_combined_csv(self.assessments_lavaguard, self.assessments_qwen, self.assessments_pixtral)
-    
+        write_combined_csv(
+            self.assessments_lavaguard, self.assessments_qwen, self.assessments_pixtral
+        )
+
     def get_majority_votes(self):
         """Get the dictionary of majority votes by image name."""
         with self._lock:
@@ -152,12 +171,10 @@ class Orchestrator:
         temporary directory and used as the test image.  Pass an explicit
         path to test with a real image instead.
         """
-        import os
-        import tempfile
+
         from PIL import Image as PILImage
 
         if image_path is None:
-            test_dir = tempfile.mkdtemp(prefix="glaswacht_test_")
             img = PILImage.new("RGB", (64, 64), color=(100, 149, 237))
             test_image_path = "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/sn01004006_tiff.jpg"
             img.save(test_image_path)

@@ -1,30 +1,27 @@
-from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
-from PIL import Image
-import torch
 import os
 
-from risk_assessment.models.utils import get_prompt, parse_output, get_images
-from risk_assessment.orchestrator import ModelStatus, ModelLoadError
+import torch
+from PIL import Image
+from risk_assessment.models.utils import get_images, get_prompt, parse_output
+from risk_assessment.orchestrator import ModelLoadError, ModelStatus
+from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 
 class Qwen3:
-
     def __init__(self):
         self.model = None
         self.processor = None
         self.prompt = None
-    
-    
+
     def load_model(self):
         """Load the Qwen3-VL model and processor."""
 
-     
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
             "Qwen/Qwen3-VL-8B-Instruct", dtype="auto", device_map="auto"
         )
         self.model.eval()
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
-    
+
     def message_constructor(self):
         """Construct the message for Qwen3."""
         self.prompt = get_prompt()
@@ -85,8 +82,10 @@ class Qwen3:
 
 
 def run_qwen(orchestrator, image_path):
-    orchestrator.update_model_state("model2", status=ModelStatus.LOADING, current_task="Loading Qwen3 model...")
-    
+    orchestrator.update_model_state(
+        "model2", status=ModelStatus.LOADING, current_task="Loading Qwen3 model..."
+    )
+
     model = Qwen3()
     try:
         model.load_model()
@@ -97,18 +96,18 @@ def run_qwen(orchestrator, image_path):
             current_task=f"Model load failed: {exc}",
         )
         raise ModelLoadError(str(exc)) from exc
-    
-    orchestrator.update_model_state("model2", status=ModelStatus.RUNNING, current_task="Processing images...")
-    
-    images = get_images(image_path)
 
-    assessments = []
+    orchestrator.update_model_state(
+        "model2", status=ModelStatus.RUNNING, current_task="Processing images..."
+    )
+
+    images = get_images(image_path)
 
     for i, image_file in enumerate(images):
         image_name = os.path.basename(image_file)
         orchestrator.update_model_state(
             "model2",
-            current_task=f"Processing image {i+1}/{len(images)}",
+            current_task=f"Processing image {i + 1}/{len(images)}",
             latest_image=image_name,
         )
         try:
@@ -122,8 +121,12 @@ def run_qwen(orchestrator, image_path):
             continue
 
         orchestrator.assessments_qwen.append(assessment)
-        orchestrator.update_model_state("model2", latest_rating=assessment.get("rating", "Unknown"))
+        orchestrator.update_model_state(
+            "model2", latest_rating=assessment.get("rating", "Unknown")
+        )
         orchestrator.update_majority_votes_live()
-    
-    orchestrator.update_model_state("model2", status=ModelStatus.DONE, current_task="Done")
+
+    orchestrator.update_model_state(
+        "model2", status=ModelStatus.DONE, current_task="Done"
+    )
     return orchestrator.assessments_qwen
