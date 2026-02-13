@@ -162,7 +162,6 @@ class CLIPEmbedder(EmbeddingModel):
         return self._device
 
     def load(self, device: str) -> None:
-        import torch
         from transformers import CLIPModel, CLIPProcessor
 
         logger.info(f"Loading CLIP model: {self.model_id}")

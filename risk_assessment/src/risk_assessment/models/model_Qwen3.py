@@ -2,9 +2,10 @@ import os
 
 import torch
 from PIL import Image
+from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+
 from risk_assessment.models.utils import get_images, get_prompt, parse_output
 from risk_assessment.orchestrator import ModelLoadError, ModelStatus
-from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 
 class Qwen3:
