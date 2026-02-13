@@ -11,13 +11,13 @@ from PIL import Image
 
 # local source
 from common import ASSETS_DIR, PROJECT_ROOT
-from common.clipmodel import get_device
+from embed import get_device
 
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
 PACKAGE_ROOT = PROJECT_ROOT / "cluster"
-EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
+EMBEDDINGS_PATH = PROJECT_ROOT / "embed" / "embeddings.pkl"
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,8 @@ import logging
 import click
 
 from common import ASSETS_DIR, PROJECT_ROOT
-from common.clipmodel import get_device
+
+from .embed import get_device
 
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
