@@ -26,6 +26,7 @@ dependencies = [
     "anywidget[dev]>=0.9.21",
     "jupyter>=1.1.1",
     "rerun-sdk[notebook]>=0.27.2",
+    "qwen-vl-utils>=0.0.14",
 ]
 
 [tool.uv.sources]
