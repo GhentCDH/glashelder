@@ -634,7 +634,7 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     help="Path to pre-computed batch_classify JSON output. Skips on-the-fly computation.",
 )
 def serve(
-    wikiart_embeddings: str | None,
+    wikiart_embeddings: str,
     glashelder_embeddings: str | None,
     model: Literal["clip", "dinov2", "qwen3vl"],
     image_dir: str,
@@ -667,12 +667,6 @@ def serve(
 
     # Validate options
     if results_json is None:
-        if wikiart_embeddings is None:
-            click.echo(
-                "Error: --wikiart-embeddings is required unless using --results-json",
-                err=True,
-            )
-            return
         if classifier == "ml" and ml_model is None:
             click.echo(
                 "Error: --ml-model is required when using --classifier=ml", err=True
@@ -1620,19 +1614,45 @@ def batch_classify(
 
 @image_matching.command()
 @click.option(
-    "--label-file",
-    "-l",
+    "--input",
+    "-i",
     type=str,
-    help="The csv file containing the metadata of the ART500K dataset",
+    help="The `json` file containing the results from batch-classify",
 )
-def analyze_art500k(label_file: str):
-    import csv
+@click.option(
+    "--output-dir",
+    "-o",
+    type=str,
+    help="The output directory where plots' pngs will be stored",
+)
+def plot_results(input, output_dir):
+    from image_matching.plot import (
+        extract_arrays,
+        load_data,
+        plot_confidence_distribution,
+        plot_feature_correlations,
+        plot_hash_orb,
+        plot_statistical_analysis,
+        setup_style,
+    )
 
-    with open(label_file) as f:
-        data = csv.reader(f, delimiter="\t")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-        for i, row in enumerate(data):
-            if i == 100:
-                break
+    logger.info(f"Loading {input} ...")
+    data = load_data(input)
+    results = data["results"]
+    meta = data.get("metadata", {})
+    summary = data.get("summary", {})
+    logger.info(f"  {len(results)} results loaded")
 
-            print(", ".join(row))
+    d = extract_arrays(results)
+    d["is_match"] = d["is_match"].astype(bool)
+
+    setup_style()
+
+    logger.info("Generating plots ...")
+    plot_confidence_distribution(d, meta, summary, output_dir)
+    plot_feature_correlations(d, output_dir)
+    plot_hash_orb(d, output_dir)
+    plot_statistical_analysis(d, output_dir)
+    logger.info("Done!")
