@@ -1,0 +1,391 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Risk Assessment Validation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: 'JetBrains Mono', monospace;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        overflow: hidden;
+      }
+
+      .header {
+        background: #333;
+        color: white;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .header h1 {
+        font-size: 24px;
+        font-weight: 500;
+      }
+
+      .header-right {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+      }
+
+      .counter {
+        font-size: 16px;
+        opacity: 0.9;
+      }
+
+      .btn-reload {
+        background: #555;
+        color: white;
+        padding: 8px 16px;
+        font-size: 14px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.2s;
+      }
+
+      .btn-reload:hover {
+        background: #777;
+      }
+
+      .content {
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
+        padding: 30px;
+      }
+
+      /* Majority vote banner */
+      .majority-vote {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 20px;
+        border-radius: 8px;
+        border: 2px solid #ddd;
+        background: #fafafa;
+      }
+
+      .majority-vote-label {
+        font-size: 18px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #666;
+        white-space: nowrap;
+      }
+
+      .majority-vote-value {
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .models-comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 30px;
+      }
+
+      .model-section {
+        border: 2px solid #e5e5e5;
+        border-radius: 8px;
+        padding: 20px;
+        background: #fafafa;
+      }
+
+      .model-header {
+        font-size: 18px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #ddd;
+      }
+
+      .info-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .info-item {
+        border-bottom: 1px solid #eee;
+        padding-bottom: 15px;
+      }
+
+      .info-item:last-child {
+        border-bottom: none;
+      }
+
+      .info-label {
+        font-weight: 600;
+        color: #666;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 5px;
+      }
+
+      .info-value {
+        font-size: 16px;
+        color: #333;
+        line-height: 1.5;
+      }
+
+      .rating-safe {
+        color: #22c55e;
+        font-weight: 600;
+        font-size: 18px;
+      }
+
+      .rating-unsafe {
+        color: #ef4444;
+        font-weight: 600;
+        font-size: 18px;
+      }
+
+      .rating-potentially-problematic {
+        color: #f97316;
+        font-weight: 600;
+        font-size: 18px;
+      }
+
+      .navigation {
+        display: flex;
+        gap: 10px;
+        padding: 20px 30px;
+        border-top: 1px solid #eee;
+        justify-content: center;
+      }
+
+      .btn {
+        padding: 12px 24px;
+        font-size: 14px;
+        font-weight: 500;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.2s;
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      .btn-primary {
+        background: #333;
+        color: white;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        background: #555;
+      }
+
+      .btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .rationale-text {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+
+      .image-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: #f9f9f9;
+        border-radius: 8px;
+      }
+
+      .image-section img {
+        max-width: 100%;
+        max-height: 500px;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      }
+
+      .image-filename {
+        margin-top: 15px;
+        font-size: 14px;
+        color: #666;
+        font-weight: 500;
+      }
+
+      @media (max-width: 768px) {
+        .models-comparison {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Risk Assessment Validation</h1>
+        <div class="header-right">
+          <a href="/reload" class="btn-reload">&#8635; Reload</a>
+          <div class="counter">{{ index + 1 }} / {{ total }}</div>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- Image Section -->
+        <div class="image-section">
+          <img src="/image/{{ result.image }}" alt="{{ result.image }}" />
+          <div class="image-filename">{{ result.image }}</div>
+        </div>
+
+        <!-- Majority Vote Banner -->
+        <div class="majority-vote">
+          <span class="majority-vote-label">Majority Vote</span>
+          {% if result.majority_vote == "Safe" %}
+            <span class="majority-vote-value rating-safe">{{ result.majority_vote }}</span>
+          {% elif result.majority_vote == "Potentially Problematic" %}
+            <span class="majority-vote-value rating-potentially-problematic">{{ result.majority_vote }}</span>
+          {% else %}
+            <span class="majority-vote-value rating-unsafe">{{ result.majority_vote }}</span>
+          {% endif %}
+        </div>
+
+        <!-- Models Comparison -->
+        <div class="models-comparison">
+
+          <!-- LavaGuard -->
+          <div class="model-section">
+            <div class="model-header">LavaGuard</div>
+            <div class="info-panel">
+              <div class="info-item">
+                <div class="info-label">Rating</div>
+                <div class="info-value">
+                  {% if result.lavaguard_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.lavaguard_rating }}</span>
+                  {% elif result.lavaguard_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.lavaguard_rating }}</span>
+                  {% else %}
+                    <span class="rating-unsafe">{{ result.lavaguard_rating }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Category</div>
+                <div class="info-value">{{ result.lavaguard_category }}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Rationale</div>
+                <div class="info-value rationale-text">{{ result.lavaguard_rationale }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Qwen3-VL-7B -->
+          <div class="model-section">
+            <div class="model-header">Qwen3-VL-7B</div>
+            <div class="info-panel">
+              <div class="info-item">
+                <div class="info-label">Rating</div>
+                <div class="info-value">
+                  {% if result.qwen_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.qwen_rating }}</span>
+                  {% elif result.qwen_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.qwen_rating }}</span>
+                  {% else %}
+                    <span class="rating-unsafe">{{ result.qwen_rating }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Category</div>
+                <div class="info-value">{{ result.qwen_category }}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Rationale</div>
+                <div class="info-value rationale-text">{{ result.qwen_rationale }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pixtral12bQ8 -->
+          <div class="model-section">
+            <div class="model-header">Pixtral12bQ8</div>
+            <div class="info-panel">
+              <div class="info-item">
+                <div class="info-label">Rating</div>
+                <div class="info-value">
+                  {% if result.pixtral_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.pixtral_rating }}</span>
+                  {% elif result.pixtral_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.pixtral_rating }}</span>
+                  {% else %}
+                    <span class="rating-unsafe">{{ result.pixtral_rating }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Category</div>
+                <div class="info-value">{{ result.pixtral_category }}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Rationale</div>
+                <div class="info-value rationale-text">{{ result.pixtral_rationale }}</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="navigation">
+        {% if index > 0 %}
+          <a href="/result/{{ index - 1 }}" class="btn btn-primary">&#8592; Previous</a>
+        {% else %}
+          <button class="btn btn-primary" disabled>&#8592; Previous</button>
+        {% endif %}
+
+        {% if index < total - 1 %}
+          <a href="/result/{{ index + 1 }}" class="btn btn-primary">Next &#8594;</a>
+        {% else %}
+          <button class="btn btn-primary" disabled>Next &#8594;</button>
+        {% endif %}
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener('keydown', function(e) {
+        {% if index > 0 %}
+          if (e.key === 'ArrowLeft' || e.key === 'p') {
+            window.location.href = '/result/{{ index - 1 }}';
+          }
+        {% endif %}
+        {% if index < total - 1 %}
+          if (e.key === 'ArrowRight' || e.key === 'n') {
+            window.location.href = '/result/{{ index + 1 }}';
+          }
+        {% endif %}
+      });
+    </script>
+  </body>
+</html>

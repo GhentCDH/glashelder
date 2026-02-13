@@ -43,14 +43,14 @@ def register_commands():
     from clipcluster.cli import clipcluster
     from image_matching.cli import image_matching
     from preprocessing.cli import preprocessing
-    from qwenvlm.cli import qwenvlm
+    from risk_assessment.cli import risk_assessment
 
     main.add_command(clipcluster)
-    main.add_command(qwenvlm)
     main.add_command(preprocessing)
     main.add_command(classification)
     main.add_command(image_matching)
+    main.add_command(risk_assessment)
 
 
-if __name__ == "glashelder":
-    register_commands()
+# Register commands on import so the CLI sees them.
+register_commands()

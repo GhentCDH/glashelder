@@ -128,7 +128,7 @@ class CLIPEmbedder(EmbeddingModel):
         logger.info(f"Loading CLIP model: {self.model_id}")
         self._model = CLIPModel.from_pretrained(self.model_id)
         self._processor = CLIPProcessor.from_pretrained(self.model_id)
-        self._model.to(device)
+        self._model.to(device)  # ty: ignore[invalid-argument-type]
         self._model.eval()
         self._device = device
 
