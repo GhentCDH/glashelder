@@ -43,7 +43,7 @@ _worker_bf = None
 def _init_orb_worker() -> None:
     """Initialize worker process with ORB detector and BFMatcher."""
     global _worker_orb, _worker_bf
-    _worker_orb = cv2.ORB_create(nfeatures=1000)
+    _worker_orb = cv2.ORB_create(nfeatures=1000)  # type: ignore[attr-defined]
     _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
 
@@ -71,7 +71,7 @@ def _extract_orb_worker(
 
         # Initialize if needed (shouldn't happen with initializer, but be safe)
         if _worker_orb is None:
-            _worker_orb = cv2.ORB_create(nfeatures=1000)  # type:ignore
+            _worker_orb = cv2.ORB_create(nfeatures=1000)  # type: ignore[attr-defined]
         if _worker_bf is None:
             _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
@@ -280,12 +280,12 @@ def _extract_orb_features_worker(
                 "warp_stretch": 1.0,
             }
 
-        src_pts = np.float32([query_kp[m.queryIdx].pt for m in good_matches]).reshape(
-            -1, 1, 2
-        )
-        dst_pts = np.float32([ref_kp[m.trainIdx].pt for m in good_matches]).reshape(
-            -1, 1, 2
-        )
+        src_pts = np.array(
+            [query_kp[m.queryIdx].pt for m in good_matches], dtype=np.float32
+        ).reshape(-1, 1, 2)
+        dst_pts = np.array(
+            [ref_kp[m.trainIdx].pt for m in good_matches], dtype=np.float32
+        ).reshape(-1, 1, 2)
         _, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
         num_inliers = int(mask.ravel().sum()) if mask is not None else 0
 
@@ -293,9 +293,9 @@ def _extract_orb_features_worker(
 
         # Compute warp stretch
         img_h, img_w = query_img.shape[:2]
-        corners = np.float32([[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]]).reshape(
-            -1, 1, 2
-        )
+        corners = np.array(
+            [[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]], dtype=np.float32
+        ).reshape(-1, 1, 2)
         try:
             warped = cv2.perspectiveTransform(corners, h).reshape(-1, 2)
             orig_edges = [img_w, img_h, img_w, img_h]
@@ -427,7 +427,7 @@ class FeatureExtractor:
     def _get_orb(self):
         """Lazy initialization of ORB detector."""
         if self._orb is None:
-            self._orb = cv2.ORB_create(nfeatures=1000)
+            self._orb = cv2.ORB_create(nfeatures=1000)  # type: ignore[attr-defined]
         return self._orb
 
     def _get_bf(self):
@@ -499,12 +499,12 @@ class FeatureExtractor:
                 )
 
             # Count inliers using RANSAC mask
-            src_pts = np.float32(
-                [query_kp[m.queryIdx].pt for m in good_matches]
+            src_pts = np.array(
+                [query_kp[m.queryIdx].pt for m in good_matches], dtype=np.float32
             ).reshape(-1, 1, 2)
-            dst_pts = np.float32([ref_kp[m.trainIdx].pt for m in good_matches]).reshape(
-                -1, 1, 2
-            )
+            dst_pts = np.array(
+                [ref_kp[m.trainIdx].pt for m in good_matches], dtype=np.float32
+            ).reshape(-1, 1, 2)
             _, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
             num_inliers = int(mask.ravel().sum()) if mask is not None else 0
 
@@ -575,9 +575,9 @@ class FeatureExtractor:
         A value of 1.0 means no stretch, higher values mean more distortion.
         """
         img_h, img_w = img_shape[:2]
-        corners = np.float32([[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]]).reshape(
-            -1, 1, 2
-        )
+        corners = np.array(
+            [[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]], dtype=np.float32
+        ).reshape(-1, 1, 2)
 
         try:
             warped = cv2.perspectiveTransform(corners, h).reshape(-1, 2)
