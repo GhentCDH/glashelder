@@ -49,3 +49,28 @@ def run_pixtral(path):
 
     orchestrator = Orchestrator()
     _run(orchestrator, path)
+
+
+@risk_assessment.command()
+@click.option("--host", default="0.0.0.0", show_default=True, help="Host to bind to.")
+@click.option("--port", default=5001, show_default=True, help="Port to listen on.")
+@click.option("--debug/--no-debug", default=True, show_default=True, help="Enable debug mode.")
+@click.option("--csv-path", default=None, help="Override CSV_PATH from web.py.")
+@click.option("--images-dir", default=None, help="Override IMAGES_DIR from web.py.")
+def serve(host, port, debug, csv_path, images_dir):
+    """Serve the validation web interface."""
+    import os
+    import logging
+
+    if csv_path is not None:
+        os.environ["RA_CSV_PATH"] = csv_path
+    if images_dir is not None:
+        os.environ["RA_IMAGES_DIR"] = images_dir
+    else:
+        click.echo("Warning: no --images-dir set, using default path from web.py.", err=True)
+
+    from risk_assessment.web import app
+
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger(__name__).info(f"Starting validation server on http://{host}:{port}")
+    app.run(host=host, port=port, debug=debug)

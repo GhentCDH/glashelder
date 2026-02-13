@@ -1,4 +1,5 @@
 import csv
+import os
 from pathlib import Path
 from flask import Flask, render_template, send_from_directory, redirect, url_for, request
 import logging
@@ -6,9 +7,9 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-CSV_PATH = Path(__file__).parent / "combined_risk_assessment_results.csv"
-IMAGES_DIR = Path("/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop")
+# Configuration — set RA_CSV_PATH / RA_IMAGES_DIR env vars to override
+CSV_PATH = Path(os.environ.get("RA_CSV_PATH", Path(__file__).parent / "combined_risk_assessment_results.csv"))
+IMAGES_DIR = Path(os.environ.get("RA_IMAGES_DIR", "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop"))
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 app = Flask(__name__, template_folder=str(TEMPLATES_DIR))
