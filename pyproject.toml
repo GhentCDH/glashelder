@@ -40,6 +40,7 @@ torchvision = { index = "pytorch" }
 classification = { workspace = true }
 preprocessing = { workspace = true }
 risk-assessment = { workspace = true }
+qwenvlm = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -48,6 +49,7 @@ members = [
     "classification",
     "preprocessing",
     "risk_assessment",
+    "qwenvlm",
 ]
 
 [[tool.uv.index]]
