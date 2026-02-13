@@ -19,3 +19,23 @@ classification/data
 # Other
 *.log
 *.csv
+# Cache and data files
+*.pkl
+*.rrd
+clipcluster/clustered.png
+
+# Development tool caches
+.ruff_cache/
+.pyright_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Environment variables
+*.env
+!example.env
+
+# Clustering reports
+cluster_analysis_*
+clipcluster/**/*.pdf
+clipcluster/analysis_report/*.json
+clipcluster/analysis_report/data

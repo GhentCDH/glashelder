@@ -5,8 +5,8 @@ readme = "README.md"
 description = "Experiments for the glashelder AI workflows"
 requires-python = ">=3.13,<3.14"
 authors = [
-    { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
-    { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
+  { name = "Miel Peeters", email = "peetersmiel@gmail.com" },
+  { name = "Bas Vercruysse", email = "bas.vercruysse@ugent.be" },
 ]
 dependencies = [
     "common",
@@ -32,10 +32,6 @@ dependencies = [
 [project.scripts]
 glashelder = "glashelder:main"
 
-[build-system]
-requires = ["uv_build>=0.9.10,<0.10.0"]
-build-backend = "uv_build"
-
 [tool.uv.sources]
 common = { workspace = true }
 clipcluster = { workspace = true }
@@ -58,3 +54,44 @@ members = [
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu130" # adjust for your CUDA version
 explicit = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # Pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "RUF", # ruff-specific rules
+]
+ignore = [
+  "E501", # line too long (ruff format handles this)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+known-first-party = [
+  "glashelder",
+  "common",
+  "clipcluster",
+  "classification",
+  "preprocessing",
+  "qwenvlm",
+]
+
+[tool.ty.environment]
+root = ["common", "clipcluster", "classification", "preprocessing", "qwenvlm"]
+
+[build-system]
+requires = ["uv_build>=0.9.14,<0.10.0"]
+build-backend = "uv_build"
