@@ -39,10 +39,10 @@ def main():
 
 def register_commands():
     # register cli commands defined in other files
+    from artmatcher.cli import artmatcher
     from classification.cli import classification
     from cluster.cli import cluster
     from embed.cli import embed
-    from image_matching.cli import image_matching
     from preprocessing.cli import preprocessing
     from qwenvlm.cli import qwenvlm
     from risk_assessment.cli import risk_assessment
@@ -51,8 +51,8 @@ def register_commands():
     main.add_command(qwenvlm)
     main.add_command(preprocessing)
     main.add_command(classification)
-    main.add_command(image_matching)
     main.add_command(risk_assessment)
+    main.add_command(artmatcher)
     main.add_command(embed)
 
 

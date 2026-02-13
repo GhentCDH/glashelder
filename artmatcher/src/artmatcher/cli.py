@@ -15,8 +15,9 @@ from PIL import Image
 
 from common import ASSETS_DIR
 from embed import get_device
-from image_matching.similarity_classifier import SimpleClassifier
-from image_matching.stitching import (
+
+from .similarity_classifier import SimpleClassifier
+from .stitching import (
     extract_features,
     resize_max,
     stitch_images,
@@ -46,11 +47,11 @@ def show(
 
 
 @click.group()
-def image_matching():
+def artmatcher():
     pass
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.argument("image", type=str, required=True)
 def keypoints(image: str, output: str):
     """Display SIFT keypoints for an image."""
@@ -68,7 +69,7 @@ def keypoints(image: str, output: str):
     cv2.destroyAllWindows()
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.argument("image_one", type=str, required=True)
 @click.argument("image_two", type=str, required=True)
 @click.option("--size", type=int, help="max size of the images")
@@ -164,7 +165,7 @@ def match(image_one, image_two, size: int | None):
     cv2.destroyAllWindows()
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.argument("images", type=str, nargs=-1, required=True)
 @click.option("--size", type=int, help="max size of the images for feature matching")
 @click.option(
@@ -231,7 +232,7 @@ def stitch(
     cv2.destroyAllWindows()
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.argument("painting_dir", type=click.Path(exists=True), required=True)
 @click.argument("output_db", type=click.Path(), required=True)
 @click.option(
@@ -280,7 +281,7 @@ def build_db(
         # Default (unlimited features, can create 50GB+ databases!)
         image-matching build-db ./paintings ./db.pkl --workers 4
     """
-    from image_matching.recognition import (
+    from .recognition import (
         build_database,
     )
 
@@ -315,7 +316,7 @@ def build_db(
     click.echo(f"Database saved to {output_db}")
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.argument("query_image", type=click.Path(exists=True), required=True)
 @click.argument("database", type=click.Path(exists=True), required=True)
 @click.option(
@@ -366,7 +367,7 @@ def identify(
     Example:
         image-matching identify photo.jpg paintings.db.pkl --show-matches
     """
-    from image_matching.recognition import (
+    from .recognition import (
         RecognitionDatabase,
         find_painting,
     )
@@ -441,7 +442,7 @@ def identify(
         cv2.destroyAllWindows()
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.argument("dataset", type=click.Path(exists=True), required=True)
 @click.argument("output_model", type=click.Path(), required=True)
 @click.option(
@@ -493,7 +494,7 @@ def train_classifier(
     Example:
         image-matching train-classifier labeling_dataset.json model.pkl --workers 48
     """
-    from image_matching.ml_classifier import (
+    from .ml_classifier import (
         MLClassifier,
     )
 
@@ -514,7 +515,7 @@ def train_classifier(
     classifier.save(output_model)
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.option(
     "--embeddings", "-e", type=str, help="Path to the wikiart embeddings '.pkl' file"
 )
@@ -583,7 +584,7 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
             )
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.option(
     "--wikiart-embeddings",
     "-w",
@@ -677,7 +678,8 @@ def serve(
     from flask import Flask, render_template, send_file
 
     import embed
-    from image_matching.ml_classifier import (
+
+    from .ml_classifier import (
         MLClassifier,
         _extract_orb_worker,
         _init_orb_worker,
@@ -1403,7 +1405,7 @@ def serve(
     app.run(host=host, port=port, debug=True)
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.option(
     "--wikiart-embeddings",
     "-w",
@@ -1535,15 +1537,16 @@ def batch_classify(
             --workers 32
     """
     import embed
-    from image_matching.batch import (
+
+    from .batch import (
         FeatureCache,
         write_csv_output,
         write_json_output,
     )
-    from image_matching.batch import (
+    from .batch import (
         batch_classify as do_batch_classify,
     )
-    from image_matching.ml_classifier import MLClassifier
+    from .ml_classifier import MLClassifier
 
     device = get_device()
     logger.info(f"Using device: {device}")
@@ -1632,7 +1635,7 @@ def batch_classify(
     logger.info("Batch classification complete!")
 
 
-@image_matching.command()
+@artmatcher.command()
 @click.option(
     "--input",
     "-i",
@@ -1646,7 +1649,7 @@ def batch_classify(
     help="The output directory where plots' pngs will be stored",
 )
 def plot_results(input, output_dir):
-    from image_matching.plot import (
+    from .plot import (
         extract_arrays,
         load_data,
         plot_confidence_distribution,

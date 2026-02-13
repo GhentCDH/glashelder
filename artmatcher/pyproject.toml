@@ -1,17 +1,15 @@
 [project]
-name = "image-matching"
+name = "artmatcher"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Miel Peeters", email = "peetersmiel@gmail.com" }
-]
+authors = [{ name = "Miel Peeters", email = "peetersmiel@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
-    "click>=8.3.1",
-    "flask>=3.1.2",
-    "imagehash>=4.3.1",
-    "scikit-learn>=1.4.0",
+  "click>=8.3.1",
+  "flask>=3.1.2",
+  "imagehash>=4.3.1",
+  "scikit-learn>=1.4.0",
 ]
 
 [build-system]

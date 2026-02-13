@@ -24,7 +24,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from image_matching.ml_classifier import (
+from .ml_classifier import (
     MLClassifier,
     _extract_orb_worker,
     _init_orb_worker,
@@ -172,7 +172,7 @@ def compute_embedding_similarities(
 
 def _get_default_features(similarities: list[float]) -> dict[str, float]:
     """Return default features when extraction fails."""
-    from image_matching.ml_classifier import _extract_distribution_features
+    from .ml_classifier import _extract_distribution_features
 
     features = _extract_distribution_features(similarities)
     # Add default ORB features

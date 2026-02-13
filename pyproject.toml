@@ -26,9 +26,9 @@ dependencies = [
   "torchvision>=0.24.0",
   "rerun-sdk>=0.27.2",
   "jupyter>=1.1.1",
-  "image-matching",
   "risk-assessment",
   "accelerate==1.12.0",
+  "artmatcher",
   "llvmlite>=0.43",
   "embed",
 ]
@@ -45,7 +45,7 @@ classification = { workspace = true }
 preprocessing = { workspace = true }
 risk-assessment = { workspace = true }
 qwenvlm = { workspace = true }
-image-matching = { workspace = true }
+artmatcher = { workspace = true }
 embed = { workspace = true }
 
 [tool.uv.workspace]
@@ -55,9 +55,9 @@ members = [
   "classification",
   "preprocessing",
   "qwenvlm",
-  "image-matching",
   "risk_assessment",
   "qwenvlm",
+  "artmatcher",
   "embed",
 ]
 
@@ -98,7 +98,7 @@ known-first-party = [
   "classification",
   "preprocessing",
   "qwenvlm",
-  "image_matching",
+  "artmatcher",
   "embed",
   "risk_assessment",
 ]
@@ -110,8 +110,8 @@ root = [
   "classification",
   "preprocessing",
   "qwenvlm",
-  "image-matching",
   "risk_assessment",
+  "artmatcher",
   "embed",
 ]
 

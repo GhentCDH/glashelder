@@ -26,7 +26,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from image_matching.stitching import (
+from .stitching import (
     compute_homography,
     load_image,
 )

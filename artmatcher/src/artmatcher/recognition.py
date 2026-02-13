@@ -11,7 +11,7 @@ import numpy as np
 from rich.console import Console
 from rich.progress import Progress, track
 
-from image_matching.stitching import (
+from .stitching import (
     compute_homography,
     create_flann_matcher,
     extract_features,
