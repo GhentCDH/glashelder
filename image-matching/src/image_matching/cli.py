@@ -55,6 +55,7 @@ def image_matching():
 def keypoints(image: str, output: str):
     """Display SIFT keypoints for an image."""
     img = cv2.imread(image)
+    assert img is not None, f"Failed to load image: {image}"
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     sift = cv2.SIFT_create()  # type:ignore
@@ -73,8 +74,12 @@ def keypoints(image: str, output: str):
 @click.option("--size", type=int, help="max size of the images")
 def match(image_one, image_two, size: int | None):
     """Match features between two images and display the result."""
-    image_one = cv2.imread(image_one)
-    image_two = cv2.imread(image_two)
+    image_one_path = image_one
+    image_two_path = image_two
+    image_one = cv2.imread(image_one_path)
+    image_two = cv2.imread(image_two_path)
+    assert image_one is not None, f"Failed to load image: {image_one_path}"
+    assert image_two is not None, f"Failed to load image: {image_two_path}"
     image_one_orig = np.copy(image_one)
     image_two_orig = np.copy(image_two)
 
@@ -113,8 +118,12 @@ def match(image_one, image_two, size: int | None):
     show(img3)
 
     # Compute and display stitched result
-    src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)  # type:ignore
-    dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)  # type:ignore
+    src_pts = np.array(
+        [kp1[m.queryIdx].pt for m in good_matches], dtype=np.float32
+    ).reshape(-1, 1, 2)
+    dst_pts = np.array(
+        [kp2[m.trainIdx].pt for m in good_matches], dtype=np.float32
+    ).reshape(-1, 1, 2)
 
     h, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
 
@@ -126,13 +135,17 @@ def match(image_one, image_two, size: int | None):
 
     h1, w1 = image_one_orig.shape[:2]
     h2, w2 = image_two_orig.shape[:2]
-    corners_1 = np.float32([[0, 0], [w1, 0], [w1, h1], [0, h1]]).reshape(-1, 1, 2)  # type:ignore
+    corners_1 = np.array(
+        [[0, 0], [w1, 0], [w1, h1], [0, h1]], dtype=np.float32
+    ).reshape(-1, 1, 2)
     warped_corners = cv2.perspectiveTransform(corners_1, h)
 
     all_corners = np.concatenate(
         [
             warped_corners,
-            np.float32([[0, 0], [w2, 0], [w2, h2], [0, h2]]).reshape(-1, 1, 2),  # type:ignore
+            np.array([[0, 0], [w2, 0], [w2, h2], [0, h2]], dtype=np.float32).reshape(
+                -1, 1, 2
+            ),
         ]
     )
 
@@ -396,9 +409,13 @@ def identify(
         # Load images
         query_img = cv2.imread(query_image)
         painting_img = cv2.imread(best.painting_path)
+        assert query_img is not None, f"Failed to load query image: {query_image}"
+        assert painting_img is not None, (
+            f"Failed to load painting: {best.painting_path}"
+        )
 
         # Extract features again for visualization
-        sift = cv2.SIFT_create()  # type:ignore
+        sift = cv2.SIFT_create()  # type: ignore[attr-defined]
         query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
 
         query_kp, query_des = sift.detectAndCompute(query_gray, None)
@@ -1636,6 +1653,7 @@ def plot_results(input, output_dir):
         setup_style,
     )
 
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Loading {input} ...")

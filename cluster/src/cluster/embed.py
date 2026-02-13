@@ -14,6 +14,14 @@ from PIL import Image
 
 if TYPE_CHECKING:
     import torch
+    from transformers import (
+        AutoImageProcessor,
+        CLIPModel,
+        CLIPProcessor,
+        Dinov2Model,
+        Qwen3VLModel,
+        Qwen3VLProcessor,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +110,9 @@ class CLIPEmbedder(EmbeddingModel):
     """CLIP-based image and text embeddings."""
 
     def __init__(self):
-        self._model = None
-        self._processor = None
-        self._device = None
+        self._model: CLIPModel | None = None
+        self._processor: CLIPProcessor | None = None
+        self._device: str | None = None
 
     @property
     def name(self) -> str:
@@ -123,6 +131,7 @@ class CLIPEmbedder(EmbeddingModel):
         return True
 
     def load(self, device: str) -> None:
+        import torch
         from transformers import CLIPModel, CLIPProcessor
 
         logger.info(f"Loading CLIP model: {self.model_id}")
@@ -140,6 +149,9 @@ class CLIPEmbedder(EmbeddingModel):
         import torch
 
         from common.dataloader import get_dataloader
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
         all_embeddings = []
@@ -165,6 +177,9 @@ class CLIPEmbedder(EmbeddingModel):
     def encode_text(self, text: str) -> torch.Tensor | None:
         import torch
 
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
         with torch.no_grad():
             inputs = self._processor(text=[text], return_tensors="pt", padding=True).to(
                 self._device
@@ -174,6 +189,9 @@ class CLIPEmbedder(EmbeddingModel):
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
         import torch
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
 
         with torch.no_grad():
             inputs = self._processor(images=image, return_tensors="pt").to(self._device)
@@ -185,9 +203,9 @@ class DINOv2Embedder(EmbeddingModel):
     """DINOv2-based image embeddings (vision-only, no text support)."""
 
     def __init__(self):
-        self._model = None
-        self._processor = None
-        self._device = None
+        self._model: Dinov2Model | None = None
+        self._processor: AutoImageProcessor | None = None
+        self._device: str | None = None
 
     @property
     def name(self) -> str:
@@ -206,12 +224,13 @@ class DINOv2Embedder(EmbeddingModel):
         return False
 
     def load(self, device: str) -> None:
+        import torch
         from transformers import AutoImageProcessor, Dinov2Model
 
         logger.info(f"Loading DINOv2 model: {self.model_id}")
         self._model = Dinov2Model.from_pretrained(self.model_id)
         self._processor = AutoImageProcessor.from_pretrained(self.model_id)
-        self._model.to(device)
+        self._model.to(torch.device(device))  # type: ignore[arg-type]
         self._model.eval()
         self._device = device
 
@@ -223,6 +242,9 @@ class DINOv2Embedder(EmbeddingModel):
         import torch
 
         from common.dataloader import get_dataloader
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
         all_embeddings = []
@@ -250,8 +272,11 @@ class DINOv2Embedder(EmbeddingModel):
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
         import torch
 
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
         with torch.no_grad():
-            inputs = self._processor(images=image, return_tensors="pt").to(self._device)
+            inputs = self._processor(images=image, return_tensors="pt").to(self._device)  # type: ignore[operator]
             outputs = self._model(**inputs)
             embedding = outputs.last_hidden_state[:, 0]
             return embedding / embedding.norm(dim=-1, keepdim=True)
@@ -265,9 +290,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
     """
 
     def __init__(self):
-        self._model = None
-        self._processor = None
-        self._device = None
+        self._model: Qwen3VLModel | None = None
+        self._processor: Qwen3VLProcessor | None = None
+        self._device: str | None = None
 
     @property
     def name(self) -> str:
@@ -294,7 +319,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
             self.model_id, dtype=torch.bfloat16, attn_implementation="flash_attention_2"
         )
         self._processor = Qwen3VLProcessor.from_pretrained(self.model_id)
-        self._model.to(device)
+        self._model.to(torch.device(device))  # type: ignore[arg-type]
         self._model.eval()
         self._device = device
 
@@ -318,6 +343,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
     ) -> tuple[torch.Tensor, list[str]]:
         import torch
         from qwen_vl_utils import process_vision_info
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
 
         all_embeddings = []
         processed_paths = []
@@ -351,9 +379,11 @@ class Qwen3VLEmbedder(EmbeddingModel):
                         }
                     ]
                     text = self._processor.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,  # type: ignore[arg-type]
                     )
-                    image_inputs, _ = process_vision_info(messages)
+                    image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
 
                     batch_texts.append(text)
                     batch_images.extend(
@@ -390,6 +420,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
     def encode_text(self, text: str) -> torch.Tensor | None:
         import torch
 
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
         messages = [
             {
                 "role": "user",
@@ -400,7 +433,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
         ]
 
         formatted_text = self._processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,  # type: ignore[arg-type]
         )
         inputs = self._processor(
             text=[formatted_text],
@@ -423,6 +458,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
         import torch
         from qwen_vl_utils import process_vision_info
 
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
         messages = [
             {
                 "role": "user",
@@ -438,9 +476,11 @@ class Qwen3VLEmbedder(EmbeddingModel):
             }
         ]
         text = self._processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,  # type: ignore[arg-type]
         )
-        image_inputs, _ = process_vision_info(messages)
+        image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
 
         inputs = self._processor(
             text=[text],
