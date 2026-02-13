@@ -3,6 +3,7 @@ import click
 
 @click.group()
 def risk_assessment():
+    """Assess image content risk using multiple vision-language models."""
     pass
 
 

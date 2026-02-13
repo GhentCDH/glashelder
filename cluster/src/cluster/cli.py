@@ -94,11 +94,15 @@ def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self
 
 @click.group()
 def cluster():
+    """Cluster and search images using embedding similarity."""
     load_dotenv()
     pass
 
 
-@cluster.command(name="cluster")
+@cluster.command(
+    name="cluster",
+    help="Cluster images using UMAP dimensionality reduction and HDBSCAN.",
+)
 @click.option(
     "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )

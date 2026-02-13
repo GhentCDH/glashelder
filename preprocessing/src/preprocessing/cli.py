@@ -3,6 +3,7 @@ import click
 
 @click.group()
 def preprocessing():
+    """Prepare datasets and train YOLO models for object detection."""
     pass
 
 
@@ -32,6 +33,7 @@ def preprocessing():
     help="This is the seed used to randomize the split test and train. Default: 1",
 )
 def create_yolo_dataset(ground_truth_folder, output_folder, train_split, seed):
+    """Create a YOLO dataset from LabelStudio annotations."""
     from .dataset_prep import create_yolo_dataset as cyd
 
     cyd(ground_truth_folder, output_folder, train_split, seed)
@@ -66,6 +68,7 @@ def create_yolo_dataset(ground_truth_folder, output_folder, train_split, seed):
     "-n", "--project-name", default="modeltje", help="This is the name of the model."
 )
 def train_yolo_model(model, data_yaml, epochs, project_folder, project_name):
+    """Fine-tune a YOLO model on a custom dataset."""
     from .yolo_train import train_yolo_model as tym
 
     tym(model, data_yaml, epochs, project_folder, project_name)
@@ -91,6 +94,7 @@ def train_yolo_model(model, data_yaml, epochs, project_folder, project_name):
     help="This is the path to the folder where cropped images will be saved.",
 )
 def preprocessing_on_image(model_path, image_folder, output_folder):
+    """Detect and crop objects from images using a trained YOLO model."""
     from .yolo_cropper import run_crop_on_batch_of_images as rcbi
 
     rcbi(model_path, image_folder, output_folder)

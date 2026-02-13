@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 @click.group()
 def embed():
+    """Generate and manage image embeddings using various models."""
     pass
 
 
