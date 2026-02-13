@@ -3,6 +3,7 @@ import click
 
 @click.group()
 def qwenvlm():
+    """Generate image descriptions using Qwen Vision-Language models."""
     pass
 
 
@@ -20,6 +21,7 @@ def qwenvlm():
     help="This is the prompt to use for generating descriptions.",
 )
 def describe_image(image_path, prompt):
+    """Generate a text description for a single image."""
     from qwenvlm.qwen_3_vl import qwen_use
 
     results = qwen_use(image_path, prompt, None)
@@ -52,6 +54,7 @@ def describe_image(image_path, prompt):
     help="This is the max amount of tokens to generate. Default: 128",
 )
 def guard_image_folder(input_folder, prompt, output_folder, tokens):
+    """Process a folder of images and save guarded descriptions."""
     from qwenvlm.qwen_guarded_vl import process_and_guard_image_folder as pgif
 
     pgif(input_folder, prompt, output_folder, tokens)

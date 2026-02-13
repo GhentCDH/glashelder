@@ -5,10 +5,13 @@ from common import ASSETS_DIR
 
 @click.group()
 def classification():
+    """Classify images using CLIP zero-shot classification."""
     pass
 
 
-@classification.command()
+@classification.command(
+    help="Classify images into labeled categories using text prompts."
+)
 @click.option(
     "-i",
     "--image_dir",

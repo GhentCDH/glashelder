@@ -48,6 +48,7 @@ def show(
 
 @click.group()
 def artmatcher():
+    """Match glass plate photos to known artworks using feature matching and ML."""
     pass
 
 
@@ -533,10 +534,9 @@ def train_classifier(
     help="Path to the Glashelder images",
 )
 def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_dir: str):
+    """Label images by computing similarity scores against a reference database."""
     import cluster
     import embed
-
-    """Create labels for images' similarity score plots"""
 
     device = get_device()
     data = embed.load_embeddings(embeddings)
@@ -1649,6 +1649,7 @@ def batch_classify(
     help="The output directory where plots' pngs will be stored",
 )
 def plot_results(input, output_dir):
+    """Generate analysis plots from batch classification results."""
     from .plot import (
         extract_arrays,
         load_data,
