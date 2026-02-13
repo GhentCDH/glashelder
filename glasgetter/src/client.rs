@@ -8,19 +8,21 @@ const MAX_RETRIES: u32 = 3;
 const INITIAL_BACKOFF_MS: u64 = 1000;
 
 /// Build a configured HTTP client with cookie support and compression
-pub fn build_client() -> Result<Client> {
+pub fn build_client(parallel: usize) -> Result<Client> {
     let mut headers = header::HeaderMap::new();
     headers.insert(
         header::ACCEPT,
-        header::HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        header::HeaderValue::from_static(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ),
     );
 
     Client::builder()
         .timeout(Duration::from_secs(30))
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0")
+        .user_agent("Glasgetter-Scraper/1.0.0 (sysadmin.ghentcdh@ugent.be)")
         .default_headers(headers)
         .cookie_store(true)
-        .pool_max_idle_per_host(20) // Allow more concurrent connections
+        .pool_max_idle_per_host(parallel) // Limit total outgoing connections to 20!
         .gzip(true)
         .brotli(true)
         .deflate(true)

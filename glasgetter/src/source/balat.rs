@@ -177,10 +177,7 @@ async fn init_session(client: &Client, role: &str) -> Result<()> {
 }
 
 /// Fetch first page and return entries + total count
-async fn fetch_first_page(
-    source: &BalatSource,
-    client: &Client,
-) -> Result<(Vec<BalatEntry>, u32)> {
+async fn fetch_first_page(source: &BalatSource, client: &Client) -> Result<(Vec<BalatEntry>, u32)> {
     // Initialize session
     init_session(client, &source.role).await?;
 
@@ -224,7 +221,7 @@ fn list_all_artworks_stream<'a>(
             }
         };
 
-        let total_pages = (total + source.limit - 1) / source.limit;
+        let total_pages = total.div_ceil(source.limit);
         eprintln!(
             "[BALAT] Total: {} results, {} pages (limit={})",
             total, total_pages, source.limit
