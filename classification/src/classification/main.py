@@ -3,15 +3,14 @@ import shutil
 from pathlib import Path
 
 from common import PROJECT_ROOT
-from common.clipmodel import get_device, get_model, get_processor
 from common.dataloader import get_dataloader
+from embed import CLIPEmbedder, get_device
 
 logger = logging.getLogger(__name__)
 
 
 def classify(
     image_dir,
-    model="openai/clip-vit-large-patch14",
     max_batches=10,
     prompts: list | None = None,
     labels: list | None = None,
@@ -27,8 +26,10 @@ def classify(
         labels = ["human"]
 
     device = get_device()
-    model = get_model(model).to(device)
-    processor = get_processor(model)
+    embedder = CLIPEmbedder()
+    embedder.load(device)
+    model = embedder.model
+    processor = embedder.processor
 
     if len(prompts) != len(labels):
         logger.error(

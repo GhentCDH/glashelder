@@ -30,6 +30,7 @@ dependencies = [
   "risk-assessment",
   "accelerate==1.12.0",
   "llvmlite>=0.43",
+  "embed",
 ]
 
 [project.scripts]
@@ -45,6 +46,7 @@ preprocessing = { workspace = true }
 risk-assessment = { workspace = true }
 qwenvlm = { workspace = true }
 image-matching = { workspace = true }
+embed = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -56,6 +58,7 @@ members = [
   "image-matching",
   "risk_assessment",
   "qwenvlm",
+  "embed",
 ]
 
 [[tool.uv.index]]
@@ -96,6 +99,7 @@ known-first-party = [
   "preprocessing",
   "qwenvlm",
   "image_matching",
+  "embed",
   "risk_assessment",
 ]
 
@@ -108,6 +112,7 @@ root = [
   "qwenvlm",
   "image-matching",
   "risk_assessment",
+  "embed",
 ]
 
 [build-system]

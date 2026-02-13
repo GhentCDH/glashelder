@@ -25,6 +25,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def get_device() -> str:
+    """Get the best available device for tensor operations."""
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.mps.is_available():
+        return "mps"
+    else:
+        return "cpu"
+
+
 # Model identifiers
 CLIP_MODEL_ID = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
 DINOV2_MODEL_ID = "facebook/dinov2-large"
@@ -129,6 +142,24 @@ class CLIPEmbedder(EmbeddingModel):
     @property
     def supports_text(self) -> bool:
         return True
+
+    @property
+    def model(self) -> CLIPModel:
+        """Get the underlying CLIP model. Raises if not loaded."""
+        assert self._model is not None, "Model not loaded. Call load() first."
+        return self._model
+
+    @property
+    def processor(self) -> CLIPProcessor:
+        """Get the CLIP processor. Raises if not loaded."""
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+        return self._processor
+
+    @property
+    def device(self) -> str:
+        """Get the device the model is loaded on. Raises if not loaded."""
+        assert self._device is not None, "Model not loaded. Call load() first."
+        return self._device
 
     def load(self, device: str) -> None:
         import torch
@@ -379,9 +410,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
                         }
                     ]
                     text = self._processor.apply_chat_template(
-                        messages,
+                        messages,  # ty:ignore[invalid-argument-type]
                         tokenize=False,
-                        add_generation_prompt=True,  # type: ignore[arg-type]
+                        add_generation_prompt=True,
                     )
                     image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
 
@@ -433,9 +464,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
         ]
 
         formatted_text = self._processor.apply_chat_template(
-            messages,
+            messages,  # ty:ignore[invalid-argument-type]
             tokenize=False,
-            add_generation_prompt=True,  # type: ignore[arg-type]
+            add_generation_prompt=True,
         )
         inputs = self._processor(
             text=[formatted_text],
@@ -476,9 +507,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
             }
         ]
         text = self._processor.apply_chat_template(
-            messages,
+            messages,  # ty:ignore[invalid-argument-type]
             tokenize=False,
-            add_generation_prompt=True,  # type: ignore[arg-type]
+            add_generation_prompt=True,
         )
         image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
 

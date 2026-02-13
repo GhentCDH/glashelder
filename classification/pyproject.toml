@@ -10,6 +10,7 @@ authors = [
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "common",
+    "embed",
     "torch>=2.9.1",
     "transformers>=4.47.0",
     "pillow>=12.0.0",
@@ -17,6 +18,7 @@ dependencies = [
 
 [tool.uv.sources]
 common = { workspace = true }
+embed = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.9.14,<0.10.0"]
