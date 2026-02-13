@@ -26,6 +26,8 @@ dependencies = [
   "rerun-sdk>=0.27.2",
   "jupyter>=1.1.1",
   "image-matching",
+  "risk-assessment",
+  "accelerate==1.12.0",
 ]
 
 [project.scripts]
@@ -38,6 +40,7 @@ torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 classification = { workspace = true }
 preprocessing = { workspace = true }
+risk-assessment = { workspace = true }
 qwenvlm = { workspace = true }
 image-matching = { workspace = true }
 
@@ -49,6 +52,8 @@ members = [
   "preprocessing",
   "qwenvlm",
   "image-matching",
+  "risk_assessment",
+  "qwenvlm",
 ]
 
 [[tool.uv.index]]
@@ -89,6 +94,7 @@ known-first-party = [
   "preprocessing",
   "qwenvlm",
   "image_matching",
+  "risk_assessment",
 ]
 
 [tool.ty.environment]
@@ -99,8 +105,12 @@ root = [
   "preprocessing",
   "qwenvlm",
   "image-matching",
+  "risk_assessment",
 ]
 
 [build-system]
 requires = ["uv_build>=0.9.14,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["ruff>=0.15.1"]

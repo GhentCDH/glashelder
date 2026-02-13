@@ -16,6 +16,9 @@ wheels/
 node_modules
 classification/data
 
+# Other
+*.log
+*.csv
 # Cache and data files
 *.pkl
 *.rrd
