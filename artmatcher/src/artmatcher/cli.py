@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from common import ASSETS_DIR
+from common import ASSETS_DIR, require_auth
 from embed import get_device
 
 from .similarity_classifier import SimpleClassifier
@@ -669,6 +669,9 @@ def serve(
 ):
     """Start a web interface for labeling artwork matches.
 
+    Authentication is required. Set the GLASHELDER_SECRET environment variable,
+    then access the server with /?secret=<your-secret> to get a session cookie.
+
     Use --results-json to load pre-computed results from batch_classify.
     The threshold can still be adjusted interactively in the UI.
 
@@ -697,6 +700,9 @@ def serve(
         __name__,
         template_folder=PACKAGE_ROOT / "templates",
     )
+
+    # Add authentication middleware
+    require_auth(app)
 
     # If results_json is provided, use pre-computed results mode
     if results_json is not None:
