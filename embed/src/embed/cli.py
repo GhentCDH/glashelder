@@ -137,6 +137,7 @@ def serve(embeddings, host, port):
     app = Flask(
         __name__,
         template_folder=PACKAGE_ROOT / "templates",
+        static_folder=PACKAGE_ROOT / "static",
     )
 
     # Add authentication middleware

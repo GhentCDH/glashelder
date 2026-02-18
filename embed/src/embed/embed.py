@@ -196,7 +196,16 @@ class CLIPEmbedder(EmbeddingModel):
             inputs = {k: v.to(self._device) for k, v in batch.items() if k != "path"}
 
             with torch.no_grad():
-                embeddings = self._model.get_image_features(**inputs)
+                output = self._model.get_image_features(**inputs)
+                # Handle case where output might be a model output object instead of tensor
+                if hasattr(output, "image_embeds"):
+                    embeddings = output.image_embeds
+                elif hasattr(output, "pooler_output"):
+                    embeddings = output.pooler_output
+                elif hasattr(output, "last_hidden_state"):
+                    embeddings = output.last_hidden_state[:, 0]
+                else:
+                    embeddings = output
                 embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
             all_embeddings.append(embeddings.cpu())
@@ -214,7 +223,16 @@ class CLIPEmbedder(EmbeddingModel):
             inputs = self._processor(text=[text], return_tensors="pt", padding=True).to(
                 self._device
             )
-            text_embedding = self._model.get_text_features(**inputs)
+            output = self._model.get_text_features(**inputs)
+            # Handle case where output might be a model output object instead of tensor
+            if hasattr(output, "text_embeds"):
+                text_embedding = output.text_embeds
+            elif hasattr(output, "pooler_output"):
+                text_embedding = output.pooler_output
+            elif hasattr(output, "last_hidden_state"):
+                text_embedding = output.last_hidden_state[:, 0]
+            else:
+                text_embedding = output
             return text_embedding / text_embedding.norm(dim=-1, keepdim=True)
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
@@ -225,7 +243,16 @@ class CLIPEmbedder(EmbeddingModel):
 
         with torch.no_grad():
             inputs = self._processor(images=image, return_tensors="pt").to(self._device)
-            embedding = self._model.get_image_features(**inputs)
+            output = self._model.get_image_features(**inputs)
+            # Handle case where output might be a model output object instead of tensor
+            if hasattr(output, "image_embeds"):
+                embedding = output.image_embeds
+            elif hasattr(output, "pooler_output"):
+                embedding = output.pooler_output
+            elif hasattr(output, "last_hidden_state"):
+                embedding = output.last_hidden_state[:, 0]
+            else:
+                embedding = output
             return embedding / embedding.norm(dim=-1, keepdim=True)
 
 
