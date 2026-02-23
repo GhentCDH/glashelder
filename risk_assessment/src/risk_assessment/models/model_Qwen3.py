@@ -1,3 +1,4 @@
+import gc
 import os
 
 import torch
@@ -6,6 +7,11 @@ from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from risk_assessment.models.utils import get_images, get_prompt, parse_output
 from risk_assessment.orchestrator import ModelLoadError, ModelStatus
+from transformers import (
+    AutoProcessor,
+    BitsAndBytesConfig,
+    Qwen3VLForConditionalGeneration,
+)
 
 
 class Qwen3:
@@ -16,9 +22,18 @@ class Qwen3:
 
     def load_model(self):
         """Load the Qwen3-VL model and processor."""
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
 
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            "Qwen/Qwen3-VL-8B-Instruct", dtype="auto", device_map="auto"
+            "Qwen/Qwen3-VL-8B-Instruct",
+            dtype="auto",
+            device_map="auto",
+            quantization_config=bnb_config,
         )
         self.model.eval()
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
@@ -26,6 +41,18 @@ class Qwen3:
     def message_constructor(self):
         """Construct the message for Qwen3."""
         self.prompt = get_prompt()
+
+    def unload_model(self):
+        self.model = None
+        self.processor = None
+        self.prompt = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            try:
+                torch.cuda.ipc_collect()
+            except RuntimeError:
+                pass
 
     def process_image(self, image, image_name=""):
         """Process a single image and return the safety assessment."""
@@ -98,36 +125,39 @@ def run_qwen(orchestrator, image_path):
         )
         raise ModelLoadError(str(exc)) from exc
 
-    orchestrator.update_model_state(
-        "model2", status=ModelStatus.RUNNING, current_task="Processing images..."
-    )
-
-    images = get_images(image_path)
-
-    for i, image_file in enumerate(images):
-        image_name = os.path.basename(image_file)
+    try:
         orchestrator.update_model_state(
-            "model2",
-            current_task=f"Processing image {i + 1}/{len(images)}",
-            latest_image=image_name,
+            "model2", status=ModelStatus.RUNNING, current_task="Processing images..."
         )
-        try:
-            image = Image.open(image_file).convert("RGB")
-            assessment = model.process_image(image, image_name)
-        except Exception as exc:
+
+        images = get_images(image_path)
+
+        for i, image_file in enumerate(images):
+            image_name = os.path.basename(image_file)
             orchestrator.update_model_state(
                 "model2",
-                current_task=f"Skipped {image_name}: {exc}",
+                current_task=f"Processing image {i + 1}/{len(images)}",
+                latest_image=image_name,
             )
-            continue
+            try:
+                image = Image.open(image_file).convert("RGB")
+                assessment = model.process_image(image, image_name)
+            except Exception as exc:
+                orchestrator.update_model_state(
+                    "model2",
+                    current_task=f"Skipped {image_name}: {exc}",
+                )
+                continue
 
-        orchestrator.assessments_qwen.append(assessment)
+            orchestrator.assessments_qwen.append(assessment)
+            orchestrator.update_model_state(
+                "model2", latest_rating=assessment.get("rating", "Unknown")
+            )
+            orchestrator.update_majority_votes_live()
+
         orchestrator.update_model_state(
-            "model2", latest_rating=assessment.get("rating", "Unknown")
+            "model2", status=ModelStatus.DONE, current_task="Done"
         )
-        orchestrator.update_majority_votes_live()
-
-    orchestrator.update_model_state(
-        "model2", status=ModelStatus.DONE, current_task="Done"
-    )
-    return orchestrator.assessments_qwen
+        return orchestrator.assessments_qwen
+    finally:
+        model.unload_model()
