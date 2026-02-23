@@ -1,3 +1,4 @@
+import gc
 import os
 
 import torch
@@ -37,17 +38,44 @@ class Pixtral:
         taxonomy = get_prompt()
         self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]"
 
+    def unload_model(self):
+        loaded_model = self.model
+        loaded_processor = self.processor
+
+        self.model = None
+        self.processor = None
+        self.prompt = None
+
+        if loaded_model is not None:
+            del loaded_model
+        if loaded_processor is not None:
+            del loaded_processor
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            try:
+                torch.cuda.ipc_collect()
+            except RuntimeError:
+                pass
+
     def process_image(self, image, image_name=""):
         """Process a single image and return the risk assessment."""
         if self.model is None or self.processor is None:
             self.load_model()
 
+        model = self.model
+        processor = self.processor
+        if model is None or processor is None:
+            raise RuntimeError("Pixtral model or processor failed to initialize")
+
         if self.prompt is None:
             self.message_constructor()
 
-        inputs = self.processor(
-            images=[image], text=self.prompt, return_tensors="pt"
-        ).to("cuda")
+        inputs = processor(images=[image], text=self.prompt, return_tensors="pt").to(
+            "cuda"
+        )
 
         # Generation hyperparameters
         hyperparameters = {
@@ -55,9 +83,9 @@ class Pixtral:
         }
 
         with torch.inference_mode():
-            generate_ids = self.model.generate(**inputs, **hyperparameters)
+            generate_ids = model.generate(**inputs, **hyperparameters)
 
-        output_text = self.processor.batch_decode(
+        output_text = processor.batch_decode(
             generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )[0]
 
@@ -83,35 +111,44 @@ def run_pixtral(orchestrator, image_path):
         )
         raise ModelLoadError(str(exc)) from exc
 
-    orchestrator.update_model_state(
-        "model3", status=ModelStatus.RUNNING, current_task="Processing images..."
-    )
-
-    images = get_images(image_path)
-    for i, image_file in enumerate(images):
-        image_name = os.path.basename(image_file)
+    run_success = False
+    try:
         orchestrator.update_model_state(
-            "model3",
-            current_task=f"Processing image {i + 1}/{len(images)}",
-            latest_image=image_name,
+            "model3", status=ModelStatus.RUNNING, current_task="Processing images..."
         )
-        try:
-            image = Image.open(image_file).convert("RGB")
-            assessment = model.process_image(image, image_name)
-        except Exception as exc:
+
+        images = get_images(image_path)
+        for i, image_file in enumerate(images):
+            image_name = os.path.basename(image_file)
             orchestrator.update_model_state(
                 "model3",
-                current_task=f"Skipped {image_name}: {exc}",
+                current_task=f"Processing image {i + 1}/{len(images)}",
+                latest_image=image_name,
             )
-            continue
+            try:
+                image = Image.open(image_file).convert("RGB")
+                assessment = model.process_image(image, image_name)
+            except Exception as exc:
+                orchestrator.update_model_state(
+                    "model3",
+                    current_task=f"Skipped {image_name}: {exc}",
+                )
+                continue
 
-        orchestrator.assessments_pixtral.append(assessment)
+            orchestrator.assessments_pixtral.append(assessment)
+            orchestrator.update_model_state(
+                "model3", latest_rating=assessment.get("rating", "Unknown")
+            )
+            orchestrator.update_majority_votes_live()
+
+        run_success = True
+        return orchestrator.assessments_pixtral
+    finally:
         orchestrator.update_model_state(
-            "model3", latest_rating=assessment.get("rating", "Unknown")
+            "model3", current_task="Unloading Pixtral model..."
         )
-        orchestrator.update_majority_votes_live()
-
-    orchestrator.update_model_state(
-        "model3", status=ModelStatus.DONE, current_task="Done"
-    )
-    return orchestrator.assessments_pixtral
+        model.unload_model()
+        if run_success:
+            orchestrator.update_model_state(
+                "model3", status=ModelStatus.DONE, current_task="Done"
+            )
