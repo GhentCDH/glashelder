@@ -4,12 +4,39 @@ This module provides a unified interface for generating image embeddings
 using different models like CLIP, DINOv2, and Qwen3-VL.
 """
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-import torch
+from PIL import Image
+
+if TYPE_CHECKING:
+    import torch
+    from transformers import (
+        AutoImageProcessor,
+        CLIPModel,
+        CLIPProcessor,
+        Dinov2Model,
+        Qwen3VLModel,
+        Qwen3VLProcessor,
+    )
 
 logger = logging.getLogger(__name__)
+
+
+def get_device() -> str:
+    """Get the best available device for tensor operations."""
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.mps.is_available():
+        return "mps"
+    else:
+        return "cpu"
+
 
 # Model identifiers
 CLIP_MODEL_ID = "laion/CLIP-ViT-L-14-DataComp.XL-s13B-b90K"
@@ -80,14 +107,25 @@ class EmbeddingModel(ABC):
         """
         return None
 
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        """Generate embedding for a single PIL image.
+
+        Args:
+            image: A PIL Image object.
+
+        Returns:
+            Tensor of shape (1, embedding_dim) with L2-normalized embedding.
+        """
+        raise NotImplementedError("Subclass must implement encode_pil_image")
+
 
 class CLIPEmbedder(EmbeddingModel):
     """CLIP-based image and text embeddings."""
 
     def __init__(self):
-        self._model = None
-        self._processor = None
-        self._device = None
+        self._model: CLIPModel | None = None
+        self._processor: CLIPProcessor | None = None
+        self._device: str | None = None
 
     @property
     def name(self) -> str:
@@ -105,6 +143,24 @@ class CLIPEmbedder(EmbeddingModel):
     def supports_text(self) -> bool:
         return True
 
+    @property
+    def model(self) -> CLIPModel:
+        """Get the underlying CLIP model. Raises if not loaded."""
+        assert self._model is not None, "Model not loaded. Call load() first."
+        return self._model
+
+    @property
+    def processor(self) -> CLIPProcessor:
+        """Get the CLIP processor. Raises if not loaded."""
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+        return self._processor
+
+    @property
+    def device(self) -> str:
+        """Get the device the model is loaded on. Raises if not loaded."""
+        assert self._device is not None, "Model not loaded. Call load() first."
+        return self._device
+
     def load(self, device: str) -> None:
         from transformers import CLIPModel, CLIPProcessor
 
@@ -120,7 +176,12 @@ class CLIPEmbedder(EmbeddingModel):
         image_paths: list[str],
         batch_size: int = 64,
     ) -> tuple[torch.Tensor, list[str]]:
+        import torch
+
         from common.dataloader import get_dataloader
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
         all_embeddings = []
@@ -135,7 +196,16 @@ class CLIPEmbedder(EmbeddingModel):
             inputs = {k: v.to(self._device) for k, v in batch.items() if k != "path"}
 
             with torch.no_grad():
-                embeddings = self._model.get_image_features(**inputs)
+                output = self._model.get_image_features(**inputs)
+                # Handle case where output might be a model output object instead of tensor
+                if hasattr(output, "image_embeds"):
+                    embeddings = output.image_embeds
+                elif hasattr(output, "pooler_output"):
+                    embeddings = output.pooler_output
+                elif hasattr(output, "last_hidden_state"):
+                    embeddings = output.last_hidden_state[:, 0]
+                else:
+                    embeddings = output
                 embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
 
             all_embeddings.append(embeddings.cpu())
@@ -144,21 +214,55 @@ class CLIPEmbedder(EmbeddingModel):
         return torch.cat(all_embeddings), processed_paths
 
     def encode_text(self, text: str) -> torch.Tensor | None:
+        import torch
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
         with torch.no_grad():
             inputs = self._processor(text=[text], return_tensors="pt", padding=True).to(
                 self._device
             )
-            text_embedding = self._model.get_text_features(**inputs)
+            output = self._model.get_text_features(**inputs)
+            # Handle case where output might be a model output object instead of tensor
+            if hasattr(output, "text_embeds"):
+                text_embedding = output.text_embeds
+            elif hasattr(output, "pooler_output"):
+                text_embedding = output.pooler_output
+            elif hasattr(output, "last_hidden_state"):
+                text_embedding = output.last_hidden_state[:, 0]
+            else:
+                text_embedding = output
             return text_embedding / text_embedding.norm(dim=-1, keepdim=True)
+
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        import torch
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
+        with torch.no_grad():
+            inputs = self._processor(images=image, return_tensors="pt").to(self._device)
+            output = self._model.get_image_features(**inputs)
+            # Handle case where output might be a model output object instead of tensor
+            if hasattr(output, "image_embeds"):
+                embedding = output.image_embeds
+            elif hasattr(output, "pooler_output"):
+                embedding = output.pooler_output
+            elif hasattr(output, "last_hidden_state"):
+                embedding = output.last_hidden_state[:, 0]
+            else:
+                embedding = output
+            return embedding / embedding.norm(dim=-1, keepdim=True)
 
 
 class DINOv2Embedder(EmbeddingModel):
     """DINOv2-based image embeddings (vision-only, no text support)."""
 
     def __init__(self):
-        self._model = None
-        self._processor = None
-        self._device = None
+        self._model: Dinov2Model | None = None
+        self._processor: AutoImageProcessor | None = None
+        self._device: str | None = None
 
     @property
     def name(self) -> str:
@@ -177,12 +281,13 @@ class DINOv2Embedder(EmbeddingModel):
         return False
 
     def load(self, device: str) -> None:
+        import torch
         from transformers import AutoImageProcessor, Dinov2Model
 
         logger.info(f"Loading DINOv2 model: {self.model_id}")
         self._model = Dinov2Model.from_pretrained(self.model_id)
         self._processor = AutoImageProcessor.from_pretrained(self.model_id)
-        self._model.to(device)
+        self._model.to(torch.device(device))  # type: ignore[arg-type]
         self._model.eval()
         self._device = device
 
@@ -191,7 +296,12 @@ class DINOv2Embedder(EmbeddingModel):
         image_paths: list[str],
         batch_size: int = 64,
     ) -> tuple[torch.Tensor, list[str]]:
+        import torch
+
         from common.dataloader import get_dataloader
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
 
         dataloader = get_dataloader(image_paths, self._processor, batch_size=batch_size)
         all_embeddings = []
@@ -216,6 +326,18 @@ class DINOv2Embedder(EmbeddingModel):
 
         return torch.cat(all_embeddings), processed_paths
 
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        import torch
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
+        with torch.no_grad():
+            inputs = self._processor(images=image, return_tensors="pt").to(self._device)  # type: ignore[operator]
+            outputs = self._model(**inputs)
+            embedding = outputs.last_hidden_state[:, 0]
+            return embedding / embedding.norm(dim=-1, keepdim=True)
+
 
 class Qwen3VLEmbedder(EmbeddingModel):
     """Qwen3-VL-Embedding-8B for image and text embeddings.
@@ -225,9 +347,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
     """
 
     def __init__(self):
-        self._model = None
-        self._processor = None
-        self._device = None
+        self._model: Qwen3VLModel | None = None
+        self._processor: Qwen3VLProcessor | None = None
+        self._device: str | None = None
 
     @property
     def name(self) -> str:
@@ -246,6 +368,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
         return True
 
     def load(self, device: str) -> None:
+        import torch
         from transformers import Qwen3VLModel, Qwen3VLProcessor
 
         logger.info(f"Loading Qwen3-VL-Embedding model: {self.model_id}")
@@ -253,7 +376,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
             self.model_id, dtype=torch.bfloat16, attn_implementation="flash_attention_2"
         )
         self._processor = Qwen3VLProcessor.from_pretrained(self.model_id)
-        self._model.to(device)
+        self._model.to(torch.device(device))  # type: ignore[arg-type]
         self._model.eval()
         self._device = device
 
@@ -261,6 +384,8 @@ class Qwen3VLEmbedder(EmbeddingModel):
         self, hidden_states: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
         """Extract embedding from the last valid token (EOS) position."""
+        import torch
+
         # Find the last non-padding position for each sequence
         sequence_lengths = attention_mask.sum(dim=1) - 1
         batch_size = hidden_states.shape[0]
@@ -273,7 +398,11 @@ class Qwen3VLEmbedder(EmbeddingModel):
         image_paths: list[str],
         batch_size: int = 8,
     ) -> tuple[torch.Tensor, list[str]]:
+        import torch
         from qwen_vl_utils import process_vision_info
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
 
         all_embeddings = []
         processed_paths = []
@@ -307,9 +436,11 @@ class Qwen3VLEmbedder(EmbeddingModel):
                         }
                     ]
                     text = self._processor.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
+                        messages,  # ty:ignore[invalid-argument-type]
+                        tokenize=False,
+                        add_generation_prompt=True,
                     )
-                    image_inputs, _ = process_vision_info(messages)
+                    image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
 
                     batch_texts.append(text)
                     batch_images.extend(
@@ -344,6 +475,11 @@ class Qwen3VLEmbedder(EmbeddingModel):
         return torch.cat(all_embeddings), processed_paths
 
     def encode_text(self, text: str) -> torch.Tensor | None:
+        import torch
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
         messages = [
             {
                 "role": "user",
@@ -354,7 +490,9 @@ class Qwen3VLEmbedder(EmbeddingModel):
         ]
 
         formatted_text = self._processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            messages,  # ty:ignore[invalid-argument-type]
+            tokenize=False,
+            add_generation_prompt=True,
         )
         inputs = self._processor(
             text=[formatted_text],
@@ -366,6 +504,51 @@ class Qwen3VLEmbedder(EmbeddingModel):
         with torch.no_grad():
             outputs = self._model(**inputs)
             # Use last token pooling for consistency
+            embedding = self._last_token_pooling(
+                outputs.last_hidden_state, inputs["attention_mask"]
+            )
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+
+        return embedding.float()
+
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        import torch
+        from qwen_vl_utils import process_vision_info
+
+        assert self._model is not None, "Model not loaded. Call load() first."
+        assert self._processor is not None, "Processor not loaded. Call load() first."
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": image,
+                        "min_pixels": 4096,
+                        "max_pixels": 1003520,
+                    },
+                    {"type": "text", "text": "Describe this image."},
+                ],
+            }
+        ]
+        text = self._processor.apply_chat_template(
+            messages,  # ty:ignore[invalid-argument-type]
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
+
+        inputs = self._processor(
+            text=[text],
+            images=image_inputs,
+            return_tensors="pt",
+            padding=True,
+        )
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self._model(**inputs)
             embedding = self._last_token_pooling(
                 outputs.last_hidden_state, inputs["attention_mask"]
             )
