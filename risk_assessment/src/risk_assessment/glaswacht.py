@@ -342,7 +342,7 @@ class MonitorApp(App):
 
         def _run():
             self.orchestrator.run_all(
-                "/mnt/UGent_Share/glashelder/Experimentele Dataset/test-data"
+                "/mnt/UGent_Share/glashelder/Experimentele Dataset/sample_2"
             )
             self.call_from_thread(self._on_run_complete)
 

@@ -1,10 +1,15 @@
+import gc
 import os
 
 import torch
 from PIL import Image
 from risk_assessment.models.utils import get_images, get_prompt, parse_output
 from risk_assessment.orchestrator import ModelLoadError, ModelStatus
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
+from transformers import (
+    AutoProcessor,
+    BitsAndBytesConfig,
+    LlavaOnevisionForConditionalGeneration,
+)
 
 
 class LavaGuard:
@@ -15,11 +20,17 @@ class LavaGuard:
 
     def load_model(self):
         model_id = "AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf"
-        self.model = (
-            LlavaOnevisionForConditionalGeneration.from_pretrained(model_id)
-            .to("cuda:0")
-            .eval()
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.float16,
         )
+        self.model = LlavaOnevisionForConditionalGeneration.from_pretrained(
+            model_id,
+            quantization_config=quantization_config,
+            device_map="auto",
+        ).eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
 
     def message_constructor(self):
@@ -35,19 +46,37 @@ class LavaGuard:
             },
         ]
 
+    def unload_model(self):
+        self.model = None
+        self.processor = None
+        self.message = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            try:
+                torch.cuda.ipc_collect()
+            except RuntimeError:
+                pass
+
     def process_image(self, image, image_name=""):
 
         if self.model is None or self.processor is None:
             self.load_model()
 
+        model = self.model
+        processor = self.processor
+        if model is None or processor is None:
+            raise RuntimeError("LavaGuard model or processor failed to initialize")
+
         if self.message is None:
             self.message_constructor()
 
-        text_prompt = self.processor.apply_chat_template(
+        text_prompt = processor.apply_chat_template(
             self.message, add_generation_prompt=True
-        )  # ty:ignore[possibly-missing-attribute]
-        inputs = self.processor(text=text_prompt, images=image, return_tensors="pt")  # ty:ignore[call-non-callable]
-        inputs = {k: v.to("cuda:0") for k, v in inputs.items()}
+        )
+        inputs = processor(text=text_prompt, images=image, return_tensors="pt")
+        model_device = next(model.parameters()).device
+        inputs = {k: v.to(model_device) for k, v in inputs.items()}
 
         # Generation hyperparameters
         hyperparameters = {
@@ -61,9 +90,9 @@ class LavaGuard:
         }
 
         with torch.inference_mode():
-            output = self.model.generate(**inputs, **hyperparameters)
+            output = model.generate(**inputs, **hyperparameters)
 
-        output_text = self.processor.decode(output[0], skip_special_tokens=True)
+        output_text = processor.decode(output[0], skip_special_tokens=True)
 
         assessment = parse_output(output_text)
         assessment["image"] = image_name
@@ -86,35 +115,38 @@ def run_lavaguard(orchestrator, image_path):
         )
         raise ModelLoadError(str(exc)) from exc
 
-    orchestrator.update_model_state(
-        "model1", status=ModelStatus.RUNNING, current_task="Processing images..."
-    )
-
-    image_files = get_images(image_path)
-    for i, image_file in enumerate(image_files):
-        image_name = os.path.basename(image_file)
+    try:
         orchestrator.update_model_state(
-            "model1",
-            current_task=f"Processing image {i + 1}/{len(image_files)}",
-            latest_image=image_name,
+            "model1", status=ModelStatus.RUNNING, current_task="Processing images..."
         )
-        try:
-            image = Image.open(image_file).convert("RGB")
-            assessment = model.process_image(image, image_name)
-        except Exception as exc:
+
+        image_files = get_images(image_path)
+        for i, image_file in enumerate(image_files):
+            image_name = os.path.basename(image_file)
             orchestrator.update_model_state(
                 "model1",
-                current_task=f"Skipped {image_name}: {exc}",
+                current_task=f"Processing image {i + 1}/{len(image_files)}",
+                latest_image=image_name,
             )
-            continue
+            try:
+                image = Image.open(image_file).convert("RGB")
+                assessment = model.process_image(image, image_name)
+            except Exception as exc:
+                orchestrator.update_model_state(
+                    "model1",
+                    current_task=f"Skipped {image_name}: {exc}",
+                )
+                continue
 
-        orchestrator.assessments_lavaguard.append(assessment)
+            orchestrator.assessments_lavaguard.append(assessment)
+            orchestrator.update_model_state(
+                "model1", latest_rating=assessment.get("rating", "Unknown")
+            )
+            orchestrator.update_majority_votes_live()
+
         orchestrator.update_model_state(
-            "model1", latest_rating=assessment.get("rating", "Unknown")
+            "model1", status=ModelStatus.DONE, current_task="Done"
         )
-        orchestrator.update_majority_votes_live()
-
-    orchestrator.update_model_state(
-        "model1", status=ModelStatus.DONE, current_task="Done"
-    )
-    return orchestrator.assessments_lavaguard
+        return orchestrator.assessments_lavaguard
+    finally:
+        model.unload_model()
