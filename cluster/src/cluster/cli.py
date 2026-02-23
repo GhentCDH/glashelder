@@ -11,20 +11,13 @@ from PIL import Image
 
 # local source
 from common import ASSETS_DIR, PROJECT_ROOT
-from common.clipmodel import get_device
-
-from .embed import (
-    CLIP_MODEL_ID,
-    get_embedder,
-    load_embeddings,
-    save_embeddings,
-)
+from embed import get_device
 
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
-PACKAGE_ROOT = PROJECT_ROOT / "clipcluster"
-EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
+PACKAGE_ROOT = PROJECT_ROOT / "cluster"
+EMBEDDINGS_PATH = PROJECT_ROOT / "embed" / "embeddings.pkl"
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +93,16 @@ def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self
 
 
 @click.group()
-def clipcluster():
+def cluster():
+    """Cluster and search images using embedding similarity."""
     load_dotenv()
     pass
 
 
-@clipcluster.command()
+@cluster.command(
+    name="cluster",
+    help="Cluster images using UMAP dimensionality reduction and HDBSCAN.",
+)
 @click.option(
     "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
@@ -135,9 +132,14 @@ def clipcluster():
     type=click.Choice(["clip", "dinov2", "qwen3vl"]),
     help="Embedding model to use if generating embeddings",
 )
-def cluster(
+def do_clustering(
     image_dir, embeddings, sample_size, batch_size, output_files, count, reduce, model
 ):
+    from embed import (
+        get_embedder,
+        load_embeddings,
+    )
+
     from .cluster import create_clusterer, reduce_dimensions
     from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
 
@@ -145,7 +147,7 @@ def cluster(
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
-    image_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))
+    image_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
 
     if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
@@ -158,7 +160,9 @@ def cluster(
         embedder = get_embedder(model)
         embedder.load(device)
         # Get all image paths
-        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
+            :sample_size
+        ]
         logger.info("Generating image embeddings...")
         embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
         if len(image_paths) < len(input_paths):
@@ -254,7 +258,7 @@ def cluster(
     print(f"\nSamples saved to: {output_dir}")
 
 
-@clipcluster.command()
+@cluster.command()
 @click.argument("prompt")
 @click.option("--top-k", default=10, help="Number of top matching images to return")
 @click.option(
@@ -280,6 +284,11 @@ def search(
     prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_size, model
 ):
     """Search for images matching a text prompt using embedding similarity"""
+    from embed import (
+        get_embedder,
+        load_embeddings,
+    )
+
     logger.info(f"Searching for: '{prompt}'")
     logger.info(f"Looking for top {top_k} matches")
 
@@ -297,7 +306,9 @@ def search(
         logger.info(f"Getting embedding model: {model}")
         embedder = get_embedder(model)
         embedder.load(device)
-        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
+            :sample_size
+        ]
         logger.info("Generating image embeddings...")
         image_embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
         if len(image_paths) < len(input_paths):
@@ -352,271 +363,7 @@ def search(
     logger.info(f"\nTop {top_k} images saved to: {output_path}")
 
 
-@clipcluster.command()
-@click.option(
-    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
-)
-@click.option(
-    "--save-path", default=EMBEDDINGS_PATH, help="Embeddings pickle save path"
-)
-@click.option(
-    "--count", default=10000, help="Amount of images to generate embeddings for"
-)
-@click.option("--batch-size", default=64, help="Batch size for embedding generation")
-@click.option(
-    "--model",
-    default="clip",
-    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
-    help="Embedding model to use (clip, dinov2, or qwen3vl)",
-)
-def generate_embeddings(image_dir, save_path, count, batch_size, model):
-    """Generate image embeddings using the specified model."""
-    device = get_device()
-
-    logger.info(f"Loading embedding model: {model}")
-    embedder = get_embedder(model)
-    embedder.load(device)
-
-    input_paths = sorted(glob.glob(f"{image_dir}/*.jpg"))[:count]
-    logger.info(
-        f"Generating embeddings for {len(input_paths)} images with batch size {batch_size}"
-    )
-
-    embeddings, processed_paths = embedder.encode_images(input_paths, batch_size)
-
-    if len(processed_paths) < len(input_paths):
-        logger.warning(
-            f"Skipped {len(input_paths) - len(processed_paths)} images due to load errors"
-        )
-
-    save_embeddings(save_path, processed_paths, embeddings, embedder)
-
-
-@clipcluster.command()
-@click.option(
-    "--embeddings", default=EMBEDDINGS_PATH, help="Path to embeddings pickle file"
-)
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--port", default=5000, help="Port to bind to")
-def serve(embeddings, host, port):
-    """Start a web server for interactive image search"""
-    from flask import Flask, render_template, request, send_from_directory
-
-    app = Flask(
-        __name__,
-        template_folder=PACKAGE_ROOT / "templates",
-        static_folder=PACKAGE_ROOT / "static",
-    )
-
-    # Load embeddings and determine model
-    logger.info(f"Loading embeddings from {embeddings}...")
-    device = get_device()
-    logger.info(f"Using device: {device}")
-
-    data = load_embeddings(embeddings)
-    image_paths = data["images"]
-    image_embeddings = data["embeddings"].to(device)
-    embedding_model_name = data.get("model", "clip")
-
-    logger.info(f"Loaded {len(image_paths)} images")
-    logger.info(f"Embedding model: {embedding_model_name}")
-
-    # Load the embedder for text encoding
-    embedder = get_embedder(embedding_model_name)
-    embedder.load(device)
-
-    supports_text_search = embedder.supports_text
-    if not supports_text_search:
-        logger.warning(
-            f"Model '{embedding_model_name}' does not support text search. "
-            "Text search will be disabled."
-        )
-
-    @app.route("/")
-    def index():
-        return render_template("index.html", supports_text_search=supports_text_search)
-
-    @app.route("/search", methods=["POST"])
-    def search_endpoint():
-        prompt = request.form.get("prompt", "").strip()
-        top_k = int(request.form.get("top_k", 12))
-
-        if not prompt:
-            return render_template(
-                "results.html",
-                error="Please enter a search prompt",
-                results=[],
-                query_type="text",
-                query_value="",
-            )
-
-        if not supports_text_search:
-            return render_template(
-                "results.html",
-                error=f"Text search not supported with {embedding_model_name} embeddings. Use CLIP or Qwen3-VL.",
-                results=[],
-                query_type="text",
-                query_value=prompt,
-            )
-
-        try:
-            text_embedding = embedder.encode_text(prompt)
-            top_indices, top_values = perform_search(
-                top_k, text_embedding, image_embeddings, image_paths
-            )
-
-            results = []
-            for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
-                1,
-            ):
-                results.append(
-                    {
-                        "rank": rank,
-                        "index": int(idx),
-                        "score": float(score),
-                        "filename": Path(image_paths[idx]).name,
-                    }
-                )
-
-            return render_template(
-                "results.html",
-                results=results,
-                error=None,
-                query_type="text",
-                query_value=prompt,
-            )
-
-        except Exception as e:
-            logger.error(f"Search error: {e}")
-            return render_template(
-                "results.html",
-                error=f"Search failed: {e!s}",
-                results=[],
-                query_type="text",
-                query_value="",
-            )
-
-    @app.route("/similar/<int:index>")
-    def similar_fullpage(index):
-        """Find images similar to the image at the given index"""
-        top_k = int(request.args.get("top_k", 12))
-
-        if index < 0 or index >= len(image_paths):
-            return render_template(
-                "results.html",
-                error="Image not found",
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-        try:
-            top_indices, top_values = find_similar(
-                index, top_k, image_embeddings, image_paths
-            )
-
-            results = []
-            for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
-                1,
-            ):
-                results.append(
-                    {
-                        "rank": rank,
-                        "index": int(idx),
-                        "score": float(score),
-                        "filename": Path(image_paths[idx]).name,
-                    }
-                )
-
-            query_filename = Path(image_paths[index]).name
-            return render_template(
-                "similar.html",
-                results=results,
-                error=None,
-                query_type="similar",
-                query_value=index,
-                query_filename=query_filename,
-            )
-
-        except Exception as e:
-            logger.error(f"Similar search error: {e}")
-            return render_template(
-                "similar.html",
-                error=f"Search failed: {e!s}",
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-    @app.route("/api/similar/<int:index>")
-    def similar_endpoint(index):
-        """Find images similar to the image at the given index"""
-        top_k = int(request.args.get("top_k", 12))
-
-        if index < 0 or index >= len(image_paths):
-            return render_template(
-                "results.html",
-                error="Image not found",
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-        try:
-            top_indices, top_values = find_similar(
-                index, top_k, image_embeddings, image_paths
-            )
-
-            results = []
-            for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
-                1,
-            ):
-                results.append(
-                    {
-                        "rank": rank,
-                        "index": int(idx),
-                        "score": float(score),
-                        "filename": Path(image_paths[idx]).name,
-                    }
-                )
-
-            query_filename = Path(image_paths[index]).name
-            return render_template(
-                "results.html",
-                results=results,
-                error=None,
-                query_type="similar",
-                query_value=index,
-                query_filename=query_filename,
-            )
-
-        except Exception as e:
-            logger.error(f"Similar search error: {e}")
-            return render_template(
-                "results.html",
-                error=f"Search failed: {e!s}",
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-    @app.route("/image/<int:index>")
-    def serve_image(index):
-        """Serve image by index"""
-        if index < 0 or index >= len(image_paths):
-            return "Image not found", 404
-
-        image_path = Path(image_paths[index])
-        return send_from_directory(image_path.parent, image_path.name)
-
-    logger.info(f"Starting Flask server on {host}:{port}...")
-    app.run(host=host, port=port, debug=True)
-
-
-@clipcluster.command()
+@cluster.command()
 @click.option(
     "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
@@ -663,6 +410,12 @@ def analyze(
     """Analyze clustering results and generate statistics and visualizations."""
     from datetime import datetime
 
+    from embed import (
+        CLIP_MODEL_ID,
+        get_embedder,
+        load_embeddings,
+    )
+
     from .cluster import (
         calculate_cluster_statistics,
         create_2d_visualization,
@@ -700,7 +453,9 @@ def analyze(
         embedder.load(device)
         embedding_model_name = embedder.name
         embedding_model_id = embedder.model_id
-        input_paths = list(glob.glob(f"{image_dir}/*.jpg"))[:sample_size]
+        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
+            :sample_size
+        ]
         logger.info("Generating image embeddings...")
         embeddings_tensor, image_paths = embedder.encode_images(input_paths, batch_size)
         if len(image_paths) < len(input_paths):

@@ -1,0 +1,339 @@
+{% if dataset_counts %}
+<div class="flex gap-4 items-center p-3 bg-blue-50 rounded mb-4 text-sm">
+  <span class="font-bold">Dataset:</span>
+  <span class="text-green-600">TP: {{ dataset_counts.positives }}</span>
+  <span class="text-blue-600">TN: {{ dataset_counts.negatives }}</span>
+  <span class="text-orange-600">FP: {{ dataset_counts.false_positives }}</span>
+  <span class="text-red-600">FN: {{ dataset_counts.false_negatives }}</span>
+  <span class="ml-auto font-bold">Total: {{ dataset_counts.total }}</span>
+</div>
+{% endif %} {% if error %}
+<div class="bg-red-500 text-white p-4 rounded">{{ error }}</div>
+{% else %}
+
+<div class="flex gap-4 items-center p-3 bg-neutral-100 rounded mb-4 text-sm">
+  <span>Image {{ current_index + 1 }} of {{ total_images }}</span>
+  <span class="px-2 py-1 rounded text-xs {% if classifier_type == 'ml' %}bg-purple-100 text-purple-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+    {{ classifier_type|upper }}
+  </span>
+  <span class="ml-auto">
+    Classification:
+    <span
+      class="font-bold {% if is_match %}text-green-600{% else %}text-red-600{% endif %}"
+    >
+      {{ "MATCH" if is_match else "NO MATCH" }}
+    </span>
+  </span>
+  <span>
+    {% if classifier_type == 'ml' %}
+    Confidence:
+    {% else %}
+    Diff:
+    {% endif %}
+    <span
+      class="font-bold {% if diff > threshold %}text-green-600{% else %}text-red-600{% endif %}"
+    >
+      {{ "%.4f"|format(diff) }}
+    </span>
+    (threshold: {{ "%.2f"|format(threshold) }})
+  </span>
+</div>
+
+<div class="flex gap-4 items-center p-3 bg-neutral-50 rounded mb-4 text-sm">
+  <form
+    hx-post="/set-threshold"
+    hx-target="#content"
+    hx-indicator="#loading"
+    class="flex gap-2 items-center"
+  >
+    <label for="threshold">Threshold:</label>
+    <input
+      type="number"
+      name="threshold"
+      id="threshold"
+      value="{{ threshold }}"
+      step="0.01"
+      min="0"
+      max="1"
+      class="border border-neutral-300 rounded px-2 py-1 w-24"
+    />
+    <button
+      type="submit"
+      class="bg-neutral-800 text-white rounded px-3 py-1 hover:bg-neutral-600 transition-colors"
+    >
+      Apply
+    </button>
+  </form>
+</div>
+
+<div class="grid grid-cols-2 gap-8 mb-8">
+  <div class="border-2 border-neutral-200 rounded overflow-hidden">
+    <h2 class="p-3 bg-neutral-200 text-sm font-bold">Glashelder Image</h2>
+    <img
+      src="/glashelder-image/{{ current_index }}"
+      alt="Glashelder image"
+      class="w-full h-[500px] object-contain bg-neutral-50"
+    />
+    <div class="p-3 text-xs break-all bg-neutral-50">{{ glashelder_path }}</div>
+  </div>
+
+  <div class="border-2 {% if is_match %}border-green-300{% else %}border-red-300{% endif %} rounded overflow-hidden">
+    <h2 class="p-3 text-sm font-bold {% if is_match %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+      {% if is_match %}
+      WikiArt Match
+      {% else %}
+      Top WikiArt Result (Not a Match)
+      {% endif %}
+    </h2>
+    <img
+      src="/wikiart-image/{{ top_match_index }}"
+      alt="WikiArt top result"
+      class="w-full h-[500px] object-contain bg-neutral-50 {% if not is_match %}opacity-75{% endif %}"
+    />
+    <div class="p-3 text-xs break-all bg-neutral-50">{{ wikiart_path }}</div>
+  </div>
+</div>
+
+{% if classifier_type == 'ml' and features %}
+<div class="grid grid-cols-3 gap-4 mb-8">
+  <!-- ORB Features Panel -->
+  <div class="border-2 border-purple-200 rounded p-4">
+    <h2 class="text-sm font-bold mb-3 text-purple-800">ORB Geometric Features</h2>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>Matches:</span>
+        <span class="font-bold">{{ features.orb_num_matches|int }}</span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>Inliers:</span>
+        <span class="font-bold {% if features.orb_num_inliers > 10 %}text-green-600{% elif features.orb_num_inliers > 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.orb_num_inliers|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>Confidence:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.orb_confidence) }}</span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded">
+        <span>Inlier Ratio:</span>
+        <span class="font-bold">{{ "%.2f"|format(features.inlier_match_ratio) }}</span>
+      </div>
+      <div class="flex justify-between bg-purple-50 p-2 rounded col-span-2">
+        <span>Warp Stretch:</span>
+        <span class="font-bold {% if features.orb_warp_stretch < 2 %}text-green-600{% elif features.orb_warp_stretch < 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ "%.2f"|format(features.orb_warp_stretch) }}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hash Features Panel -->
+  <div class="border-2 border-green-200 rounded p-4">
+    <h2 class="text-sm font-bold mb-3 text-green-800">Perceptual Hash Distance</h2>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>pHash:</span>
+        <span class="font-bold {% if features.phash_distance < 10 %}text-green-600{% elif features.phash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.phash_distance|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>dHash:</span>
+        <span class="font-bold {% if features.dhash_distance < 10 %}text-green-600{% elif features.dhash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.dhash_distance|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>wHash:</span>
+        <span class="font-bold {% if features.whash_distance < 10 %}text-green-600{% elif features.whash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.whash_distance|int }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-green-50 p-2 rounded">
+        <span>aHash:</span>
+        <span class="font-bold {% if features.ahash_distance < 10 %}text-green-600{% elif features.ahash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ features.ahash_distance|int }}
+        </span>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500 mt-2">Lower = more similar (0-64 scale)</p>
+  </div>
+
+  <!-- Key Embedding Features Panel -->
+  <div class="border-2 border-blue-200 rounded p-4">
+    <h2 class="text-sm font-bold mb-3 text-blue-800">Key Embedding Features</h2>
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Top Similarity:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.sim_0) }}</span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Gap (1st-2nd):</span>
+        <span class="font-bold {% if features.gap_01 > 0.1 %}text-green-600{% elif features.gap_01 > 0.05 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ "%.4f"|format(features.gap_01) }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Z-Score:</span>
+        <span class="font-bold {% if features.sim_0_zscore > 3 %}text-green-600{% elif features.sim_0_zscore > 2 %}text-yellow-600{% else %}text-red-600{% endif %}">
+          {{ "%.2f"|format(features.sim_0_zscore) }}
+        </span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Poly Diff:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.poly_diff) }}</span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Sim Ratio:</span>
+        <span class="font-bold">{{ "%.3f"|format(features.sim_ratio_01) }}</span>
+      </div>
+      <div class="flex justify-between bg-blue-50 p-2 rounded">
+        <span>Decay Rate:</span>
+        <span class="font-bold">{{ "%.4f"|format(features.decay_rate) }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- All Features (collapsible) -->
+<details class="mb-8 border-2 border-neutral-200 rounded">
+  <summary class="p-3 bg-neutral-100 cursor-pointer text-sm font-bold">
+    All 23 ML Features (click to expand)
+  </summary>
+  <div class="p-4 grid grid-cols-3 gap-2 text-xs">
+    {% for name, value in features.items() %}
+    <div class="flex justify-between bg-neutral-50 p-2 rounded">
+      <span class="text-neutral-600">{{ name }}:</span>
+      <span class="font-mono">{{ "%.4f"|format(value) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+<div class="border-2 border-neutral-200 rounded p-4">
+  <h2 class="text-sm font-bold mb-4">Similarity Scores (CLIP Embeddings)</h2>
+  <svg
+    id="similarity-plot"
+    width="100%"
+    height="200"
+    style="display: block"
+  ></svg>
+</div>
+
+<script>
+(function() {
+  const similarityScores = [
+    {% for score in similarities %}
+      {{ score }}{{ "," if not loop.last else "" }}
+    {% endfor %}
+  ];
+  const diff = {{ diff }};
+  const threshold = {{ threshold }};
+  const classifierType = "{{ classifier_type }}";
+
+  function drawSimilarityPlot() {
+    const svg = document.getElementById('similarity-plot');
+    if (!svg || similarityScores.length === 0) return;
+
+    const rect = svg.getBoundingClientRect();
+    const width = rect.width || 800;
+    const height = 200;
+    const padding = { top: 10, right: 10, bottom: 30, left: 50 };
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+
+    svg.innerHTML = '';
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+    const maxScore = Math.max(...similarityScores);
+    const minScore = Math.min(...similarityScores);
+    const scoreRange = maxScore - minScore || 0.1;
+
+    const xScale = (i) => padding.left + (i / (similarityScores.length - 1 || 1)) * plotWidth;
+    const yScale = (score) => padding.top + plotHeight - ((score - minScore) / scoreRange) * plotHeight;
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+    // Y-axis
+    const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    yAxis.setAttribute('x1', padding.left);
+    yAxis.setAttribute('y1', padding.top);
+    yAxis.setAttribute('x2', padding.left);
+    yAxis.setAttribute('y2', height - padding.bottom);
+    yAxis.setAttribute('stroke', '#666');
+    yAxis.setAttribute('stroke-width', '1');
+    g.appendChild(yAxis);
+
+    // X-axis
+    const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    xAxis.setAttribute('x1', padding.left);
+    xAxis.setAttribute('y1', height - padding.bottom);
+    xAxis.setAttribute('x2', width - padding.right);
+    xAxis.setAttribute('y2', height - padding.bottom);
+    xAxis.setAttribute('stroke', '#666');
+    xAxis.setAttribute('stroke-width', '1');
+    g.appendChild(xAxis);
+
+    // Y-axis labels (just min and max)
+    [minScore, maxScore].forEach((score) => {
+      const y = yScale(score);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', padding.left - 5);
+      label.setAttribute('y', y + 4);
+      label.setAttribute('text-anchor', 'end');
+      label.setAttribute('font-size', '10');
+      label.setAttribute('fill', '#666');
+      label.textContent = score.toFixed(3);
+      g.appendChild(label);
+    });
+
+    // X-axis labels (just 1 and n)
+    [0, similarityScores.length - 1].forEach((i) => {
+      const x = xScale(i);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', x);
+      label.setAttribute('y', height - padding.bottom + 15);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('font-size', '10');
+      label.setAttribute('fill', '#666');
+      label.textContent = i + 1;
+      g.appendChild(label);
+    });
+
+    // Draw line
+    if (similarityScores.length > 1) {
+      let pathData = `M ${xScale(0)} ${yScale(similarityScores[0])}`;
+      for (let i = 1; i < similarityScores.length; i++) {
+        pathData += ` L ${xScale(i)} ${yScale(similarityScores[i])}`;
+      }
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathData);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#3b82f6');
+      path.setAttribute('stroke-width', '2');
+      g.appendChild(path);
+    }
+
+    // Draw first point highlighted (color based on ML confidence or simple diff)
+    const cx = xScale(0);
+    const cy = yScale(similarityScores[0]);
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', '5');
+    circle.setAttribute('fill', diff > threshold ? '#22c55e' : '#ef4444');
+    g.appendChild(circle);
+
+    svg.appendChild(g);
+  }
+
+  // Draw after layout is complete
+  requestAnimationFrame(() => {
+    requestAnimationFrame(drawSimilarityPlot);
+  });
+})();
+</script>
+
+{% endif %}

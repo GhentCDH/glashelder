@@ -13,24 +13,30 @@
 <div class="query-info">
   <p>Results for: <strong>{{ query_value }}</strong></p>
 </div>
+{% elif query_type == 'image' %}
+<div class="query-info">
+  <p>Images similar to uploaded: <strong>{{ query_value }}</strong></p>
+</div>
 {% endif %}
 
 <div class="results-grid">
   {% for result in results %}
-  <div class="result-card rounded-sm border-2 transition-all hover:-translate-y-[4px] overflow-hidden">
+  <div
+    class="result-card rounded-sm border-2 transition-all hover:-translate-y-[4px] overflow-hidden"
+  >
     <img src="/image/{{ result.index }}" alt="{{ result.filename }}" />
     <div class="result-info flex gap-4 p-3 text-sm">
       <span class="rank font-bold">#{{ result.rank }}</span>
       <span class="score font-bold">{{ "%.4f"|format(result.score) }}</span>
       <span class="filename break-all">{{ result.filename }}</span>
-      <a 
-          hx-get="/api/similar/{{ result.index }}?top_k=12" 
-          hx-target="#results" 
-          hx-indicator="#loading" 
-          hx-push-url="/similar/{{result.index}}?top_k=12"
-          class="similar-btn underline ml-auto cursor-pointer hover:text-red-500"
+      <a
+        hx-get="/api/similar/{{ result.index }}?top_k=12"
+        hx-target="#results"
+        hx-indicator="#loading"
+        hx-push-url="/similar/{{result.index}}?top_k=12"
+        class="similar-btn underline ml-auto cursor-pointer hover:text-red-500"
       >
-          Find Similar
+        Find Similar
       </a>
     </div>
   </div>

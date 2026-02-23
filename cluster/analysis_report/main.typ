@@ -53,16 +53,16 @@
   [Clustering dimensions], [#data.metadata.reduction_dims],
   [Timestamp], [#data.metadata.timestamp],
   [Minumum Cluster Size], [#data.metadata.min_cluster_size],
-  table.hline(stroke: 2pt),
-  [Hierarchical], [#data.metadata_hierarchical.enabled],
-  ..if data.metadata_hierarchical.enabled {
-    (
-      [Density threshold],
-      [#data.metadata_hierarchical.density_threshold],
-      [Max depth],
-      [#data.metadata_hierarchical.max_depth],
-    )
-  },
+  // table.hline(stroke: 2pt),
+  // [Hierarchical], [#data.metadata_hierarchical.enabled],
+  // ..if data.metadata_hierarchical.enabled {
+  //   (
+  //     [Density threshold],
+  //     [#data.metadata_hierarchical.density_threshold],
+  //     [Max depth],
+  //     [#data.metadata_hierarchical.max_depth],
+  //   )
+  // },
 )
 
 #grid(

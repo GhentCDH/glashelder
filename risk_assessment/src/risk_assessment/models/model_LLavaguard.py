@@ -3,6 +3,8 @@ import os
 
 import torch
 from PIL import Image
+from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
+
 from risk_assessment.models.utils import get_images, get_prompt, parse_output
 from risk_assessment.orchestrator import ModelLoadError, ModelStatus
 from transformers import (
@@ -59,7 +61,6 @@ class LavaGuard:
                 pass
 
     def process_image(self, image, image_name=""):
-
         if self.model is None or self.processor is None:
             self.load_model()
 

@@ -25,10 +25,10 @@ To run them, you should start the jupyter server within the right experiments' d
 
 This can be done with `uv`, by specifying the specific package with `--package`.
 
-For example, the `search.ipynb` notebook is part of the `clipcluster` experiment (its path is `notebooks/clipcluster/search.ipynb`), and thus you can start the jupyter server to run this one with:
+For example, the `search.ipynb` notebook is part of the `cluster` experiment (its path is `notebooks/cluster/search.ipynb`), and thus you can start the jupyter server to run this one with:
 
 ```sh
-uv run --package clipcluster --with jupyter jupyter lab
+uv run --package cluster --with jupyter jupyter lab
 ```
 
 Then browse to the notebook you want to run, and open it.
