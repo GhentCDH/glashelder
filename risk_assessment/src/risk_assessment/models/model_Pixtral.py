@@ -1,4 +1,5 @@
 import gc
+import logging
 import os
 
 import torch
@@ -12,6 +13,8 @@ from transformers import (
 from risk_assessment.models.utils import get_images, get_prompt, parse_output
 from risk_assessment.orchestrator import ModelLoadError, ModelStatus
 
+logger = logging.getLogger(__name__)
+
 
 class Pixtral:
     def __init__(self):
@@ -21,6 +24,7 @@ class Pixtral:
 
     def load_model(self):
         """Load the Pixtral model and processor with 8-bit quantization."""
+        logger.info("Downloading/loading Pixtral model: mistral-community/pixtral-12b")
         quantization_config = BitsAndBytesConfig(
             load_in_8bit=True, llm_int8_threshold=6.0
         )
@@ -33,6 +37,7 @@ class Pixtral:
             quantization_config=quantization_config,
         )
         self.processor = AutoProcessor.from_pretrained(model_id)
+        logger.info("Pixtral model loaded successfully")
 
     def message_constructor(self):
         """Construct the prompt in Pixtral format."""
@@ -40,6 +45,7 @@ class Pixtral:
         self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]"
 
     def unload_model(self):
+        logger.info("Unloading Pixtral model")
         loaded_model = self.model
         loaded_processor = self.processor
 
@@ -119,6 +125,7 @@ def run_pixtral(orchestrator, image_path):
         )
 
         images = get_images(image_path)
+        logger.info("Pixtral: processing %d images", len(images))
         for i, image_file in enumerate(images):
             image_name = os.path.basename(image_file)
             orchestrator.update_model_state(
@@ -137,6 +144,13 @@ def run_pixtral(orchestrator, image_path):
                 continue
 
             orchestrator.assessments_pixtral.append(assessment)
+            logger.info(
+                "Pixtral [%d/%d] %s → %s",
+                i + 1,
+                len(images),
+                image_name,
+                assessment.get("rating", "Unknown"),
+            )
             orchestrator.update_model_state(
                 "model3", latest_rating=assessment.get("rating", "Unknown")
             )
