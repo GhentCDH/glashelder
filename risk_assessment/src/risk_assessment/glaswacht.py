@@ -19,7 +19,9 @@ _fh = logging.FileHandler(_LOG_PATH)
 _fh.setFormatter(logging.Formatter("%(asctime)s  %(levelname)s  %(name)s  %(message)s"))
 logger.addHandler(_fh)
 # Also capture logs from the risk_assessment package (orchestrator, models, etc.)
-logging.getLogger("risk_assessment").addHandler(_fh)
+_ra_logger = logging.getLogger("risk_assessment")
+_ra_logger.setLevel(logging.DEBUG)
+_ra_logger.addHandler(_fh)
 
 LOGO = """\
 ░██████╗░██╗░░░░░░█████╗░░██████╗░██╗░░░░░░░██╗░█████╗░░█████╗░██╗░░██╗████████╗
@@ -277,6 +279,7 @@ class MonitorApp(App):
         yield Vertical(id="menu")
 
     def on_mount(self):
+        logger.info("Glaswacht TUI started (image_path=%s)", self._image_path)
         models_container = self.query_one("#models")
         content_container = self.query_one("#content-scroll")
         menu_container = self.query_one("#menu")
