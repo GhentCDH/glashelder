@@ -1,4 +1,5 @@
 import logging
+import threading
 import traceback
 from dataclasses import dataclass
 from enum import Enum
@@ -38,15 +39,7 @@ class Orchestrator:
         self.assessments_qwen = []
         self.assessments_pixtral = []
         self.majority_votes = {}
-        self._lock = __import__("threading").Lock()
-
-    def update_status(self, model_name: str, new_status: ModelStatus):
-        if model_name in self.models:
-            current_name = self.models[model_name].name
-            self.models[model_name] = ModelState(current_name, new_status)
-            print(f"{model_name} status updated to: {new_status.value}")
-        else:
-            print(f"Model {model_name} not found.")
+        self._lock = threading.Lock()
 
     def get_state(self):
         return self.models.copy()
@@ -167,13 +160,16 @@ class Orchestrator:
         path to test with a real image instead.
         """
 
+        import tempfile
+        from pathlib import Path
+
         from PIL import Image as PILImage
 
         if image_path is None:
+            tmp = tempfile.mkdtemp()
+            test_image_path = str(Path(tmp) / "test.jpg")
             img = PILImage.new("RGB", (64, 64), color=(100, 149, 237))
-            test_image_path = "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/sn01004006_tiff.jpg"
             img.save(test_image_path)
-            logger.info("Test image created at: %s", test_image_path)
             path = test_image_path
         else:
             path = image_path
