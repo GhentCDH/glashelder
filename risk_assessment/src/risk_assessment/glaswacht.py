@@ -380,7 +380,8 @@ class MonitorApp(App):
 
     def _show_taxonomy(self):
         self._content_mode = "taxonomy"
-        self.content_panel.show_taxonomy()
+        if self.content_panel:
+            self.content_panel.show_taxonomy()
 
     def _start_webviewer(self):
         # Only launch if not already running
@@ -393,7 +394,8 @@ class MonitorApp(App):
             )
         logger.info("Webviewer started (pid=%s)", self._web_process.pid)
         self._content_mode = "webviewer"
-        self.content_panel.show_webviewer()
+        if self.content_panel:
+            self.content_panel.show_webviewer()
 
     def _update_display(self):
         state = self.orchestrator.get_state()
@@ -402,7 +404,8 @@ class MonitorApp(App):
 
         if self._content_mode == "votes":
             majority_votes = self.orchestrator.get_majority_votes()
-            self.content_panel.show_votes(majority_votes)
+            if self.content_panel:
+                self.content_panel.show_votes(majority_votes)
 
 
 if __name__ == "__main__":
