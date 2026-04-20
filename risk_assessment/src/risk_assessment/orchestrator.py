@@ -2,14 +2,8 @@ import logging
 import traceback
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 
-_LOG_PATH = Path(__file__).parent / "glaswacht.log"
-logging.basicConfig(
-    filename=_LOG_PATH,
-    level=logging.DEBUG,
-    format="%(asctime)s  %(levelname)s  %(message)s",
-)
+logger = logging.getLogger(__name__)
 
 
 class ModelStatus(Enum):
@@ -48,7 +42,8 @@ class Orchestrator:
 
     def update_status(self, model_name: str, new_status: ModelStatus):
         if model_name in self.models:
-            self.models[model_name] = new_status
+            current_name = self.models[model_name].name
+            self.models[model_name] = ModelState(current_name, new_status)
             print(f"{model_name} status updated to: {new_status.value}")
         else:
             print(f"Model {model_name} not found.")
@@ -115,11 +110,11 @@ class Orchestrator:
         try:
             run_lavaguard(self, path)
         except ModelLoadError as exc:
-            logging.error("LLavaGuard load error:\n%s", traceback.format_exc())
+            logger.error("LLavaGuard load error:\n%s", traceback.format_exc())
             handle_fatal_load_error(exc)
             return
         except Exception as exc:
-            logging.error("LLavaGuard runtime error:\n%s", traceback.format_exc())
+            logger.error("LLavaGuard runtime error:\n%s", traceback.format_exc())
             self.update_model_state(
                 "model1",
                 status=ModelStatus.ERROR,
@@ -129,11 +124,11 @@ class Orchestrator:
         try:
             run_qwen(self, path)
         except ModelLoadError as exc:
-            logging.error("Qwen load error:\n%s", traceback.format_exc())
+            logger.error("Qwen load error:\n%s", traceback.format_exc())
             handle_fatal_load_error(exc)
             return
         except Exception as exc:
-            logging.error("Qwen runtime error:\n%s", traceback.format_exc())
+            logger.error("Qwen runtime error:\n%s", traceback.format_exc())
             self.update_model_state(
                 "model2",
                 status=ModelStatus.ERROR,
@@ -143,11 +138,11 @@ class Orchestrator:
         try:
             run_pixtral(self, path)
         except ModelLoadError as exc:
-            logging.error("Pixtral load error:\n%s", traceback.format_exc())
+            logger.error("Pixtral load error:\n%s", traceback.format_exc())
             handle_fatal_load_error(exc)
             return
         except Exception as exc:
-            logging.error("Pixtral runtime error:\n%s", traceback.format_exc())
+            logger.error("Pixtral runtime error:\n%s", traceback.format_exc())
             self.update_model_state(
                 "model3",
                 status=ModelStatus.ERROR,
@@ -178,14 +173,14 @@ class Orchestrator:
             img = PILImage.new("RGB", (64, 64), color=(100, 149, 237))
             test_image_path = "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set-crop/sn01004006_tiff.jpg"
             img.save(test_image_path)
-            logging.info("Test image created at: %s", test_image_path)
+            logger.info("Test image created at: %s", test_image_path)
             path = test_image_path
         else:
             path = image_path
 
-        logging.info("Starting test run with: %s", path)
+        logger.info("Starting test run with: %s", path)
         self.run_all(path)
-        logging.info("Test run complete. Majority votes: %s", self.majority_votes)
+        logger.info("Test run complete. Majority votes: %s", self.majority_votes)
 
 
 if __name__ == "__main__":

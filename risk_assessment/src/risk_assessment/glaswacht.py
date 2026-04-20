@@ -19,7 +19,7 @@ LOGO = """\
 ╚██████╔╝███████╗██║░░██║██████╔╝░░╚██╔╝░╚██╔╝░██║░░██║╚█████╔╝██║░░██║░░░██║░░░
 ░╚═════╝░╚══════╝╚═╝░░╚═╝╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝░░░╚═╝░░░"""
 
-INFO = "Scripted by @bvercru and @mpeeters at The Ghent Centre for Digital Humanities (https://www.ghentcdh.ugent.be/).\nRequirements for Glaswacht: Geforce RTX 4090 (24GB VRAM) or better. "
+INFO = "Scripted by @bvercru and @mielpeeters at The Ghent Centre for Digital Humanities (https://www.ghentcdh.ugent.be/).\nRequirements for Glaswacht: Geforce RTX 4090 (24GB VRAM) or better. "
 
 
 TAXONOMY_PATH = Path(__file__).parent / "models" / "taxonomy.txt"
@@ -248,9 +248,10 @@ class MonitorApp(App):
     }}
     """
 
-    def __init__(self, orchestrator: Orchestrator):
+    def __init__(self, orchestrator: Orchestrator, image_path: str | None = None):
         super().__init__()
         self.orchestrator = orchestrator
+        self._image_path = image_path
         self.panels: dict[str, ModelPanel] = {}
         self.content_panel: ContentPanel | None = None
         self.menu_widgets: list[MenuItem] = []
@@ -341,9 +342,14 @@ class MonitorApp(App):
         self.menu_widgets[3].selected = True
 
         def _run():
-            self.orchestrator.run_all(
-                "/mnt/UGent_Share/glashelder/Experimentele Dataset/sample_2"
-            )
+            if self._image_path is None:
+                self.notify(
+                    "No --path provided. Use: risk-assessment glaswacht --path <dir>",
+                    severity="error",
+                )
+                self.call_from_thread(self._on_run_complete)
+                return
+            self.orchestrator.run_all(self._image_path)
             self.call_from_thread(self._on_run_complete)
 
         threading.Thread(target=_run, daemon=True).start()
