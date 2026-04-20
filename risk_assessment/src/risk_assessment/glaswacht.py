@@ -324,7 +324,11 @@ class MonitorApp(App):
     def _stop_webviewer(self):
         if self._web_process and self._web_process.poll() is None:
             self._web_process.terminate()
-            self._web_process = None
+            self._web_process.wait()
+        self._web_process = None
+        if self._web_log_fh:
+            self._web_log_fh.close()
+            self._web_log_fh = None
 
     def _activate(self):
         label = _MENU_LABELS[self._selected_index]
@@ -381,11 +385,11 @@ class MonitorApp(App):
     def _start_webviewer(self):
         # Only launch if not already running
         if self._web_process is None or self._web_process.poll() is not None:
-            log_file = open(_LOG_PATH, "a")
+            self._web_log_fh = open(_LOG_PATH, "a")
             self._web_process = subprocess.Popen(
                 [sys.executable, str(_WEB_PY_PATH)],
-                stdout=log_file,
-                stderr=log_file,
+                stdout=self._web_log_fh,
+                stderr=self._web_log_fh,
             )
         logger.info("Webviewer started (pid=%s)", self._web_process.pid)
         self._content_mode = "webviewer"
