@@ -139,6 +139,9 @@ def run_lavaguard(orchestrator, image_path):
                 image = Image.open(image_file).convert("RGB")
                 assessment = model.process_image(image, image_name)
             except Exception as exc:
+                logger.warning(
+                    "LavaGuard skipped %s: %s", image_name, exc, exc_info=True
+                )
                 orchestrator.update_model_state(
                     "model1",
                     current_task=f"Skipped {image_name}: {exc}",

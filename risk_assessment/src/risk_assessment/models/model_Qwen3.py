@@ -149,6 +149,7 @@ def run_qwen(orchestrator, image_path):
                 image = Image.open(image_file).convert("RGB")
                 assessment = model.process_image(image, image_name)
             except Exception as exc:
+                logger.warning("Qwen3 skipped %s: %s", image_name, exc, exc_info=True)
                 orchestrator.update_model_state(
                     "model2",
                     current_task=f"Skipped {image_name}: {exc}",

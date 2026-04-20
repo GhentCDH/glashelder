@@ -137,6 +137,7 @@ def run_pixtral(orchestrator, image_path):
                 image = Image.open(image_file).convert("RGB")
                 assessment = model.process_image(image, image_name)
             except Exception as exc:
+                logger.warning("Pixtral skipped %s: %s", image_name, exc, exc_info=True)
                 orchestrator.update_model_state(
                     "model3",
                     current_task=f"Skipped {image_name}: {exc}",
