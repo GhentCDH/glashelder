@@ -1,17 +1,19 @@
 import gc
+import logging
 import os
 
 import torch
 from PIL import Image
-from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
-
-from risk_assessment.models.utils import get_images, get_prompt, parse_output
-from risk_assessment.orchestrator import ModelLoadError, ModelStatus
 from transformers import (
     AutoProcessor,
     BitsAndBytesConfig,
     Qwen3VLForConditionalGeneration,
 )
+
+from risk_assessment.models.utils import get_images, get_prompt, parse_output
+from risk_assessment.orchestrator import ModelLoadError, ModelStatus
+
+logger = logging.getLogger(__name__)
 
 
 class Qwen3:
@@ -22,6 +24,7 @@ class Qwen3:
 
     def load_model(self):
         """Load the Qwen3-VL model and processor."""
+        logger.info("Downloading/loading Qwen3 model: Qwen/Qwen3-VL-8B-Instruct")
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.bfloat16,
@@ -37,12 +40,14 @@ class Qwen3:
         )
         self.model.eval()
         self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        logger.info("Qwen3 model loaded successfully")
 
     def message_constructor(self):
         """Construct the message for Qwen3."""
         self.prompt = get_prompt()
 
     def unload_model(self):
+        logger.info("Unloading Qwen3 model")
         self.model = None
         self.processor = None
         self.prompt = None
@@ -131,6 +136,7 @@ def run_qwen(orchestrator, image_path):
         )
 
         images = get_images(image_path)
+        logger.info("Qwen3: processing %d images", len(images))
 
         for i, image_file in enumerate(images):
             image_name = os.path.basename(image_file)
@@ -150,6 +156,13 @@ def run_qwen(orchestrator, image_path):
                 continue
 
             orchestrator.assessments_qwen.append(assessment)
+            logger.info(
+                "Qwen3 [%d/%d] %s → %s",
+                i + 1,
+                len(images),
+                image_name,
+                assessment.get("rating", "Unknown"),
+            )
             orchestrator.update_model_state(
                 "model2", latest_rating=assessment.get("rating", "Unknown")
             )

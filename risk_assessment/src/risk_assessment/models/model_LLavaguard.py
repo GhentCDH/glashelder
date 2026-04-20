@@ -1,17 +1,19 @@
 import gc
+import logging
 import os
 
 import torch
 from PIL import Image
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
-
-from risk_assessment.models.utils import get_images, get_prompt, parse_output
-from risk_assessment.orchestrator import ModelLoadError, ModelStatus
 from transformers import (
     AutoProcessor,
     BitsAndBytesConfig,
     LlavaOnevisionForConditionalGeneration,
 )
+
+from risk_assessment.models.utils import get_images, get_prompt, parse_output
+from risk_assessment.orchestrator import ModelLoadError, ModelStatus
+
+logger = logging.getLogger(__name__)
 
 
 class LavaGuard:
@@ -22,6 +24,7 @@ class LavaGuard:
 
     def load_model(self):
         model_id = "AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf"
+        logger.info("Downloading/loading LavaGuard model: %s", model_id)
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -34,6 +37,7 @@ class LavaGuard:
             device_map="auto",
         ).eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
+        logger.info("LavaGuard model loaded successfully")
 
     def message_constructor(self):
         taxonomy = get_prompt()
@@ -49,6 +53,7 @@ class LavaGuard:
         ]
 
     def unload_model(self):
+        logger.info("Unloading LavaGuard model")
         self.model = None
         self.processor = None
         self.message = None
@@ -122,6 +127,7 @@ def run_lavaguard(orchestrator, image_path):
         )
 
         image_files = get_images(image_path)
+        logger.info("LavaGuard: processing %d images", len(image_files))
         for i, image_file in enumerate(image_files):
             image_name = os.path.basename(image_file)
             orchestrator.update_model_state(
@@ -140,6 +146,13 @@ def run_lavaguard(orchestrator, image_path):
                 continue
 
             orchestrator.assessments_lavaguard.append(assessment)
+            logger.info(
+                "LavaGuard [%d/%d] %s → %s",
+                i + 1,
+                len(image_files),
+                image_name,
+                assessment.get("rating", "Unknown"),
+            )
             orchestrator.update_model_state(
                 "model1", latest_rating=assessment.get("rating", "Unknown")
             )

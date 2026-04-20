@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import sys
 import threading
@@ -10,6 +11,15 @@ from textual.widgets import Static
 
 from risk_assessment.models.utils import get_prompt
 from risk_assessment.orchestrator import ModelStatus, Orchestrator
+
+_LOG_PATH = Path(__file__).parent / "glaswacht.log"
+logger = logging.getLogger("glaswacht")
+logger.setLevel(logging.DEBUG)
+_fh = logging.FileHandler(_LOG_PATH)
+_fh.setFormatter(logging.Formatter("%(asctime)s  %(levelname)s  %(name)s  %(message)s"))
+logger.addHandler(_fh)
+# Also capture logs from the risk_assessment package (orchestrator, models, etc.)
+logging.getLogger("risk_assessment").addHandler(_fh)
 
 LOGO = """\
 ░██████╗░██╗░░░░░░█████╗░░██████╗░██╗░░░░░░░██╗░█████╗░░█████╗░██╗░░██╗████████╗
@@ -330,6 +340,7 @@ class MonitorApp(App):
     def _start_run(self):
         if self._is_running:
             return
+        logger.info("RUN requested, path=%s", self._image_path)
         self._is_running = True
         self._content_mode = "votes"
         # Disable RUN, TAXONOMY and VALIDATE while running
@@ -355,6 +366,7 @@ class MonitorApp(App):
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_run_complete(self):
+        logger.info("Run complete")
         self._is_running = False
         self.menu_widgets[0].enabled = True
         self.menu_widgets[1].enabled = True
@@ -373,6 +385,7 @@ class MonitorApp(App):
                 stdout=log_file,
                 stderr=log_file,
             )
+        logger.info("Webviewer started (pid=%s)", self._web_process.pid)
         self._content_mode = "webviewer"
         self.content_panel.show_webviewer()
 
