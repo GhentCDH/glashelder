@@ -204,7 +204,6 @@ class MenuItem(Static):
 
 _MENU_LABELS = ["RUN", "TAXONOMY", "VALIDATE USING WEBVIEWER", "QUIT"]
 _WEB_PY_PATH = Path(__file__).parent / "web.py"
-_LOG_PATH = Path(__file__).parent / "glaswacht.log"
 
 
 class MonitorApp(App):
