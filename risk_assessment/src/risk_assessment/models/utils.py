@@ -3,14 +3,19 @@ import json
 import os
 import re
 from collections import Counter
+from pathlib import Path
+
+_MODELS_DIR = Path(__file__).parent
 
 
-def get_prompt(prompt_file="models/taxonomy.txt"):
+def get_prompt(prompt_file=None):
+    if prompt_file is None:
+        prompt_file = _MODELS_DIR / "taxonomy.txt"
     with open(prompt_file, encoding="utf-8") as f:
         return f.read()
 
 
-def show_prompt(prompt_file="models/taxonomy.txt"):
+def show_prompt(prompt_file=None):
     prompt = get_prompt(prompt_file)
     print(prompt)
 
