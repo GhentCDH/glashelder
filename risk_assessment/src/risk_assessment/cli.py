@@ -8,13 +8,19 @@ def risk_assessment():
 
 
 @risk_assessment.command()
-def glaswacht():
+@click.option(
+    "--path",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to image folder to assess.",
+)
+def glaswacht(path):
     """Launch the Glaswacht TUI monitor."""
     from risk_assessment.glaswacht import MonitorApp
     from risk_assessment.orchestrator import Orchestrator
 
     orchestrator = Orchestrator()
-    app = MonitorApp(orchestrator)
+    app = MonitorApp(orchestrator, image_path=path)
     app.run(mouse=False)
     app._stop_webviewer()
 
