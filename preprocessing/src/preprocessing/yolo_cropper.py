@@ -18,7 +18,7 @@ class YOLOCropper:
 
         self.model_path = model_path
         self.device = device
-        self.model: YOLO = None
+        self.model: YOLO | None = None
 
     def _load_if_needed(self):
         from ultralytics import YOLO

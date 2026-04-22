@@ -10,9 +10,9 @@ def preprocessing():
 @preprocessing.command()
 @click.option(
     "-g",
-    "--ground-truth-folder",
+    "--ground-truth-dir",
     required=True,
-    help="This is the path to the folder containing the GT output from LabelStudio in YOLO-format.",
+    help="This is the path to the directory containing the GT output from e.g. LabelStudio in YOLO-format.",
 )
 @click.option(
     "-o",
@@ -32,11 +32,11 @@ def preprocessing():
     default=1,
     help="This is the seed used to randomize the split test and train. Default: 1",
 )
-def create_yolo_dataset(ground_truth_folder, output_folder, train_split, seed):
+def create_yolo_dataset(ground_truth_dir, output_folder, train_split, seed):
     """Create a YOLO dataset from LabelStudio annotations."""
     from .dataset_prep import create_yolo_dataset as cyd
 
-    cyd(ground_truth_folder, output_folder, train_split, seed)
+    cyd(ground_truth_dir, output_folder, train_split, seed)
 
 
 @preprocessing.command()
