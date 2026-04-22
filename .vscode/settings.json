@@ -6,5 +6,6 @@
       "source.fixAll": "explicit",
       "source.organizeImports": "explicit"
     }
-  }
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
 }
