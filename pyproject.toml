@@ -39,8 +39,6 @@ glashelder = "glashelder:main"
 [tool.uv.sources]
 common = { workspace = true }
 cluster = { workspace = true }
-torch = { index = "pytorch" }
-torchvision = { index = "pytorch" }
 classification = { workspace = true }
 preprocessing = { workspace = true }
 risk-assessment = { workspace = true }
@@ -59,11 +57,6 @@ members = [
   "artmatcher",
   "embed",
 ]
-
-[[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cu130" # adjust for your CUDA version
-explicit = true
 
 [tool.ruff]
 line-length = 88
