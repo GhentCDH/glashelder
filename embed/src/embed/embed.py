@@ -566,9 +566,131 @@ class Qwen3VLEmbedder(EmbeddingModel):
         return embedding.float()
 
 
+class OpenCLIPEmbedder(EmbeddingModel):
+    """OpenCLIP-based image and text embeddings.
+
+    Uses the open_clip library, which supports a wider range of CLIP model
+    architectures and pretrained weights than HuggingFace transformers.
+
+    Args:
+        model_name: OpenCLIP model architecture (e.g., 'ViT-B-16', 'ViT-L-14').
+        pretrained: Pretrained weights name (e.g., 'datacomp_xl_s13b_b90k').
+    """
+
+    def __init__(
+        self,
+        model_name: str = "ViT-L-14",
+        pretrained: str = "datacomp_xl_s13b_b90k",
+    ):
+        self._model_name = model_name
+        self._pretrained = pretrained
+        self._model = None
+        self._preprocess = None
+        self._tokenizer = None
+        self._device: str | None = None
+
+    @property
+    def name(self) -> str:
+        return "openclip"
+
+    @property
+    def model_id(self) -> str:
+        return f"{self._model_name}/{self._pretrained}"
+
+    @property
+    def embedding_dim(self) -> int:
+        assert self._model is not None, "Model not loaded. Call load() first."
+        import open_clip
+
+        return open_clip.get_model_config(self._model_name)["embed_dim"]
+
+    @property
+    def supports_text(self) -> bool:
+        return True
+
+    @property
+    def device(self) -> str:
+        assert self._device is not None, "Model not loaded. Call load() first."
+        return self._device
+
+    def load(self, device: str) -> None:
+        import open_clip
+
+        logger.info(f"Loading OpenCLIP model: {self.model_id}")
+        self._model, _, self._preprocess = open_clip.create_model_and_transforms(
+            self._model_name, pretrained=self._pretrained, device=device
+        )
+        self._tokenizer = open_clip.get_tokenizer(self._model_name)
+        self._model.eval()
+        self._device = device
+
+    def encode_images(
+        self,
+        image_paths: list[str],
+        batch_size: int = 64,
+    ) -> tuple[torch.Tensor, list[str]]:
+        import torch
+
+        assert self._model is not None and self._preprocess is not None
+
+        all_embeddings = []
+        processed_paths = []
+
+        for i in range(0, len(image_paths), batch_size):
+            batch_paths = image_paths[i : i + batch_size]
+            logger.info(
+                f"Batch {i // batch_size + 1}"
+                f"/{(len(image_paths) + batch_size - 1) // batch_size}"
+            )
+
+            images = []
+            valid_paths = []
+            for path in batch_paths:
+                try:
+                    img = Image.open(path).convert("RGB")
+                    images.append(self._preprocess(img))
+                    valid_paths.append(path)
+                except Exception:
+                    logger.warning(f"Failed to load image: {path}")
+
+            if not images:
+                continue
+
+            batch_tensor = torch.stack(images).to(self._device)
+            with torch.no_grad():
+                embeddings = self._model.encode_image(batch_tensor)
+                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
+
+            all_embeddings.append(embeddings.cpu())
+            processed_paths.extend(valid_paths)
+
+        return torch.cat(all_embeddings), processed_paths
+
+    def encode_text(self, text: str) -> torch.Tensor | None:
+        import torch
+
+        assert self._model is not None and self._tokenizer is not None
+
+        tokens = self._tokenizer([text]).to(self._device)
+        with torch.no_grad():
+            text_embedding = self._model.encode_text(tokens)
+            return text_embedding / text_embedding.norm(dim=-1, keepdim=True)
+
+    def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        import torch
+
+        assert self._model is not None and self._preprocess is not None
+
+        img = self._preprocess(image.convert("RGB")).unsqueeze(0).to(self._device)
+        with torch.no_grad():
+            embedding = self._model.encode_image(img)
+            return embedding / embedding.norm(dim=-1, keepdim=True)
+
+
 # Registry of available embedding models
 EMBEDDING_MODELS: dict[str, type[EmbeddingModel]] = {
     "clip": CLIPEmbedder,
+    "openclip": OpenCLIPEmbedder,
     "dinov2": DINOv2Embedder,
     "qwen3vl": Qwen3VLEmbedder,
 }
