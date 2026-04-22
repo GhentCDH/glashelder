@@ -124,7 +124,8 @@ class EmbeddingModel(ABC):
 class CLIPEmbedder(EmbeddingModel):
     """CLIP-based image and text embeddings."""
 
-    def __init__(self):
+    def __init__(self, model_id: str = CLIP_MODEL_ID):
+        self._model_id = model_id
         self._model: CLIPModel | None = None
         self._processor: CLIPProcessor | None = None
         self._device: str | None = None
@@ -135,11 +136,12 @@ class CLIPEmbedder(EmbeddingModel):
 
     @property
     def model_id(self) -> str:
-        return CLIP_MODEL_ID
+        return self._model_id
 
     @property
     def embedding_dim(self) -> int:
-        return 768
+        assert self._model is not None, "Model not loaded. Call load() first."
+        return self._model.config.projection_dim
 
     @property
     def supports_text(self) -> bool:
