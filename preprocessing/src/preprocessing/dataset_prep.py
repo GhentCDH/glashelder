@@ -13,23 +13,36 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def create_yolo_dataset(ground_truth_folder, output_folder, train_split, seed):
+def create_yolo_dataset(ground_truth_dir, output_folder, train_split, seed):
+    """Create YOLO dataset structure with train/val split.
+
+        # Ground truth directory structure
+    ground_truth_dir
+    ├── classes.txt
+    ├── images
+    │   ├── image_00.png
+    │   ├── image_01.png
+    │   └── ...
+    └── labels
+        ├── image_00.txt
+        ├── image_01.txt
+        └── ...
+    """
+
     random.seed(seed)
-    """Create YOLO dataset structure with train/val split."""
     # Ensure inputs are Path objects so Path methods work
-    ground_truth_folder = Path(ground_truth_folder)
+    ground_truth_dir = Path(ground_truth_dir)
     output_folder = Path(output_folder)
 
     # Define paths
-    images_dir = ground_truth_folder / "images"
-    labels_dir = ground_truth_folder / "labels"
-    classes_file = ground_truth_folder / "classes.txt"
+    images_dir = ground_truth_dir / "images"
+    labels_dir = ground_truth_dir / "labels"
+    classes_file = ground_truth_dir / "classes.txt"
 
     # Create output directories
     train_images_dir = output_folder / "images" / "train"
     val_images_dir = output_folder / "images" / "val"
     train_labels_dir = output_folder / "labels" / "train"
-    val_labels_dir = output_folder / "labels" / "val"
     val_labels_dir = output_folder / "labels" / "val"
 
     for dir_path in [
