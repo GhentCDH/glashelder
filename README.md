@@ -1,50 +1,101 @@
 # Glashelder AI Experiments
 
-## Install
+This repository contains many different experiments for _intelligently automating_ a metadata extraction pipeline
+for scanned historical glass plate photographs.
 
-To use this code, you should have `uv`, the python dependency manager installed.
+It contains the following functionality:
 
-If you have a Nvidia GPU, check which CUDA version you are running (e.g. through `nvidia-smi`).
-Modify the following lines in `pyproject.toml` to reflect your cuda version:
+- preprocessing images
+  - cropping using trained YOLO model
 
-```toml
-[[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cu130" # CUDA 13.0
-# url = "https://download.pytorch.org/whl/cu126" # CUDA 12.6
-explicit = true
-```
+- generating embedding vectors of images (and image descriptions)
+  - CLIP
+  - DINOv2 (no text support)
 
-The example in this repo uses CUDA 13.0.
+- clustering the embeddings
+  - [rerun](https://rerun.io) 3d visualization of clustered point cloud
+  - hierarchical re-clustering of large clusters
 
-## Jupyter Notebooks
+- risk assessment
+  - running multiple VLM Guard models with majority voting to assess the 'safety' of images
 
-There are some jupyter notebooks in `notebooks/`.
+- artwork matching
+  - given a dataset of 'known' artworks, find glass plates that contain any of them
 
-To run them, you should start the jupyter server within the right experiments' dependencies.
+## Prerequisites
 
-This can be done with `uv`, by specifying the specific package with `--package`.
+### Hardware
 
-For example, the `search.ipynb` notebook is part of the `cluster` experiment (its path is `notebooks/cluster/search.ipynb`), and thus you can start the jupyter server to run this one with:
+The risk assessment functionality requires running large transformer models, which is only feasible
+on a powerful GPU. However, all other experiments also benefit from having a good GPU.
+
+Please refer to the workspace's own README files to see their recommended hardware.
+
+Recently, many core Python AI packages have dropped support for MacOS computers with Intel CPUs.
+Therefore, this project also doesn't have support for these machines.
+Most other Linux, Windows or MacOS (with apple silicon) systems should be supported.
+
+### Software
+
+This project uses the [`uv`](https://docs.astral.sh/uv/) python package manager in order to
+make sure that everyone uses the same compatible packages when running this code.
+
+See [their install guide](https://docs.astral.sh/uv/getting-started/installation/).
+
+## Running the code
+
+Before running any code, you need to install the required packages onto your machine, in a virtual
+environment for this project. \
+This can be done with `uv`:
 
 ```sh
-uv run --package cluster --with jupyter jupyter lab
+# make .venv, install required packages
+uv sync
 ```
 
-Then browse to the notebook you want to run, and open it.
+### Jupyter Notebooks
 
-## CLI
+This repository has some insightful notebooks in `notebooks/`.
 
-Use the CLI to run experimenst through:
+There are multiple ways of running these:
+
+#### In the Jupyter Lab web UI:
+
+Run `uv run jupyter lab`. \
+This should open a new tab in your browser with the Jupyter Lab web page.
+
+#### In Visual Studio Code:
+
+Make sure you have run `uv sync` as explained above at least once.
+To make use of the virtual environment that `uv` has created, you need to select the right
+Python interpreter when starting up the Visual Studio Code notebook editor.
+
+The interpreter should be .venv/bin/python
+
+When you open a notebook in Visual Studio Code, the editor should ask you which interpreter
+to use.
+If not, you can manually change the interpreter with the 'Notebook: Select Notebook Kernel' command.\
+(press `ctrl (or cmd) + shift + p` and start typing "Notebook kernel" to see that command)
+
+### CLI
+
+Use the CLI to run experiments:
 
 ```sh
-uv run glashelder <command> [arguments]
+uv run glashelder <workspace> <command> [arguments]
 ```
 
 get an overview of available experiments / commands using `--help`:
 
 ```sh
+# lists which workspaces are available in the CLI
 uv run glashelder --help
+
+# lists which commands are available in that workspaces
+uv run glashelder embed --help
+
+# shows which CLI options are available for the `generate-embeddings` command
+uv run glashelder embed generate-embeddings --help
 ```
 
 ## Adding a new experiment
