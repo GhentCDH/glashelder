@@ -105,6 +105,7 @@ class EmbeddingModel(ABC):
             Tensor of shape (1, embedding_dim) with L2-normalized embedding,
             or None if the model doesn't support text encoding.
         """
+        _ = text
         return None
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
@@ -116,6 +117,7 @@ class EmbeddingModel(ABC):
         Returns:
             Tensor of shape (1, embedding_dim) with L2-normalized embedding.
         """
+        _ = image
         raise NotImplementedError("Subclass must implement encode_pil_image")
 
 
@@ -165,8 +167,10 @@ class CLIPEmbedder(EmbeddingModel):
         from transformers import CLIPModel, CLIPProcessor
 
         logger.info(f"Loading CLIP model: {self.model_id}")
-        self._model = CLIPModel.from_pretrained(self.model_id)
-        self._processor = CLIPProcessor.from_pretrained(self.model_id)
+        self._model = CLIPModel.from_pretrained(self.model_id, use_safetensors=False)
+        self._processor = CLIPProcessor.from_pretrained(
+            self.model_id, use_safetensors=False
+        )
         self._model.to(device)  # ty: ignore[invalid-argument-type]
         self._model.eval()
         self._device = device
@@ -285,9 +289,11 @@ class DINOv2Embedder(EmbeddingModel):
         from transformers import AutoImageProcessor, Dinov2Model
 
         logger.info(f"Loading DINOv2 model: {self.model_id}")
-        self._model = Dinov2Model.from_pretrained(self.model_id)
-        self._processor = AutoImageProcessor.from_pretrained(self.model_id)
-        self._model.to(torch.device(device))  # type: ignore[arg-type]
+        self._model = Dinov2Model.from_pretrained(self.model_id, use_safetensors=False)
+        self._processor = AutoImageProcessor.from_pretrained(
+            self.model_id, use_safetensors=False
+        )
+        self._model.to(torch.device(device))  # ty:ignore[invalid-argument-type]
         self._model.eval()
         self._device = device
 
@@ -333,7 +339,7 @@ class DINOv2Embedder(EmbeddingModel):
         assert self._processor is not None, "Processor not loaded. Call load() first."
 
         with torch.no_grad():
-            inputs = self._processor(images=image, return_tensors="pt").to(self._device)  # type: ignore[operator]
+            inputs = self._processor(images=image, return_tensors="pt").to(self._device)  # ty:ignore[call-non-callable]
             outputs = self._model(**inputs)
             embedding = outputs.last_hidden_state[:, 0]
             return embedding / embedding.norm(dim=-1, keepdim=True)
@@ -375,8 +381,10 @@ class Qwen3VLEmbedder(EmbeddingModel):
         self._model = Qwen3VLModel.from_pretrained(
             self.model_id, dtype=torch.bfloat16, attn_implementation="flash_attention_2"
         )
-        self._processor = Qwen3VLProcessor.from_pretrained(self.model_id)
-        self._model.to(torch.device(device))  # type: ignore[arg-type]
+        self._processor = Qwen3VLProcessor.from_pretrained(
+            self.model_id, use_safetensors=False
+        )
+        self._model.to(torch.device(device))  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
         self._model.eval()
         self._device = device
 
@@ -440,12 +448,11 @@ class Qwen3VLEmbedder(EmbeddingModel):
                         tokenize=False,
                         add_generation_prompt=True,
                     )
-                    image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
+                    image_inputs, *_ = process_vision_info(messages)
 
                     batch_texts.append(text)
-                    batch_images.extend(
-                        image_inputs
-                    )  # Usually returns a list with one image
+                    if image_inputs is not None:
+                        batch_images.extend(image_inputs)
                     valid_paths.append(image_path)
                 except Exception as e:
                     logger.warning(f"Failed to load {image_path}: {e}")
@@ -537,7 +544,7 @@ class Qwen3VLEmbedder(EmbeddingModel):
             tokenize=False,
             add_generation_prompt=True,
         )
-        image_inputs, _ = process_vision_info(messages)  # type: ignore[misc]
+        image_inputs, *_ = process_vision_info(messages)
 
         inputs = self._processor(
             text=[text],
