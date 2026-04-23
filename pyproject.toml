@@ -45,6 +45,13 @@ risk-assessment = { workspace = true }
 qwenvlm = { workspace = true }
 artmatcher = { workspace = true }
 embed = { workspace = true }
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
 
 [tool.uv.workspace]
 members = [
