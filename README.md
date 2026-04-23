@@ -5,22 +5,24 @@ for scanned historical glass plate photographs.
 
 It contains the following functionality:
 
-- preprocessing images
+- [preprocessing](preprocessing/) images
   - cropping using trained YOLO model
 
-- generating embedding vectors of images (and image descriptions)
+- [generating embedding vectors](embed/) of images (and image descriptions)
   - CLIP
   - DINOv2 (no text support)
 
-- clustering the embeddings
+- [clustering](cluster/) the embeddings
   - [rerun](https://rerun.io) 3d visualization of clustered point cloud
   - hierarchical re-clustering of large clusters
 
-- risk assessment
+- [risk assessment](risk_assessment/)
   - running multiple VLM Guard models with majority voting to assess the 'safety' of images
 
-- artwork matching
+- [artwork matching](artmatcher/)
   - given a dataset of 'known' artworks, find glass plates that contain any of them
+
+Shared utilities live in [common](common/).
 
 ## Prerequisites
 
