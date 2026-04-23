@@ -37,6 +37,30 @@ Recently, many core Python AI packages have dropped support for MacOS computers 
 Therefore, this project also doesn't have support for these machines.
 Most other Linux, Windows or MacOS (with apple silicon) systems should be supported.
 
+**NVIDIA GPU (CUDA)**
+
+If you have a Nvidia CUDA GPU on your system, this repository should be plug-and-play.
+When you encounter any CUDA-related issues, chances are your GPU drivers are out of date.
+This repository supports `> CUDA 12.6` out of the box.
+However, if you have older drivers (e.g. `11.8`), you should be able to edit this table in `pyproject.toml`:
+
+```diff
+[[tool.uv.index]]
+name = "pytorch"
+- url = "https://download.pytorch.org/whl/cu126"
++ url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+```
+
+**Apple Silicon (MPS)**
+
+Any Apple Silicon computer chip has support for MPS, which pytorch has support for.
+Your system should be plug-and-play with GPU support for these experiments.
+
+**No GPU (CPU)**
+
+Many of the experiments will run, but very slowly.
+
 ### Software
 
 This project uses the [`uv`](https://docs.astral.sh/uv/) python package manager in order to
@@ -72,7 +96,7 @@ Make sure you have run `uv sync` as explained above at least once.
 To make use of the virtual environment that `uv` has created, you need to select the right
 Python interpreter when starting up the Visual Studio Code notebook editor.
 
-The interpreter should be .venv/bin/python
+The interpreter should be `.venv/bin/python` on Linux/MacOS and `.venv\Scripts\python` on Windows.
 
 When you open a notebook in Visual Studio Code, the editor should ask you which interpreter
 to use.

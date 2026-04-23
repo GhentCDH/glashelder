@@ -45,8 +45,8 @@ risk-assessment = { workspace = true }
 qwenvlm = { workspace = true }
 artmatcher = { workspace = true }
 embed = { workspace = true }
-torch = { index = "pytorch" }
-torchvision = { index = "pytorch" }
+torch = { index = "pytorch", marker = "sys_platform != 'darwin'" }
+torchvision = { index = "pytorch", marker = "sys_platform != 'darwin'" }
 
 [[tool.uv.index]]
 name = "pytorch"
