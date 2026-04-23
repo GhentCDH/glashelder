@@ -18,3 +18,7 @@ dev = ["pyright>=1.1.406"]
 typeCheckingMode = "basic"
 venv = ".venv"
 venvPath = "."
+
+[build-system]
+requires = ["uv_build>=0.7.17,<0.8"]
+build-backend = "uv_build"
