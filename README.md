@@ -1,5 +1,7 @@
 # Glashelder AI Experiments
 
+<img src="./notebooks/trailer.gif" width="100%" alt="project trailer gif" style="image-rendering: pixelated;">
+
 This repository contains many different experiments for _intelligently automating_ a metadata extraction pipeline
 for scanned historical glass plate photographs.
 
@@ -82,6 +84,7 @@ uv sync
 ### Jupyter Notebooks
 
 This repository has some insightful notebooks in `notebooks/`.
+Open [start.ipynb](./notebooks/start.ipynb) for an overview.
 
 There are multiple ways of running these:
 
