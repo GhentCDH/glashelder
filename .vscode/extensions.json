@@ -1,3 +1,7 @@
 {
-  "recommendations": ["charliermarsh.ruff", "astral-sh.ty"]
+  "recommendations": [
+    "charliermarsh.ruff",
+    "astral-sh.ty",
+    "bierner.markdown-mermaid"
+  ]
 }
