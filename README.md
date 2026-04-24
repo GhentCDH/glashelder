@@ -1,5 +1,7 @@
 # Glashelder AI Experiments
 
+<img src="./notebooks/trailer.gif" width="100%" alt="project trailer gif">
+
 This repository contains many different experiments for _intelligently automating_ a metadata extraction pipeline
 for scanned historical glass plate photographs.
 
