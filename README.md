@@ -82,6 +82,7 @@ uv sync
 ### Jupyter Notebooks
 
 This repository has some insightful notebooks in `notebooks/`.
+Open [start.ipynb](./notebooks/start.ipynb) for an overview.
 
 There are multiple ways of running these:
 
