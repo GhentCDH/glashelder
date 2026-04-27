@@ -2,6 +2,13 @@
 
 <img src="./notebooks/trailer.gif" width="100%" alt="project trailer gif" style="image-rendering: pixelated; max-width: 1200px;">
 
+<p align="center">
+  <a href="https://github.com/GhentCDH/glashelder/actions/workflows/ci.yml"><img src="https://github.com/GhentCDH/glashelder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json" alt="uv"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
+  <img src="https://img.shields.io/badge/python-3.13-blue" alt="Python 3.13">
+</p>
+
 This repository contains many different experiments for _intelligently automating_ a metadata extraction pipeline
 for scanned historical glass plate photographs.
 
