@@ -21,6 +21,7 @@ classification/data
 *.csv
 # Cache and data files
 *.pkl
+!notebooks/artmatcher/examples/trained-matcher-model.pkl
 *.rrd
 clipcluster/clustered.png
 
