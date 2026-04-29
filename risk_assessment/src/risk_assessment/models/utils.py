@@ -139,22 +139,12 @@ def parse_output(output_text, model_type="lava"):
         }
 
 
-def calculate_majority_vote(lavaguard_rating, qwen_rating, pixtral_rating):
-    """Calculate the majority vote from three model ratings.
+def calculate_majority_vote(ratings: list[str]) -> str:
+    """Calculate the majority vote from model ratings.
 
     Uses majority voting with tie-breaking based on conservative priority:
     Unsafe > Potentially Problematic > Safe > Unknown > Error
-
-    Args:
-        lavaguard_rating: Rating from LavaGuard model
-        qwen_rating: Rating from Qwen3 model
-        pixtral_rating: Rating from Pixtral model
-
-    Returns:
-        str: The majority vote rating
     """
-    ratings = [lavaguard_rating, qwen_rating, pixtral_rating]
-
     # Count occurrences of each rating
     rating_counts = Counter(ratings)
     most_common = rating_counts.most_common()
@@ -191,78 +181,37 @@ def calculate_majority_vote(lavaguard_rating, qwen_rating, pixtral_rating):
 
 
 def write_combined_csv(
-    assessments_lavaguard,
-    assessments_qwen,
-    assessments_pixtral,
-    output_csv="combined_risk_assessment_results.csv",
-):
-    """Write combined assessment results from all three models to a single CSV.
+    assessments: dict,
+    output_csv: str = "combined_risk_assessment_results.csv",
+) -> None:
+    """Write combined assessment results from all models to a single CSV.
 
     Args:
-        assessments_lavaguard: List of assessment dictionaries from LavaGuard
-        assessments_qwen: List of assessment dictionaries from Qwen3
-        assessments_pixtral: List of assessment dictionaries from Pixtral
+        assessments: dict mapping model name → list[Rating]
         output_csv: Path to the output CSV file
     """
-    # Create a dictionary to group assessments by image name
-    combined = {}
+    model_names = list(assessments.keys())
+    combined: dict[str, dict] = {}
 
-    for assessment in assessments_lavaguard:
-        image_name = assessment.get("image", "")
-        if image_name not in combined:
-            combined[image_name] = {"image": image_name}
-        combined[image_name]["lavaguard_rating"] = assessment.get("rating", "Unknown")
-        combined[image_name]["lavaguard_category"] = assessment.get(
-            "category", "NA: None applying"
-        )
-        combined[image_name]["lavaguard_rationale"] = assessment.get("rationale", "")
+    for model_name, model_assessments in assessments.items():
+        for assessment in model_assessments:
+            image_name = assessment.image
+            if image_name not in combined:
+                combined[image_name] = {"image": image_name}
+            combined[image_name][f"{model_name}_rating"] = assessment.rating
+            combined[image_name][f"{model_name}_category"] = assessment.category
+            combined[image_name][f"{model_name}_rationale"] = assessment.rationale
 
-    for assessment in assessments_qwen:
-        image_name = assessment.get("image", "")
-        if image_name not in combined:
-            combined[image_name] = {"image": image_name}
-        combined[image_name]["qwen_rating"] = assessment.get("rating", "Unknown")
-        combined[image_name]["qwen_category"] = assessment.get(
-            "category", "NA: None applying"
-        )
-        combined[image_name]["qwen_rationale"] = assessment.get("rationale", "")
+    for row in combined.values():
+        ratings = [row.get(f"{name}_rating", "Unknown") for name in model_names]
+        row["majority_vote"] = calculate_majority_vote(ratings)
 
-    for assessment in assessments_pixtral:
-        image_name = assessment.get("image", "")
-        if image_name not in combined:
-            combined[image_name] = {"image": image_name}
-        combined[image_name]["pixtral_rating"] = assessment.get("rating", "Unknown")
-        combined[image_name]["pixtral_category"] = assessment.get(
-            "category", "NA: None applying"
-        )
-        combined[image_name]["pixtral_rationale"] = assessment.get("rationale", "")
-
-    # Calculate majority voting for each image
-    for image_name, row in combined.items():  # noqa: B007
-        lavaguard_rating = row.get("lavaguard_rating", "Unknown")
-        qwen_rating = row.get("qwen_rating", "Unknown")
-        pixtral_rating = row.get("pixtral_rating", "Unknown")
-
-        row["majority_vote"] = calculate_majority_vote(
-            lavaguard_rating, qwen_rating, pixtral_rating
-        )
-
-    # Define CSV header
-    header = [
-        "image",
-        "majority_vote",
-        "lavaguard_rating",
-        "lavaguard_category",
-        "lavaguard_rationale",
-        "qwen_rating",
-        "qwen_category",
-        "qwen_rationale",
-        "pixtral_rating",
-        "pixtral_category",
-        "pixtral_rationale",
+    header = ["image", "majority_vote"] + [
+        f"{name}_{field}"
+        for name in model_names
+        for field in ("rating", "category", "rationale")
     ]
 
-    # Write to CSV
     with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=header, extrasaction="ignore")
         writer.writeheader()
