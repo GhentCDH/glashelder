@@ -25,12 +25,19 @@ class HierarchicalConfig:
     min_cluster_size: int = 50
 
 
-def reduce_dimensions(embeddings, dimensions: int = 30):
-    umap_model = UMAP(n_components=dimensions, n_neighbors=15, min_dist=0.05)
+def reduce_dimensions(
+    embeddings, dimensions: int = 30, n_neighbors: int = 30, min_dist: float = 0.0
+):
+    umap_model = UMAP(
+        n_components=dimensions,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        metric="cosine",
+    )
     return umap_model.fit_transform(embeddings)
 
 
-def create_clusterer(latent, min_cluster_size: int = 50):
+def create_clusterer(latent, min_cluster_size: int = 30):
     clusterer = HDBSCAN(min_cluster_size=min_cluster_size)
     clusterer.fit(latent)
 
