@@ -104,14 +104,7 @@ def cluster():
     help="Cluster images using UMAP dimensionality reduction and HDBSCAN.",
 )
 @click.option(
-    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
-)
-@click.option(
-    "--embeddings", default=EMBEDDINGS_PATH, help="The path to a embeddings pickle file"
-)
-@click.option("--sample-size", default=100000, help="The amount of images to cluster")
-@click.option(
-    "--batch-size", default=64, help="The batch size for embeddings generation"
+    "--embeddings", default=EMBEDDINGS_PATH, help="Path of the embeddings pkl file"
 )
 @click.option(
     "-o",
@@ -127,16 +120,19 @@ def cluster():
     help="Whether or not to stop after reducing dimensions",
 )
 @click.option(
-    "--model",
-    default="clip",
-    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
-    help="Embedding model to use if generating embeddings",
+    "-n",
+    "--nbs",
+    default=30,
+    help="`n_neighbors` parameter of UMAP dimensionality reduction",
 )
-def do_clustering(
-    image_dir, embeddings, sample_size, batch_size, output_files, count, reduce, model
-):
+@click.option(
+    "-d",
+    "--md",
+    default=0.0,
+    help="`min_dist` parameter of UMAP dimensionality reduction",
+)
+def do_clustering(embeddings, output_files, count, reduce, nbs, md):
     from embed import (
-        get_embedder,
         load_embeddings,
     )
 
@@ -147,33 +143,16 @@ def do_clustering(
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
-    image_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
-
-    if embeddings is not None and os.path.exists(embeddings):
-        logger.info("Loading embeddings")
-        data = load_embeddings(embeddings)
-        image_paths = data["images"]
-        embeddings = data["embeddings"].to(device)
-        logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
-    else:
-        logger.info(f"Getting embedding model: {model}")
-        embedder = get_embedder(model)
-        embedder.load(device)
-        # Get all image paths
-        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
-            :sample_size
-        ]
-        logger.info("Generating image embeddings...")
-        embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
-        if len(image_paths) < len(input_paths):
-            logger.warning(
-                f"Skipped {len(input_paths) - len(image_paths)} images due to load errors"
-            )
+    logger.info("Loading embeddings")
+    data = load_embeddings(embeddings)
+    image_paths = data["images"]
+    embeddings = data["embeddings"].to(device)
+    logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
 
     logger.info("Reducing dimensions")
     # reduced_embeddings = embeddings.cpu().numpy()
-    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 30)
-    visualization_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 3)
+    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 30, nbs, md)
+    visualization_embeddings = reduce_dimensions(reduced_embeddings, 3, nbs, md)
 
     if reduce:
         log_reduced(visualization_embeddings, count=20000)
@@ -185,7 +164,7 @@ def do_clustering(
     # log to rerun
     logger.info("logging clustered points to rerun")
     log_clustered_points(visualization_embeddings, clusterer.labels_, count=count)
-    log_images_3d(visualization_embeddings, image_paths, 300)
+    log_images_3d(visualization_embeddings, image_paths, 500)
 
     # Get cluster labels
     labels = clusterer.labels_
