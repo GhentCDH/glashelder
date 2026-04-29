@@ -1,5 +1,25 @@
 import click
 
+from risk_assessment.models.safety_model import SafetyModel
+
+MODEL_REGISTRY: dict[str, type[SafetyModel]] = {}
+
+
+def _register_defaults() -> None:
+    from risk_assessment.models.model_LLavaguard import LavaGuard
+    from risk_assessment.models.model_Pixtral import Pixtral
+    from risk_assessment.models.model_Qwen3 import Qwen3
+
+    for cls in [LavaGuard, Qwen3, Pixtral]:
+        MODEL_REGISTRY[cls.name] = cls
+
+
+_register_defaults()
+
+
+def _model_classes_from_names(model_names: tuple[str, ...]) -> list[type[SafetyModel]]:
+    return [MODEL_REGISTRY[name] for name in model_names]
+
 
 @click.group()
 def risk_assessment():
@@ -11,15 +31,25 @@ def risk_assessment():
 @click.option(
     "--path",
     default=None,
-    type=click.Path(exists=True, file_okay=False),
+    type=click.Path(exists=True),
     help="Path to image folder to assess.",
 )
-def glaswacht(path):
+@click.option(
+    "--model",
+    "model_names",
+    multiple=True,
+    type=click.Choice(list(MODEL_REGISTRY.keys())),
+    default=list(MODEL_REGISTRY.keys()),
+    show_default=True,
+    help="Model(s) to run. Repeat to select multiple.",
+)
+def glaswacht(path, model_names):
     """Launch the Glaswacht TUI monitor."""
     from risk_assessment.glaswacht import MonitorApp
     from risk_assessment.orchestrator import Orchestrator
 
-    orchestrator = Orchestrator()
+    model_classes = _model_classes_from_names(model_names)
+    orchestrator = Orchestrator(model_classes)
     app = MonitorApp(orchestrator, image_path=path)
     app.run(mouse=False)
     app._stop_webviewer()
@@ -29,39 +59,22 @@ def glaswacht(path):
 @click.option(
     "--path", required=True, help="Path to image folder or single image file."
 )
-def run_lavaguard(path):
-    """Run only the LLavaGuard model."""
-    from risk_assessment.models.model_LLavaguard import run_lavaguard as _run
-    from risk_assessment.orchestrator import Orchestrator
-
-    orchestrator = Orchestrator()
-    _run(orchestrator, path)
-
-
-@risk_assessment.command()
 @click.option(
-    "--path", required=True, help="Path to image folder or single image file."
+    "--model",
+    "model_names",
+    multiple=True,
+    type=click.Choice(list(MODEL_REGISTRY.keys())),
+    default=list(MODEL_REGISTRY.keys()),
+    show_default=True,
+    help="Model(s) to run. Repeat to select multiple.",
 )
-def run_qwen(path):
-    """Run only the Qwen3 model."""
-    from risk_assessment.models.model_Qwen3 import run_qwen as _run
+def run(path, model_names):
+    """Run selected vision-language models on images."""
     from risk_assessment.orchestrator import Orchestrator
 
-    orchestrator = Orchestrator()
-    _run(orchestrator, path)
-
-
-@risk_assessment.command()
-@click.option(
-    "--path", required=True, help="Path to image folder or single image file."
-)
-def run_pixtral(path):
-    """Run only the Pixtral model."""
-    from risk_assessment.models.model_Pixtral import run_pixtral as _run
-    from risk_assessment.orchestrator import Orchestrator
-
-    orchestrator = Orchestrator()
-    _run(orchestrator, path)
+    model_classes = _model_classes_from_names(model_names)
+    orchestrator = Orchestrator(model_classes)
+    orchestrator.run_all(path)
 
 
 @risk_assessment.command()

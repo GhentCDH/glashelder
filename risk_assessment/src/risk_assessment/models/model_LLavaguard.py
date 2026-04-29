@@ -1,22 +1,22 @@
 import gc
 import logging
-import os
 
 import torch
-from PIL import Image
 from transformers import (
     AutoProcessor,
     BitsAndBytesConfig,
     LlavaOnevisionForConditionalGeneration,
 )
 
-from risk_assessment.models.utils import get_images, get_prompt, parse_output
-from risk_assessment.orchestrator import ModelLoadError, ModelStatus
+from risk_assessment.models.safety_model import Rating, SafetyModel
+from risk_assessment.models.utils import get_prompt, parse_output
 
 logger = logging.getLogger(__name__)
 
 
-class LavaGuard:
+class LavaGuard(SafetyModel):
+    name = "lavaguard"
+
     def __init__(self):
         self.model = None
         self.processor = None
@@ -100,70 +100,10 @@ class LavaGuard:
 
         output_text = processor.decode(output[0], skip_special_tokens=True)
 
-        assessment = parse_output(output_text)
-        assessment["image"] = image_name
-        return assessment
-
-
-def run_lavaguard(orchestrator, image_path):
-    orchestrator.update_model_state(
-        "model1", status=ModelStatus.LOADING, current_task="Loading LavaGuard model..."
-    )
-
-    model = LavaGuard()
-    try:
-        model.load_model()
-    except Exception as exc:
-        orchestrator.update_model_state(
-            "model1",
-            status=ModelStatus.ERROR,
-            current_task=f"Model load failed: {exc}",
+        result = parse_output(output_text)
+        return Rating(
+            rating=result.get("rating", "Unknown"),
+            category=result.get("category", "NA: None applying"),
+            rationale=result.get("rationale", ""),
+            image=image_name,
         )
-        raise ModelLoadError(str(exc)) from exc
-
-    try:
-        orchestrator.update_model_state(
-            "model1", status=ModelStatus.RUNNING, current_task="Processing images..."
-        )
-
-        image_files = get_images(image_path)
-        logger.info("LavaGuard: processing %d images", len(image_files))
-        for i, image_file in enumerate(image_files):
-            image_name = os.path.basename(image_file)
-            orchestrator.update_model_state(
-                "model1",
-                current_task=f"Processing image {i + 1}/{len(image_files)}",
-                latest_image=image_name,
-            )
-            try:
-                image = Image.open(image_file).convert("RGB")
-                assessment = model.process_image(image, image_name)
-            except Exception as exc:
-                logger.warning(
-                    "LavaGuard skipped %s: %s", image_name, exc, exc_info=True
-                )
-                orchestrator.update_model_state(
-                    "model1",
-                    current_task=f"Skipped {image_name}: {exc}",
-                )
-                continue
-
-            orchestrator.assessments_lavaguard.append(assessment)
-            logger.info(
-                "LavaGuard [%d/%d] %s → %s",
-                i + 1,
-                len(image_files),
-                image_name,
-                assessment.get("rating", "Unknown"),
-            )
-            orchestrator.update_model_state(
-                "model1", latest_rating=assessment.get("rating", "Unknown")
-            )
-            orchestrator.update_majority_votes_live()
-
-        orchestrator.update_model_state(
-            "model1", status=ModelStatus.DONE, current_task="Done"
-        )
-        return orchestrator.assessments_lavaguard
-    finally:
-        model.unload_model()
