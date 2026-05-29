@@ -15,7 +15,7 @@ services:
     ports:
       - "5000:5000"
       - "8888:8888"
-    shm_size: 3g
+    shm_size: 16g
     ulimits:
       memlock: -1
       stack: 67108864
@@ -23,6 +23,8 @@ services:
     env_file: .env
     deploy:
       resources:
+        limits:
+          cpus: 5
         reservations:
           devices:
             - driver: nvidia
