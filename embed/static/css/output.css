@@ -1,4 +1,4 @@
-/*! tailwindcss v4.1.17 | MIT License | https://tailwindcss.com */
+/*! tailwindcss v4.3.0 | MIT License | https://tailwindcss.com */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 @layer properties;
 @layer theme, base, components, utilities;
@@ -8,6 +8,7 @@
       "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
     --font-mono: 'JetBrains Mono', monospace;
     --color-red-500: oklch(63.7% 0.237 25.331);
+    --color-neutral-300: oklch(87% 0 0);
     --color-neutral-500: oklch(55.6% 0 0);
     --color-black: #000;
     --color-white: #fff;
@@ -174,6 +175,12 @@
   }
 }
 @layer utilities {
+  .absolute {
+    position: absolute;
+  }
+  .relative {
+    position: relative;
+  }
   .static {
     position: static;
   }
@@ -195,8 +202,8 @@
   .flex {
     display: flex;
   }
-  .grid {
-    display: grid;
+  .hidden {
+    display: none;
   }
   .max-w-lg {
     max-width: var(--container-lg);
@@ -210,8 +217,14 @@
   .cursor-pointer {
     cursor: pointer;
   }
+  .items-center {
+    align-items: center;
+  }
   .items-end {
     align-items: flex-end;
+  }
+  .gap-2 {
+    gap: calc(var(--spacing) * 2);
   }
   .gap-4 {
     gap: calc(var(--spacing) * 4);
@@ -233,14 +246,27 @@
     border-style: var(--tw-border-style);
     border-width: 2px;
   }
+  .border-dashed {
+    --tw-border-style: dashed;
+    border-style: dashed;
+  }
   .border-black {
     border-color: var(--color-black);
+  }
+  .border-neutral-300 {
+    border-color: var(--color-neutral-300);
   }
   .bg-black {
     background-color: var(--color-black);
   }
+  .bg-white {
+    background-color: var(--color-white);
+  }
   .p-3 {
     padding: calc(var(--spacing) * 3);
+  }
+  .p-4 {
+    padding: calc(var(--spacing) * 4);
   }
   .p-8 {
     padding: calc(var(--spacing) * 8);
@@ -265,6 +291,12 @@
   }
   .break-all {
     word-break: break-all;
+  }
+  .text-neutral-500 {
+    color: var(--color-neutral-500);
+  }
+  .text-red-500 {
+    color: var(--color-red-500);
   }
   .text-white {
     color: var(--color-white);
