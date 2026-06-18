@@ -3,7 +3,7 @@ from pathlib import Path
 
 import click
 
-from preprocessing.bounding import _find_bounding_box
+from preprocessing.bounding import _find_bounding_box, save_bounding_boxes
 
 
 @click.group()
@@ -133,7 +133,6 @@ def bounding_box(image_dir: Path, crops_dir: Path, output: Path):
     Assumes that all images in `images_dir` have a corresponding image in `crops_dir` with the same filename.
     """
 
-    import json
     import logging
 
     from rich.progress import (
@@ -180,5 +179,4 @@ def bounding_box(image_dir: Path, crops_dir: Path, output: Path):
             log.warning("interrupted, shutting down workers...")
             executor.shutdown(wait=False, cancel_futures=True)
 
-    with open(output, "w") as f:
-        json.dump(bounding_boxes, f, ensure_ascii=False)
+    save_bounding_boxes(bounding_boxes, output)
