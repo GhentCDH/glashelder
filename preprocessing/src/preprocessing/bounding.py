@@ -1,9 +1,37 @@
+from dataclasses import asdict, dataclass
 from pathlib import Path
+
+
+@dataclass
+class BoundingBox:
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+def load_bounding_boxes(path: Path) -> dict[str, BoundingBox]:
+    """Load a bounding-box JSON into {stem: BoundingBox}."""
+    import json
+
+    with open(path) as f:
+        raw = json.load(f)
+    return {stem: BoundingBox(**box) for stem, box in raw.items()}
+
+
+def save_bounding_boxes(boxes: dict[str, BoundingBox], path: Path) -> None:
+    """Dump {stem: BoundingBox} to JSON."""
+    import json
+
+    with open(path, "w") as f:
+        json.dump(
+            {stem: asdict(box) for stem, box in boxes.items()}, f, ensure_ascii=False
+        )
 
 
 def _find_bounding_box(
     img_path: Path, crops_dir: Path
-) -> tuple[str, dict | None, list[tuple[str, str]]]:
+) -> tuple[str, BoundingBox | None, list[tuple[str, str]]]:
     """Returns (stem, box_or_none, log_messages)."""
     import cv2
 
@@ -35,4 +63,4 @@ def _find_bounding_box(
     messages.append(
         ("info", f"  {img_path.stem}: found bounding box {x=} {y=} {w=} {h=}")
     )
-    return img_path.stem, {"x": x, "y": y, "w": w, "h": h}, messages
+    return img_path.stem, BoundingBox(x=int(x), y=int(y), w=int(w), h=int(h)), messages
