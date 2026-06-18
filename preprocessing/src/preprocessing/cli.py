@@ -1,4 +1,9 @@
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+
 import click
+
+from preprocessing.bounding import _find_bounding_box
 
 
 @click.group()
@@ -98,3 +103,82 @@ def preprocessing_on_image(model_path, image_folder, output_folder):
     from .yolo_cropper import run_crop_on_batch_of_images as rcbi
 
     rcbi(model_path, image_folder, output_folder)
+
+
+@preprocessing.command()
+@click.option(
+    "-i",
+    "--image-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Directory where the uncropped images are located",
+)
+@click.option(
+    "-c",
+    "--crops-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Directory where the cropped images are located",
+)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    help="Json path where output bounding boxes will be saved to",
+)
+def bounding_box(image_dir: Path, crops_dir: Path, output: Path):
+    """Generate a JSON of bounding boxes for all image -> crop pairs.
+
+    Assumes that all images in `images_dir` have a corresponding image in `crops_dir` with the same filename.
+    """
+
+    import json
+    import logging
+
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
+
+    log = logging.getLogger(__name__)
+
+    bounding_boxes = {}
+
+    img_paths = list(image_dir.glob("*.jpg"))
+
+    log.info(f"total {len(img_paths)} to check")
+
+    with ProcessPoolExecutor() as executor:
+        futures = {
+            executor.submit(_find_bounding_box, p, crops_dir): p for p in img_paths
+        }
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TaskProgressColumn(),
+            ) as progress:
+                task = progress.add_task(
+                    "finding bounding boxes from crops", total=len(img_paths)
+                )
+
+                for future in as_completed(futures):
+                    stem, box, messages = future.result()
+                    for level, msg in messages:
+                        getattr(log, level)(msg)
+                    if box is not None:
+                        bounding_boxes[stem] = box
+                    progress.advance(task)
+        except KeyboardInterrupt:
+            log.warning("interrupted, shutting down workers...")
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    with open(output, "w") as f:
+        json.dump(bounding_boxes, f, ensure_ascii=False)
