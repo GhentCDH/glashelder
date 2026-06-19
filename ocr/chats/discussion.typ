@@ -1,13 +1,15 @@
 #import "@preview/cmarker:0.1.8"
+#import "@preview/bulb:0.2.1": dither
+#import "@preview/based:0.2.0": base64
 
-#import "lib.typ": answer, img, question, answer, set-theme, chat
+#import "lib.typ": answer, chat, img, question, set-theme
 
 // #set page(margin: 10pt, width: auto, height: auto)
-#let bg = rgb("#FAF4ED")
+#let bg = oklch(rgb("#FAF4ED"))
 #let fg = oklch(25%, 20%, 40deg)
 
-#let bg = oklch(93%, 1.87%, 179.47deg)
-#let fg = bg.darken(90%)
+#let bg = oklch(rgb("#e6eff1"))
+#let fg = bg.darken(70%)
 
 // #let bg = white
 // #let fg = black
@@ -26,6 +28,7 @@
 #show heading: set text(..heading-font)
 #set heading(numbering: "A.1", supplement: "hfdstk.")
 #show raw.where(block: true): set block(fill: bg.darken(5%), inset: 5pt, radius: 12pt)
+#show raw.where(block: true): set align(center)
 
 #let title = [Glashelder: OCR Experiments log]
 
@@ -128,3 +131,132 @@ De keuze tussen de beschikbare modellen lijkt mij minder interessant om veel tij
 De volgende tests gaan verder met `Qwen3.5`.
 
 = Structured Output (`json`)
+
+In dit experiment beginnen we met automatisatie van het bevragen van
+de VLM modellen.
+
+Geen chat-interface meer, maar API requests met de OpenAPI-compatibele
+interface van VLLM. Op die manier kunnen we zelf aangeven in welk formaat we verwachten dat de LLM antwoordt, en welke velden er in moeten staan.
+
+In de vorige experimenten vroegen we gewoon om alle tekst te geven die in de afbeelding staat, maar het model geeft niet duidelijk en eenduidig aan waar ze deze vandaan heeft gehaald.
+Voor glashelder is het belangrijk dat we weten of de tekst deel was van de foto zelf, of van de annotaties op de glasplaat.
+
+Nu kunnen we opleggen dat het model haar antwoorden opsplitst in `content` en `meta` tekst.
+
+Het maakt het ook veel eenvoudiger om grotere sets van afbeeldingen te verwerken:
+
+#align(center, block(width: 70%, figure(
+  grid(
+    columns: (1fr, 1fr, 1fr, 1fr, 1fr),
+    rows: 50pt,
+    gutter: 10pt,
+    ..toml("./images.toml")
+      .paths
+      .map(i => image(
+        dither(
+          read(i, encoding: none),
+          size: 100,
+          palette: (fg, bg),
+        ),
+        width: 100%,
+        height: 50pt,
+        fit: "contain",
+      ))
+  ),
+  caption: [een reeks afbeeldingen die aan `Qwen 3.5` werd gegeven],
+)))
+
+Hier is de `json` structuur die we opleggen aan de antwoorden van het model:
+
+```py
+_TEXT_ENTRY = {
+    "type": "object",
+    "properties": {"text": {"type": "string"}},
+    "required": ["text"],
+    "additionalProperties": False,
+}
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "meta": {"type": "array", "items": _TEXT_ENTRY},
+        "content": {"type": "array", "items": _TEXT_ENTRY},
+    },
+    "required": ["meta", "content"],
+    "additionalProperties": False,
+}
+```
+
+This means that we'll get responses that look like this:
+
+```json
+{
+  "meta": [
+    {"text": "BW 41254"}
+  ],
+  "content": [
+    {"text": "Groeten uit"},
+    {"text": "BRUSSEGEM"}
+  ],
+}
+```
+
+== Één prompt
+
+De bovenstaande reeks afbeeldingen werden gegeven aan `Qwen 3.5` met de volgende prompt:
+
+#raw(read("prompt2.md"), lang: "md", block: true)
+
+Deze aanpak bleek al snel te simpel.
+Het model slaagt er in de meeste gevallen in om de tekst op de labels te onderscheiden van
+tekst op de foto zelf, maar in situaties waar de foto zelf eerder 'grafisch' is maakt het fouten.
+
+Bijvoorbeeld:
+
+#img("./assets/glas/0000032h8q_tiff.jpg")
+#question("... prompt ...")
+#show raw.where(block: true): set align(left)
+#raw(read("./assets/jsons-one-prompt/0000032h8q_tiff.json"), lang: "json", block: true)
+#show raw.where(block: true): set align(center)
+
+De tekst 'Groeten uit BRUSSEGEM' is juist getranscribeerd, maar staat effectief in het bronmateriaal zelf,
+terwijl `Qwen` het bij `meta` zet. Waarschijnlijk is het in de war omdat de tekst lijkt alsof het geschreven is op stickers
+die op de foto geplakt zijn, net zoals bij de annotaties van de glasplaat vaak het geval is.
+
+#pagebreak(weak: true)
+== Conditionele Prompts
+
+We hebben al gecropte versies van de afbeeldingen en we weten de bounding boxes van die crops.
+
+Daarmee kunnen we een opsplitsing maken:
+
+1. De hele glasplaatscan is inhoudelijk (aka `crop == image`)
+  - geef de afbeelding as-is met een prompt die aanduidt dat all tekst in `content` moet komen
+2. De glasplaatscan heeft een inhoudelijke crop en randen
+  - geef twee afbeeldingen:
+    + crop (die dus enkel inhoudt bevat)
+    + volledige scan, met blurry inhoud
+  - en bijhorende prompts
+
+Bijvoorbeeld:
+
+#let _images(data) = {
+  let img1 = data.input.at(1).image_url.url
+  let b64 = img1.split(",").last()
+  let img-data1 = bytes(base64.decode(b64))
+  let img2 = data.input.at(2).image_url.url
+  let b64 = img2.split(",").last()
+  let img-data2 = bytes(base64.decode(b64))
+  (img-data1, img-data2)
+}
+
+#let data = json("./assets/jsons-conditional/0000032r8n_tiff.json")
+#let (im1, im2) = _images(data)
+#img(image(im1, format: "jpg", height: 200pt))
+#img(image(im2, format: "jpg", height: 200pt))
+#{ data.output.meta = data.output.meta.slice(0, count: 4) }
+#{ data.output.content = data.output.content.slice(0, count: 4) }
+#answer(json.encode(data.output))
+
+Het antwoord van het model werd hier ingekort voor de duidelijkheid.
+
+Met deze toevoeging slaagt het model er steeds in de gevonden tekst in het juiste veld te plaatsen.

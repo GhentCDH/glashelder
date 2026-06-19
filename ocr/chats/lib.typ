@@ -56,7 +56,9 @@
   set text(..font)
   set align(right)
   let theme = _theme.get()
-  let img = if theme.at("dither", default: false) {
+  let img = if type(i) == content {
+    i
+  } else if theme.at("dither", default: false) {
     image(
       dither(
         read(i, encoding: none),
@@ -74,10 +76,15 @@
   } else {
     image(i, width: 100%, height: 300pt, fit: "contain")
   }
+  let caption = if type(i) == content {
+    "image"
+  } else {
+    i.split("/").last()
+  }
   block(width: width)[
     #figure(
       img,
-      caption: i.split("/").last(),
+      caption: caption,
     )
 
     #if p != none {
