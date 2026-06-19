@@ -1,0 +1,111 @@
+[
+  {
+    "id": "25efd5f0-9fbc-4402-b31a-35ae2087678d",
+    "user_id": "13c9b074-c60a-4889-9242-f5eb685ee2fc",
+    "title": "📝 Image Text Transcription",
+    "chat": {
+      "id": "25efd5f0-9fbc-4402-b31a-35ae2087678d",
+      "title": "📝 Image Text Transcription",
+      "models": ["gemma4-26b"],
+      "history": {
+        "currentId": "1cf84217-8c29-4101-89ef-6a22550eab47",
+        "messages": {
+          "9e414b00-89dc-4987-bd4f-5ca3ba92f3a4": {
+            "id": "9e414b00-89dc-4987-bd4f-5ca3ba92f3a4",
+            "parentId": null,
+            "childrenIds": ["1cf84217-8c29-4101-89ef-6a22550eab47"],
+            "role": "user",
+            "content": "You are an expert transcription assistant. Your task is to extract ALL readable text from this image; including printed text, handwritten annotations, labels, captions, stamps, and any text visible within photographs or illustrations.\nStructure your response as follows:\n### Transcription\nFor each distinct region containing text, output a labeled block:\n**[Region label, e.g. \"Photograph\", \"Top margin\", \"Bottom label\", \"Stamp\", \"Caption\"]**\n> [Exact transcribed text, preserving line breaks]\nRules:\n- Transcribe every piece of readable text you can find, no matter how small or faint\n- Preserve original spelling, punctuation, and line breaks exactly\n- If text is partially illegible, include what you can read and mark unclear parts with [?]\n- Do not summarize, paraphrase, or skip any text\n- Do not add commentary or explanation — only the structured transcription above",
+            "files": [
+              {
+                "type": "file",
+                "file": {
+                  "id": "c1a6713c-a663-41ba-b318-5405276e39c4",
+                  "user_id": "13c9b074-c60a-4889-9242-f5eb685ee2fc",
+                  "hash": null,
+                  "filename": "h707w99b07_tiff.jpg",
+                  "data": {},
+                  "meta": {
+                    "name": "h707w99b07_tiff.jpg",
+                    "content_type": "image/jpeg",
+                    "size": 433404,
+                    "file_hash": "b51b52c9f1d55fc324677753f64c09d8e83cb06c4f8a15685e9bfccf31754988",
+                    "data": {}
+                  },
+                  "created_at": 1781851816,
+                  "updated_at": 1781851816
+                },
+                "id": "c1a6713c-a663-41ba-b318-5405276e39c4",
+                "url": "c1a6713c-a663-41ba-b318-5405276e39c4",
+                "name": "h707w99b07_tiff.jpg",
+                "status": "uploaded",
+                "size": 433404,
+                "error": "",
+                "itemId": "44420b12-3315-4abe-aaf6-9b1b89713335",
+                "content_type": "image/jpeg"
+              }
+            ],
+            "timestamp": 1781851818,
+            "models": ["gemma4-26b"]
+          },
+          "1cf84217-8c29-4101-89ef-6a22550eab47": {
+            "id": "1cf84217-8c29-4101-89ef-6a22550eab47",
+            "parentId": "9e414b00-89dc-4987-bd4f-5ca3ba92f3a4",
+            "childrenIds": [],
+            "role": "assistant",
+            "content": "### Transcription\n\n**[Signpost]**\n- 5 OLV WAER\n- KEERBERGEN 7\n- 7,5 HEIST %BERG\n- MECHELEN 11,1\n\n**[Building Gables]**\n- 1668",
+            "done": true,
+            "model": "gemma4-26b",
+            "timestamp": 1781851818,
+            "output": [
+              {
+                "type": "message",
+                "id": "msg_7c994930c3f2424791ec338e",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "### Transcription\n\n**[Signpost]**\n> 5 OLV WAER\n> KEERBERGEN 7\n> 7,5 HEIST %BERG\n> MECHELEN 11,1\n\n**[Building Gables]**\n> 1668"
+                  }
+                ]
+              }
+            ],
+            "followUps": [
+              "Can you double-check the handwritten numbers in the signpost for accuracy?",
+              "Are there any other faint marks or stamps on the image that I might have missed?",
+              "Could you provide a more detailed transcription of the numbers on the building gable?",
+              "Can you translate the text from the signpost into English?"
+            ]
+          }
+        }
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "You are an expert transcription assistant. Your task is to extract ALL readable text from this image; including printed text, handwritten annotations, labels, captions, stamps, and any text visible within photographs or illustrations.\nStructure your response as follows:\n### Transcription\nFor each distinct region containing text, output a labeled block:\n**[Region label, e.g. \"Photograph\", \"Top margin\", \"Bottom label\", \"Stamp\", \"Caption\"]**\n> [Exact transcribed text, preserving line breaks]\nRules:\n- Transcribe every piece of readable text you can find, no matter how small or faint\n- Preserve original spelling, punctuation, and line breaks exactly\n- If text is partially illegible, include what you can read and mark unclear parts with [?]\n- Do not summarize, paraphrase, or skip any text\n- Do not add commentary or explanation — only the structured transcription above"
+        }
+      ],
+      "files": [],
+      "tags": [],
+      "timestamp": 1781851818941
+    },
+    "updated_at": 1781851826,
+    "created_at": 1781851818,
+    "share_id": null,
+    "archived": false,
+    "pinned": false,
+    "meta": {
+      "tags": [
+        "technology",
+        "artificial_intelligence",
+        "image_processing",
+        "transcription"
+      ]
+    },
+    "folder_id": null,
+    "tasks": null,
+    "summary": null
+  }
+]
+
