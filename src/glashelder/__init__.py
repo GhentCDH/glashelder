@@ -4,6 +4,7 @@ import logging
 
 import click
 from dotenv import load_dotenv
+from rich.console import Console
 from rich.logging import RichHandler
 from rich.traceback import install
 
@@ -20,6 +21,7 @@ logging.basicConfig(
     datefmt=DATE_FORMAT,
     handlers=[
         RichHandler(
+            console=Console(stderr=True),
             rich_tracebacks=True,
             tracebacks_show_locals=True,
             show_time=True,
@@ -43,6 +45,7 @@ def register_commands():
     from classification.cli import classification
     from cluster.cli import cluster
     from embed.cli import embed
+    from ocr.cli import ocr
     from preprocessing.cli import preprocessing
     from qwenvlm.cli import qwenvlm
     from risk_assessment.cli import risk_assessment
@@ -54,6 +57,7 @@ def register_commands():
     main.add_command(risk_assessment)
     main.add_command(artmatcher)
     main.add_command(embed)
+    main.add_command(ocr)
 
 
 # Register commands on import so the CLI sees them.

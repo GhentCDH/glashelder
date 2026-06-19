@@ -17,6 +17,7 @@ dependencies = [
   "qwenvlm",
   "embed",
   "artmatcher",
+  "ocr",
   "click>=8.3.1",
   "python-dotenv>=1.1.0",
   "opencv-python>=4.11.0.86",
@@ -48,10 +49,11 @@ artmatcher = { workspace = true }
 embed = { workspace = true }
 torch = { index = "pytorch", marker = "sys_platform != 'darwin'" }
 torchvision = { index = "pytorch", marker = "sys_platform != 'darwin'" }
+ocr = { workspace = true }
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu126"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv.workspace]
@@ -64,6 +66,7 @@ members = [
   "risk_assessment",
   "artmatcher",
   "embed",
+  "ocr",
 ]
 
 [tool.ruff]
@@ -101,6 +104,7 @@ known-first-party = [
   "artmatcher",
   "embed",
   "risk_assessment",
+  "ocr",
 ]
 
 [tool.ty.environment]
@@ -113,6 +117,7 @@ root = [
   "risk_assessment",
   "artmatcher",
   "embed",
+  "ocr",
 ]
 
 [build-system]
