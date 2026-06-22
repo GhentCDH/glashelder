@@ -2,7 +2,11 @@ import base64
 import io
 import json
 import logging
+import os
+import random
+import subprocess
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -10,6 +14,7 @@ import click
 from rich.console import Console
 from rich.json import JSON
 
+from ocr.annotation import Annotation, annotation_from_ocr, parse_buffer, render_buffer
 from preprocessing.bounding import BoundingBox, load_bounding_boxes
 
 if TYPE_CHECKING:
@@ -276,3 +281,136 @@ def many(
         out = output / f"{image.stem}.json"
         out.write_text(text)
         log.info(f"wrote {str(out)!r}")
+
+
+# how many candidates to buffer before shuffling; gives random order without
+# walking the whole (network) share up front
+_SHUFFLE_BUFFER = 512
+
+
+def _candidate_images(images: Path, output: Path, buffer: int = _SHUFFLE_BUFFER):
+    """Yield un-annotated jpgs in (locally) random order, lazily from the share."""
+    buf = []
+    for image in images.glob("*.jpg"):
+        if (output / f"{image.stem}.json").exists():
+            continue
+        buf.append(image)
+        if len(buf) >= buffer:
+            random.shuffle(buf)
+            yield from buf
+            buf = []
+    random.shuffle(buf)
+    yield from buf
+
+
+@ocr.command()
+@click.option(
+    "-i",
+    "--images",
+    default=lambda: os.environ.get("ASSETS_DIR"),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Directory of images to annotate [default: $ASSETS_DIR]",
+)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    help="Directory to write annotation jsons (same stem as image)",
+)
+@click.option(
+    "-n", "--count", default=50, show_default=True, help="Max images this session"
+)
+@click.option(
+    "--base-url",
+    default="http://localhost:8000",
+    show_default=True,
+    help="vLLM service base URL (used to pre-fill the editor)",
+)
+@click.option(
+    "-b",
+    "--boxes",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="BoundingBox JSON; box (keyed by image stem) drives blur/crop strategy",
+)
+@click.option("--model", default=None, help="Model id (skips interactive selection)")
+def annotate(
+    images: Path | None,
+    output: Path,
+    count: int,
+    base_url: str,
+    boxes: Path | None,
+    model: str | None,
+):
+    """Hand-transcribe images in an editor, pre-filled by the VLM, one at a time."""
+    if images is None:
+        raise click.UsageError("no --images given and $ASSETS_DIR is not set")
+
+    base_url = base_url.rstrip("/")
+    console = Console()
+    model = model or _pick_model(base_url, console)
+    log.info(f"selected model {model!r}")
+
+    box_map = load_bounding_boxes(boxes) if boxes else {}
+    output.mkdir(exist_ok=True)
+
+    def seed(image: Path) -> Annotation:
+        """VLM transcription of one image -> editor pre-fill (empty on failure)."""
+        try:
+            text = _ocr_image(image, base_url, model, box_map.get(image.stem))
+            return annotation_from_ocr(text)
+        except Exception as e:
+            log.warning(f"VLM seed failed for {image.stem}: {e}")
+            return Annotation()
+
+    candidates = _candidate_images(images, output)
+    cur = next(candidates, None)
+    if cur is None:
+        log.info("no un-annotated images found, nothing to do")
+        return
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(seed, cur)  # kick off image 1
+        while cur is not None and done < count:
+            nxt = next(candidates, None)
+            nxt_fut = (
+                ex.submit(seed, nxt) if nxt else None
+            )  # start N+1 before editing N
+
+            ann_seed = fut.result()
+            log.info(f"annotating {cur.name} ({done + 1}/{count})")
+            # detached: xdg-open/loupe must not block the editor (run() would wait on it)
+            subprocess.Popen(
+                ["xdg-open", str(cur)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            # nvim owns the terminal; mute the background prefetch thread's logs so
+            # they don't corrupt its TUI. HTTP prefetch keeps running, just silently.
+            logging.disable(logging.CRITICAL)
+            try:
+                edited = click.edit(
+                    render_buffer(cur.name, ann_seed, done + 1, count), extension=".txt"
+                )
+            finally:
+                logging.disable(logging.NOTSET)
+
+            if edited is None:  # editor aborted (:cq / unchanged) -> quit
+                log.info("editor aborted, stopping")
+                break
+            ann, quit = parse_buffer(edited)
+            if quit:
+                log.info("'quit' received, stopping")
+                break
+            if ann.is_empty():
+                log.info(f"empty annotation for {cur.name}, skipping")
+            else:
+                ann.save(output / f"{cur.stem}.json")
+                done += 1
+                log.info(f"wrote {cur.stem}.json")
+
+            cur, fut = nxt, nxt_fut
+
+    log.info(f"done, {done} annotation(s) written to {str(output)!r}")
