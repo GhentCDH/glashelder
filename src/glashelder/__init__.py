@@ -49,6 +49,7 @@ def register_commands():
     from preprocessing.cli import preprocessing
     from qwenvlm.cli import qwenvlm
     from risk_assessment.cli import risk_assessment
+    from metadata_extraction.cli import metadata_extraction
 
     main.add_command(cluster)
     main.add_command(qwenvlm)
@@ -58,6 +59,7 @@ def register_commands():
     main.add_command(artmatcher)
     main.add_command(embed)
     main.add_command(ocr)
+    main.add_command(metadata_extraction)
 
 
 # Register commands on import so the CLI sees them.

@@ -15,6 +15,7 @@ members = [
     "common",
     "embed",
     "glashelder",
+    "metadata-extraction",
     "ocr",
     "preprocessing",
     "qwenvlm",
@@ -684,6 +685,7 @@ dependencies = [
     { name = "flask" },
     { name = "jupyter" },
     { name = "llvmlite" },
+    { name = "metadata-extraction" },
     { name = "ocr" },
     { name = "opencv-python" },
     { name = "pillow" },
@@ -719,6 +721,7 @@ requires-dist = [
     { name = "flask", specifier = ">=3.0.0" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "llvmlite", specifier = ">=0.43" },
+    { name = "metadata-extraction", editable = "metadata_extraction" },
     { name = "ocr", editable = "ocr" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
     { name = "pillow", specifier = ">=12.0.0" },
@@ -1488,6 +1491,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
 ]
+
+[[package]]
+name = "metadata-extraction"
+version = "0.1.0"
+source = { editable = "metadata_extraction" }
+dependencies = [
+    { name = "click" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "click", specifier = ">=8.3.1" }]
 
 [[package]]
 name = "mistune"

@@ -33,6 +33,7 @@ dependencies = [
   "accelerate==1.12.0",
   "llvmlite>=0.43",
   "flask>=3.0.0",
+  "metadata-extraction",
 ]
 
 [project.scripts]
@@ -50,6 +51,7 @@ embed = { workspace = true }
 torch = { index = "pytorch", marker = "sys_platform != 'darwin'" }
 torchvision = { index = "pytorch", marker = "sys_platform != 'darwin'" }
 ocr = { workspace = true }
+metadata-extraction = { workspace = true }
 
 [[tool.uv.index]]
 name = "pytorch"
@@ -67,6 +69,7 @@ members = [
   "artmatcher",
   "embed",
   "ocr",
+  "metadata_extraction",
 ]
 
 [tool.ruff]
