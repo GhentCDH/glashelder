@@ -41,6 +41,8 @@ def main():
 
 def register_commands():
     # register cli commands defined in other files
+    from metadata_extraction.cli import metadata_extraction
+
     from artmatcher.cli import artmatcher
     from classification.cli import classification
     from cluster.cli import cluster
@@ -49,7 +51,6 @@ def register_commands():
     from preprocessing.cli import preprocessing
     from qwenvlm.cli import qwenvlm
     from risk_assessment.cli import risk_assessment
-    from metadata_extraction.cli import metadata_extraction
 
     main.add_command(cluster)
     main.add_command(qwenvlm)
