@@ -9,12 +9,24 @@ import subprocess
 import tempfile
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 from rich.json import JSON
+from rich.logging import RichHandler
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 from ocr.annotation import Annotation, annotation_from_ocr, parse_buffer, render_buffer
 from preprocessing.bounding import BoundingBox, load_bounding_boxes
@@ -395,7 +407,7 @@ def annotate(
                     ex.submit(seed, nxt) if nxt else None
                 )  # start N+1 before editing N
 
-                local, ann_seed = fut.result()
+                local, ann_seed = fut.result()  # type:ignore
                 view = local or cur  # fall back to mount path only if the copy failed
                 log.info(f"annotating {cur.name} ({done + 1}/{count})")
                 # detached: xdg-open/loupe must not block the editor (run() would wait)
@@ -434,3 +446,106 @@ def annotate(
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     log.info(f"done, {done} annotation(s) written to {str(output)!r}")
+
+
+@ocr.command()
+@click.option(
+    "-i",
+    "--images",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Directory where the images reside",
+)
+@click.option(
+    "-l",
+    "--labels",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Directory where the ground truth labels reside",
+)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    help="File path to write validation report to",
+)
+@click.option(
+    "--base-url",
+    default="http://localhost:8000",
+    show_default=True,
+    help="vLLM service base URL (used to pre-fill the editor)",
+)
+@click.option(
+    "-b",
+    "--boxes",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="BoundingBox JSON; box (keyed by image stem) drives blur/crop strategy",
+)
+@click.option("--model", default=None, help="Model id (skips interactive selection)")
+def validate(
+    images: Path,
+    labels: Path,
+    output: Path,
+    base_url: str,
+    boxes: Path | None,
+    model: str | None,
+):
+    from ocr.validation import validate as vd
+
+    base_url = base_url.rstrip("/")
+    console = Console()
+
+    rich_handler = next(
+        (h for h in logging.getLogger().handlers if isinstance(h, RichHandler)), None
+    )
+    if rich_handler:
+        rich_handler.console = console
+
+    model = model or _pick_model(base_url, console)
+    log.info(f"selected model {model!r}")
+
+    pairs = {}
+
+    gts = list(labels.glob("*.json"))
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Predicting...", total=len(gts))
+        for annotation in gts:
+            image = images / annotation.with_suffix(".jpg").name
+
+            if not image.exists():
+                log.error(f"{image!r} doesn't exist!")
+                continue
+
+            try:
+                box = load_bounding_boxes(boxes).get(image.stem) if boxes else None
+                ground_truth: Annotation = Annotation.load(annotation)
+                result = json.loads(_ocr_image(image, base_url, model, box, True))
+                data = result["output"]
+                data = {
+                    "meta": [i["text"] for i in data["meta"]],
+                    "content": [i["text"] for i in data["content"]],
+                }
+                prediction: Annotation = Annotation.from_dict(data)
+
+                pairs[annotation.stem] = (ground_truth, prediction)
+            except Exception as e:
+                log.error(e)
+
+            progress.advance(task)
+
+    report = vd(pairs)
+
+    with open(output, "w") as f:
+        json.dump(asdict(report), f, ensure_ascii=False, indent=2)

@@ -18,6 +18,14 @@ class Annotation:
     def load(cls, path: Path) -> "Annotation":
         return cls(**json.loads(path.read_text()))
 
+    @classmethod
+    def from_str(cls, data: str) -> "Annotation":
+        return cls(**json.loads(data))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Annotation":
+        return cls(**data)
+
 
 # section headers in the editor buffer
 _CONTENT = "[content]"
