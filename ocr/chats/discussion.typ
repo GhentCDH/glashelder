@@ -153,11 +153,7 @@ Het maakt het ook veel eenvoudiger om grotere sets van afbeeldingen te verwerken
     ..toml("./images.toml")
       .paths
       .map(i => image(
-        dither(
-          read(i, encoding: none),
-          size: 100,
-          palette: (fg, bg),
-        ),
+        i,
         width: 100%,
         height: 50pt,
         fit: "contain",
@@ -260,3 +256,7 @@ Bijvoorbeeld:
 Het antwoord van het model werd hier ingekort voor de duidelijkheid.
 
 Met deze toevoeging slaagt het model er steeds in de gevonden tekst in het juiste veld te plaatsen.
+
+#include "validation-report.typ"
+
+#include "report.typ"
