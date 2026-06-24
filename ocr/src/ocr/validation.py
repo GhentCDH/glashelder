@@ -36,7 +36,16 @@ class WordResult:
     gt: str
     match: str | None  # best in-section candidate
     sim: float  # best in-section similarity [0,1]
+    sim_other: float  # best similarity in the *other* section [0,1]
     status: str  # found | misplaced | missed
+
+
+def _status(sim: float, sim_other: float, tau: float) -> str:
+    if sim >= tau:
+        return "found"
+    if sim_other >= tau:
+        return "misplaced"
+    return "missed"
 
 
 @dataclass
@@ -93,6 +102,8 @@ class ImageResult:
 @dataclass
 class Config:
     tau: float
+    model: str = "unknown"
+    split: bool = False
     tokenizer: str = r"accent-stripped, lowercased \w+"
     note: str = "one-way recall (GT->prediction); matching bounded per section"
 
@@ -126,13 +137,15 @@ def _score_section(
     for tok in gt_tokens:
         match, sim = _best(tok, same)
         _, sim_other = _best(tok, other)
-        if sim >= tau:
-            status = "found"
-        elif sim_other >= tau:
-            status = "misplaced"
-        else:
-            status = "missed"
-        words.append(WordResult(tok, match, round(sim, 4), status))
+        words.append(
+            WordResult(
+                tok,
+                match,
+                round(sim, 4),
+                round(sim_other, 4),
+                _status(sim, sim_other, tau),
+            )
+        )
     return words
 
 
@@ -157,6 +170,11 @@ def validate(
     `pairs` maps an image stem to its (ground_truth, prediction) annotations.
     """
     images = {stem: validate_pair(gt, pred, tau) for stem, (gt, pred) in pairs.items()}
+    return _assemble(images, Config(tau=tau))
+
+
+def _assemble(images: dict[str, ImageResult], config: Config) -> Report:
+    """Build overall (micro-averaged) metrics from already-scored per-image words."""
 
     def pool(*sections: str) -> SectionMetrics:
         words = [
@@ -172,7 +190,35 @@ def validate(
         "content": pool("content"),
         "combined": pool("meta", "content"),
     }
-    return Report(Config(tau=tau), overall, images)
+    return Report(config, overall, images)
+
+
+def rescore(report: dict, tau: float) -> Report:
+    """Recompute a report at a new tau from a serialized report -- no re-transcription.
+
+    Reuses the stored per-word similarities (`sim`, `sim_other`); only the
+    status thresholds and the aggregated metrics change.
+    """
+    images = {}
+    for stem, img in report["images"].items():
+        sections = {}
+        for s in SECTIONS:
+            words = [
+                WordResult(
+                    w["gt"],
+                    w["match"],
+                    w["sim"],
+                    w["sim_other"],
+                    _status(w["sim"], w["sim_other"], tau),
+                )
+                for w in img[s]["words"]
+            ]
+            sections[s] = SectionResult(SectionMetrics.from_words(words), words)
+        images[stem] = ImageResult(**sections)
+
+    cfg = {**report.get("config", {}), "tau": tau}
+    cfg = {k: v for k, v in cfg.items() if k in Config.__dataclass_fields__}
+    return _assemble(images, Config(**cfg))
 
 
 def _selfcheck():
@@ -200,6 +246,16 @@ def _selfcheck():
     assert rep2.images["i"].content.words[0].status == "misplaced"
 
     assert rep.overall["combined"].n_gt_words == 5
+
+    # rescore from a serialized report at a stricter tau -> no re-transcription
+    from dataclasses import asdict
+
+    strict = rescore(asdict(rep), tau=0.99)
+    # "vlaskerders" vs "vlaskeerders" (~0.92) now fails the 0.99 threshold
+    assert strict.images["img1"].meta.metrics.n_found == 1, strict.images[
+        "img1"
+    ].meta.metrics
+    assert strict.config.tau == 0.99
     print("ok")
 
 
