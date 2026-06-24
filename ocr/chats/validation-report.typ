@@ -1,7 +1,7 @@
 // Includebaar fragment: leg de sleutels van het validatierapport uit.
 // Bevat geen preamble; wordt via `#include` opgenomen in discussion.typ.
 
-= Het validatierapport
+= Het validatierapport <metrics>
 
 De validatie vergelijkt voor elke afbeelding de #emph[ground truth] (handmatige
 annotatie) met de #emph[predictie] van het model. De vergelijking is

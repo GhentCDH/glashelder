@@ -2,25 +2,11 @@
 #import "@preview/bulb:0.2.1": dither
 #import "@preview/based:0.2.0": base64
 
-#import "lib.typ": answer, chat, img, question, set-theme
+#import "lib.typ": answer, bg, chat, fg, img, question
 
 // #set page(margin: 10pt, width: auto, height: auto)
-#let bg = oklch(rgb("#FAF4ED"))
-#let fg = oklch(25%, 20%, 40deg)
-
-#let bg = oklch(rgb("#e6eff1"))
-#let fg = bg.darken(70%)
-
-// #let bg = white
-// #let fg = black
 #let heading-font = (font: "Fraunces", variations: (SOFT: 100))
 #let normal-font = (font: "IBM Plex Sans")
-
-#set-theme((
-  fg: fg,
-  bg: bg,
-  dither: false,
-))
 
 #set page(margin: 15pt, fill: bg)
 #set text(fill: fg, ..normal-font)
@@ -256,6 +242,49 @@ Bijvoorbeeld:
 Het antwoord van het model werd hier ingekort voor de duidelijkheid.
 
 Met deze toevoeging slaagt het model er steeds in de gevonden tekst in het juiste veld te plaatsen.
+
+#divider()
+
+Hier is een voorbeeld waarbij deze aanpak natuurlijk faalt: wanneer de preprocessing een foute bounding box tekent.
+Dat introduceert meerdere problemen voor de OCR stap:
+
++ tekst kan worden 'afgekapt' wanneer de foute boundig box deze overtekent
++ juist getrascribeerde tekst wordt mogelijks bij de foute categorie geplaatst ('meta' #sym.arrow.l.r.long 'content')
+
+#let data = json("./assets/misplaced.json")
+#let (im1, im2) = _images(data)
+#img(image(im1, format: "jpg", height: 200pt))
+#img(image(im2, format: "jpg", height: 200pt))
+#{ data.output.meta = data.output.meta.slice(0, count: 4) }
+#{ data.output.content = data.output.content.slice(0, count: 1) }
+#answer(json.encode(data.output))
+
+= Updated JSON structure
+
+We hebben het output formaat aangepast zodat elke entry ook een `"type"` veld heeft. Dat wordt als volgt gedefineerd:
+
+```md
+Each transcribed entry has a "text" value and a "type". Choose the type that best fits:
+- "creator": a name of a creator (e.g. the maker of an artwork)
+- "place": everything related to places (e.g. a street sign)
+- "year": a year (e.g. 1867)
+- "text": anything else / general text not covered above
+
+Always split a passage into separate entries when part of it can carry a more specific type than "text". Never leave a place, creator or year buried inside a "text" entry if it can be isolated.
+For example "BEIRLEGHEM. Oud vrouwtje." must become two entries:
+{"text": "BEIRLEGHEM", "type": "place"}
+{"text": "Oud vrouwtje.", "type": "text"}
+```
+
+Het doel van deze aanpassing is om later makkelijker links
+te maken met de geOCRde tekst en bijvoorbeeld geodata.
+In het voorbeeld van de prompt zelf zou het bijvoorbeeld triviaal zijn om 'Beirleghem' te vinden als een goed gedefineerde plaats, omdat het model het al heeft gelabelt als een `"place"`.
+
+Daarbij merken we dat deze aanpassing een aanzienlijke verlaging van de _'character error rate'_ met zich mee bracht.
+Zie @comparison.
+
+Anderzijds werd de `miss_rate` wel hoger. We hebben nog niet concreet gevonden waaraan dit kan liggen.
+Zie @metrics voor een beschrijving van deze metrieken.
 
 #include "validation-report.typ"
 
