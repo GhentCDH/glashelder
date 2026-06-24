@@ -1,28 +1,29 @@
 #import "@preview/bulb:0.2.1": dither
 #import "@preview/cmarker:0.1.8"
 
-#let _theme = state("theme")
+#let bg = oklch(rgb("#e6eff1"))
+// #let bg = oklch(rgb("#9FBE83").lighten(90%))
+#let fg = bg.darken(70%)
+#let dither = false
+
 
 #let width = 60%
 
-#let set-theme(theme) = _theme.update(theme)
-
-#let user = context {
-  let theme = _theme.get()
-  box(fill: theme.fg, clip: true, width: 24pt, height: 24pt, inset: 0pt, outset: 0pt, radius: 12pt, {
+#let user = {
+  box(fill: fg, clip: true, width: 24pt, height: 24pt, inset: 0pt, outset: 0pt, radius: 12pt, {
     align(center + horizon, {
       move(
         dy: 15pt,
         {
           circle(
             radius: 6pt,
-            fill: theme.fg.lighten(30%).desaturate(30%),
+            fill: fg.lighten(30%).desaturate(30%),
           )
           move(
             dy: -15pt,
             circle(
               radius: 11pt,
-              fill: theme.fg.lighten(30%).desaturate(30%),
+              fill: fg.lighten(30%).desaturate(30%),
             ),
           )
         },
@@ -33,11 +34,10 @@
 
 #let font = (font: "Fraunces", size: 9pt)
 
-#let question(q) = context {
+#let question(q) = {
   set align(right)
   set text(..font)
-  let theme = _theme.get()
-  block(width: width, fill: theme.bg.darken(10%), radius: 12pt, inset: 6pt, grid(
+  block(width: width, fill: bg.darken(10%), radius: 12pt, inset: 6pt, grid(
     columns: (1fr, 20pt),
     gutter: 15pt,
     grid.cell(align: left, q),
@@ -52,20 +52,19 @@
 
 /// - i (str): image path
 /// - p (content): prompt with the image
-#let img(i, p: none) = context {
+#let img(i, p: none) = {
   set text(..font)
   set align(right)
-  let theme = _theme.get()
   let img = if type(i) == content {
     i
-  } else if theme.at("dither", default: false) {
+  } else if dither {
     image(
       dither(
         read(i, encoding: none),
         size: 800,
         palette: (
-          theme.bg,
-          theme.fg,
+          bg,
+          fg,
         ),
         contrast: 1.3,
       ),
