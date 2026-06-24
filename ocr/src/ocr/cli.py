@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -15,7 +16,6 @@ from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
-from rich.json import JSON
 from rich.logging import RichHandler
 from rich.progress import (
     BarColumn,
@@ -29,6 +29,7 @@ from rich.progress import (
 )
 
 from ocr.annotation import Annotation, annotation_from_ocr, parse_buffer, render_buffer
+from ocr.prompt import TYPES
 from preprocessing.bounding import BoundingBox, load_bounding_boxes
 
 if TYPE_CHECKING:
@@ -42,8 +43,11 @@ FULL_IMAGE_TOL = 0.02
 # enforced output shape; vLLM constrains decoding to match (guided/structured output)
 _TEXT_ENTRY = {
     "type": "object",
-    "properties": {"text": {"type": "string"}},
-    "required": ["text"],
+    "properties": {
+        "text": {"type": "string"},
+        "type": {"type": "string", "enum": list(TYPES)},
+    },
+    "required": ["text", "type"],
     "additionalProperties": False,
 }
 OUTPUT_SCHEMA = {
@@ -55,6 +59,36 @@ OUTPUT_SCHEMA = {
     "required": ["meta", "content"],
     "additionalProperties": False,
 }
+
+
+def _cache_dir() -> Path:
+    """Transcription cache dir: $XDG_CACHE_HOME/glashelder or ~/.cache/glashelder."""
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    d = Path(base) / "glashelder" / "transcriptions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _cache_key(payload: dict) -> str:
+    """Stable hash of the full request payload (model, prompt, images, params)."""
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _resolve_concurrency(value: int | None) -> int:
+    """Parallel in-flight requests: CLI value, else $OCR_CONCURRENCY, else 1."""
+    if value is None:
+        value = int(os.environ.get("OCR_CONCURRENCY", "1"))
+    return max(1, value)
+
+
+_CONCURRENCY_OPT = click.option(
+    "-j",
+    "--concurrency",
+    default=None,
+    type=int,
+    help="Parallel requests to vLLM [env: OCR_CONCURRENCY, default 1]",
+)
 
 
 def _list_models(base_url: str) -> list[str]:
@@ -101,7 +135,11 @@ def _build_content(image: Path, box: BoundingBox | None) -> list[dict]:
     """Build the chat 'content' parts (prompt + image(s)) for one image."""
     from PIL import Image, ImageFilter
 
-    from ocr.prompt import CONTENT_ONLY_PROMPT, PROMPT, TWO_IMAGE_PROMPT
+    from ocr.prompt import (
+        CONTENT_ONLY_PROMPT,
+        PROMPT,
+        TWO_IMAGE_PROMPT,
+    )
 
     img = Image.open(image)
     w, h = img.size
@@ -134,21 +172,117 @@ def _build_content(image: Path, box: BoundingBox | None) -> list[dict]:
     ]
 
 
+def _build_split_contents(
+    image: Path, box: BoundingBox
+) -> tuple[list[dict], list[dict]]:
+    """Two content lists for split mode: (meta_query, content_query)."""
+    from PIL import Image, ImageFilter
+
+    from ocr.prompt import CROP_CONTENT_PROMPT, META_ONLY_PROMPT
+
+    img = Image.open(image)
+    region = (box.x, box.y, box.x + box.w, box.y + box.h)
+    crop = img.crop(region)
+    blurred = img.copy()
+    blurred.paste(crop.filter(ImageFilter.GaussianBlur(20)), region)
+
+    meta_content = [
+        {"type": "text", "text": META_ONLY_PROMPT},
+        {"type": "image_url", "image_url": {"url": _data_url(blurred)}},
+    ]
+    crop_content = [
+        {"type": "text", "text": CROP_CONTENT_PROMPT},
+        {"type": "image_url", "image_url": {"url": _data_url(crop)}},
+    ]
+    return meta_content, crop_content
+
+
+def _call_vllm(base_url: str, payload: dict, use_cache: bool, label: str) -> str:
+    cached = _cache_dir() / f"{_cache_key(payload)}.txt" if use_cache else None
+    if cached and cached.exists():
+        log.info(f"cache hit for {label}")
+        return cached.read_text()
+    log.info(f"sending request to {base_url}/v1/chat/completions")
+    req = urllib.request.Request(
+        f"{base_url}/v1/chat/completions",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        result = json.load(resp)
+    text = result["choices"][0]["message"]["content"]
+    if cached:
+        log.info("saving response to cache")
+        cached.write_text(text)
+    return text
+
+
 def _ocr_image(
     image: Path,
     base_url: str,
     model: str,
     box: BoundingBox | None = None,
     include_input: bool = False,
+    use_cache: bool = True,
+    split: bool = False,
 ) -> str:
     """OCR a single image via the vLLM chat-completions endpoint; returns JSON text.
 
     With include_input, wraps as {"input": <chat content>, "output": <model json>};
-    otherwise returns the raw model output text.
+    otherwise returns the raw model output text. Results are cached on disk keyed
+    by the full request payload (temperature=0 makes them deterministic).
+
+    When split=True and the image has a partial bounding box, two separate queries
+    are issued (one for meta, one for content) and their results are merged.
     """
     log.info(f"reading image {str(image)!r}")
-    content = _build_content(image, box)
 
+    # split mode: two queries for partial-box images
+    if split and box is not None:
+        from PIL import Image as _Pil
+
+        _w, _h = _Pil.open(image).size
+        _is_partial = not _is_full_image(box, _w, _h)
+    else:
+        _is_partial = False
+    if _is_partial:
+        log.info(f"  {image.stem}: split mode — two separate queries")
+        meta_content, crop_content = _build_split_contents(image, box)
+
+        def _payload(content):
+            return {
+                "model": model,
+                "messages": [{"role": "user", "content": content}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "ocr_output", "schema": OUTPUT_SCHEMA},
+                },
+                "temperature": 0,
+            }
+
+        meta_text = _call_vllm(
+            base_url, _payload(meta_content), use_cache, f"{image.stem}:meta"
+        )
+        crop_text = _call_vllm(
+            base_url, _payload(crop_content), use_cache, f"{image.stem}:content"
+        )
+
+        meta_out = json.loads(meta_text).get("meta", [])
+        crop_out = json.loads(crop_text).get("content", [])
+        merged = {"meta": meta_out, "content": crop_out}
+        text = json.dumps(merged, ensure_ascii=False)
+
+        if not include_input:
+            return text
+        return json.dumps(
+            {
+                "input": {"meta_query": meta_content, "content_query": crop_content},
+                "output": merged,
+            },
+            ensure_ascii=False,
+        )
+
+    content = _build_content(image, box)
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": content}],
@@ -159,15 +293,7 @@ def _ocr_image(
         "temperature": 0,
     }
 
-    log.info(f"sending request to {base_url}/v1/chat/completions")
-    req = urllib.request.Request(
-        f"{base_url}/v1/chat/completions",
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req) as resp:
-        result = json.load(resp)
-    text = result["choices"][0]["message"]["content"]
+    text = _call_vllm(base_url, payload, use_cache, image.stem)
 
     if not include_input:
         return text
@@ -178,12 +304,8 @@ def _ocr_image(
     return json.dumps({"input": content, "output": out}, ensure_ascii=False)
 
 
-def _print_result(console: Console, text: str):
-    try:
-        console.print(JSON(text))
-    except ValueError:
-        log.warning("model output was not valid JSON, printing raw")
-        console.print(text)
+def _print_result(text: str):
+    print(text)
 
 
 @click.group()
@@ -218,12 +340,18 @@ def ocr():
     is_flag=True,
     help='Wrap output as {"input": <chat content>, "output": <model json>}',
 )
+@click.option(
+    "--split",
+    is_flag=True,
+    help="Split two-image case into two separate queries (meta + content) and merge",
+)
 def one(
     image: Path,
     base_url: str,
     model: str | None,
     boxes: Path | None,
     include_input: bool,
+    split: bool,
 ):
     base_url = base_url.rstrip("/")
     console = Console()
@@ -231,7 +359,7 @@ def one(
     log.info(f"selected model {model!r}")
 
     box = load_bounding_boxes(boxes).get(image.stem) if boxes else None
-    _print_result(console, _ocr_image(image, base_url, model, box, include_input))
+    _print_result(_ocr_image(image, base_url, model, box, include_input, split=split))
 
 
 @ocr.command()
@@ -268,6 +396,17 @@ def one(
     is_flag=True,
     help='Wrap output as {"input": <chat content>, "output": <model json>}',
 )
+@click.option(
+    "--split",
+    is_flag=True,
+    help="Split two-image case into two separate queries (meta + content) and merge",
+)
+@click.option(
+    "--nocache",
+    is_flag=True,
+    help="Disable prompt cache",
+)
+@_CONCURRENCY_OPT
 def many(
     images: Path,
     output: Path,
@@ -275,6 +414,9 @@ def many(
     model: str | None,
     boxes: Path | None,
     include_input: bool,
+    split: bool,
+    nocache: bool,
+    concurrency: int | None,
 ):
     base_url = base_url.rstrip("/")
     console = Console()
@@ -285,16 +427,26 @@ def many(
     output.mkdir(exist_ok=True)
 
     paths = sorted(images.glob("*.jpg"))
-    log.info(f"{len(paths)} images found in {str(images)!r}")
-    for image in paths:
-        text = _ocr_image(
-            image, base_url, model, box_map.get(image.stem), include_input
-        )
-        _print_result(console, text)
+    workers = _resolve_concurrency(concurrency)
+    log.info(f"{len(paths)} images found in {str(images)!r} (concurrency {workers})")
 
+    def process(image: Path) -> Path:
+        text = _ocr_image(
+            image,
+            base_url,
+            model,
+            box_map.get(image.stem),
+            include_input,
+            split=split,
+            use_cache=not nocache,
+        )
         out = output / f"{image.stem}.json"
         out.write_text(text)
-        log.info(f"wrote {str(out)!r}")
+        return out
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for out in ex.map(process, paths):
+            log.info(f"wrote {str(out)!r}")
 
 
 # how many candidates to buffer before shuffling; gives random order without
@@ -484,6 +636,12 @@ def annotate(
     help="BoundingBox JSON; box (keyed by image stem) drives blur/crop strategy",
 )
 @click.option("--model", default=None, help="Model id (skips interactive selection)")
+@click.option(
+    "--split",
+    is_flag=True,
+    help="Split two-image case into two separate queries (meta + content) and merge",
+)
+@_CONCURRENCY_OPT
 def validate(
     images: Path,
     labels: Path,
@@ -491,6 +649,8 @@ def validate(
     base_url: str,
     boxes: Path | None,
     model: str | None,
+    split: bool,
+    concurrency: int | None,
 ):
     from ocr.validation import validate as vd
 
@@ -506,10 +666,33 @@ def validate(
     model = model or _pick_model(base_url, console)
     log.info(f"selected model {model!r}")
 
-    pairs = {}
-
+    box_map = load_bounding_boxes(boxes) if boxes else {}
     gts = list(labels.glob("*.json"))
+    workers = _resolve_concurrency(concurrency)
 
+    def predict(annotation: Path) -> tuple[str, tuple[Annotation, Annotation]] | None:
+        image = images / annotation.with_suffix(".jpg").name
+        if not image.exists():
+            log.error(f"{image!r} doesn't exist!")
+            return None
+        try:
+            ground_truth = Annotation.load(annotation)
+            result = json.loads(
+                _ocr_image(
+                    image, base_url, model, box_map.get(image.stem), True, split=split
+                )
+            )
+            data = result["output"]
+            data = {
+                "meta": [i["text"] for i in data["meta"]],
+                "content": [i["text"] for i in data["content"]],
+            }
+            return annotation.stem, (ground_truth, Annotation.from_dict(data))
+        except Exception as e:
+            log.error(e)
+            return None
+
+    pairs = {}
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -521,31 +704,42 @@ def validate(
         console=console,
     ) as progress:
         task = progress.add_task("Predicting...", total=len(gts))
-        for annotation in gts:
-            image = images / annotation.with_suffix(".jpg").name
-
-            if not image.exists():
-                log.error(f"{image!r} doesn't exist!")
-                continue
-
-            try:
-                box = load_bounding_boxes(boxes).get(image.stem) if boxes else None
-                ground_truth: Annotation = Annotation.load(annotation)
-                result = json.loads(_ocr_image(image, base_url, model, box, True))
-                data = result["output"]
-                data = {
-                    "meta": [i["text"] for i in data["meta"]],
-                    "content": [i["text"] for i in data["content"]],
-                }
-                prediction: Annotation = Annotation.from_dict(data)
-
-                pairs[annotation.stem] = (ground_truth, prediction)
-            except Exception as e:
-                log.error(e)
-
-            progress.advance(task)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for res in ex.map(predict, gts):
+                if res is not None:
+                    pairs[res[0]] = res[1]
+                progress.advance(task)
 
     report = vd(pairs)
+    report.config.model = model
+    report.config.split = split
 
     with open(output, "w") as f:
         json.dump(asdict(report), f, ensure_ascii=False, indent=2)
+
+
+@ocr.command()
+@click.option(
+    "-r",
+    "--report",
+    "report_path",
+    required=True,
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    help="Existing validation report JSON to recompute",
+)
+@click.option(
+    "-o",
+    "--output",
+    required=True,
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    help="File path to write the rescored report to",
+)
+@click.option("--tau", required=True, type=float, help="New similarity threshold")
+def rescore(report_path: Path, output: Path, tau: float):
+    """Recompute a report at a new --tau from stored similarities; no re-transcription."""
+    from ocr.validation import rescore as rs
+
+    report = rs(json.loads(report_path.read_text()), tau)
+    with open(output, "w") as f:
+        json.dump(asdict(report), f, ensure_ascii=False, indent=2)
+    log.info(f"wrote rescored report (tau={tau}) to {str(output)!r}")
