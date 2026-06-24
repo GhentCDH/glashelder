@@ -29,7 +29,7 @@ def metadata_extraction():
     "--data",
     required=True,
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    help="Directory of OCR json files (each with 'meta'/'content' arrays)",
+    help="Directory of typed OCR json files",
 )
 def candidates(data: Path):
     """Print candidate entity phrases extracted from each file's OCR text."""
@@ -47,7 +47,7 @@ def candidates(data: Path):
     "--data",
     required=True,
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    help="Directory of OCR json files (each with 'meta'/'content' arrays)",
+    help="Directory of typed OCR json files",
 )
 @click.option(
     "-o",

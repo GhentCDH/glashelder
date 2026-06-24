@@ -1,15 +1,3 @@
-"""Pull candidate named-entity phrases out of OCR'd caption text and look
-them up against Wikidata.
-
-The OCR'd lines (museum captions, lantern-slide labels, engraved inscriptions)
-are short, multilingual, and often ALL-CAPS, which makes statistical NER
-models unreliable. Capitalization is a much stronger signal here than a
-trained model: candidate phrases are just runs of capitalized/ALL-CAPS words,
-bridged across lowercase connector words ("van", "de", "del", ...) so multi-
-word names like "Andrea del Sarto" or "Université de Gand" survive intact.
-Wikidata's own search does the real disambiguation/filtering.
-"""
-
 import difflib
 import json
 import re
@@ -121,12 +109,27 @@ def extract_candidate_phrases(text: str) -> list[str]:
 
 
 def candidate_phrases_for_record(record: dict) -> list[str]:
-    """Unique candidate phrases across a record's 'meta' and 'content' lines."""
-    lines = [*record.get("meta", []), *record.get("content", [])]
+    """Unique candidate phrases across a record's typed OCR entries.
+
+    Accepts the typed format produced by the OCR pipeline:
+      {"output": {"meta": [{"text": "...", "type": "place"|"creator"|"year"|"text"}, ...], "content": [...]}}
+
+    Only "creator" and "place" typed entries are used as Wikidata search phrases.
+    "text" and "year" entries are skipped.
+
+    Also accepts the old plain-string format (capitalized-phrase extraction applied).
+    """
+    output = record.get("output", record)
     seen: dict[str, None] = {}
-    for line in lines:
-        for phrase in extract_candidate_phrases(line):
-            seen.setdefault(phrase, None)
+    for zone in ("meta", "content"):
+        for entry in output.get(zone, []):
+            if isinstance(entry, str):
+                for phrase in extract_candidate_phrases(entry):
+                    seen.setdefault(phrase, None)
+            elif entry.get("type") in ("creator", "place"):
+                text = entry.get("text", "").strip()
+                if text:
+                    seen.setdefault(text, None)
     return list(seen)
 
 
