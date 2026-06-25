@@ -24,6 +24,7 @@ classification/data
 !notebooks/artmatcher/examples/trained-matcher-model.pkl
 *.rrd
 clipcluster/clustered.png
+metadata_extraction/src/metadata_extraction/data/*
 
 # Development tool caches
 .ruff_cache/
@@ -43,3 +44,4 @@ clipcluster/analysis_report/data
 
 # artmatcher plots
 plots/
+

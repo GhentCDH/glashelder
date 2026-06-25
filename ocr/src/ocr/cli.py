@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import random
-import subprocess
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -14,7 +13,7 @@ import click
 from rich.console import Console
 from rich.json import JSON
 
-from ocr.annotation import Annotation, annotation_from_ocr, parse_buffer, render_buffer
+from ocr.annotation import Annotation, annotation_from_ocr, annotate_with_gui
 from preprocessing.bounding import BoundingBox, load_bounding_boxes
 
 if TYPE_CHECKING:
@@ -381,31 +380,12 @@ def annotate(
 
             ann_seed = fut.result()
             log.info(f"annotating {cur.name} ({done + 1}/{count})")
-            # detached: xdg-open/loupe must not block the editor (run() would wait on it)
-            subprocess.Popen(
-                ["xdg-open", str(cur)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            # nvim owns the terminal; mute the background prefetch thread's logs so
-            # they don't corrupt its TUI. HTTP prefetch keeps running, just silently.
-            logging.disable(logging.CRITICAL)
-            try:
-                edited = click.edit(
-                    render_buffer(cur.name, ann_seed, done + 1, count), extension=".txt"
-                )
-            finally:
-                logging.disable(logging.NOTSET)
-
-            if edited is None:  # editor aborted (:cq / unchanged) -> quit
-                log.info("editor aborted, stopping")
-                break
-            ann, quit = parse_buffer(edited)
+            ann, quit = annotate_with_gui(cur, ann_seed, done + 1, count)
             if quit:
-                log.info("'quit' received, stopping")
+                log.info("quit received, stopping")
                 break
-            if ann.is_empty():
-                log.info(f"empty annotation for {cur.name}, skipping")
+            if ann is None or ann.is_empty():
+                log.info(f"skipped {cur.name}")
             else:
                 ann.save(output / f"{cur.stem}.json")
                 done += 1
