@@ -13,7 +13,7 @@ import click
 from rich.console import Console
 from rich.json import JSON
 
-from ocr.annotation import Annotation, annotation_from_ocr, annotate_with_gui
+from ocr.annotation import Annotation, annotate_with_gui, annotation_from_ocr
 from preprocessing.bounding import BoundingBox, load_bounding_boxes
 
 if TYPE_CHECKING:
