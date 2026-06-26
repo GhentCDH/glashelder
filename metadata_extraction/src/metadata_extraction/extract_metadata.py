@@ -108,14 +108,17 @@ def extract_candidate_phrases(text: str) -> list[str]:
     return phrases
 
 
+_ENTITY_TYPES = {"creator", "place", "institute", "title"}
+
+
 def candidate_phrases_for_record(record: dict) -> list[str]:
     """Unique candidate phrases across a record's typed OCR entries.
 
     Accepts the typed format produced by the OCR pipeline:
       {"output": {"meta": [{"text": "...", "type": "place"|"creator"|"year"|"text"}, ...], "content": [...]}}
 
-    Only "creator" and "place" typed entries are used as Wikidata search phrases.
-    "text" and "year" entries are skipped.
+    Only "creator", "place", "institute", and "title" typed entries are used as
+    Wikidata search phrases. "text" and "year" entries are skipped.
 
     Also accepts the old plain-string format (capitalized-phrase extraction applied).
     """
@@ -126,7 +129,7 @@ def candidate_phrases_for_record(record: dict) -> list[str]:
             if isinstance(entry, str):
                 for phrase in extract_candidate_phrases(entry):
                     seen.setdefault(phrase, None)
-            elif entry.get("type") in ("creator", "place"):
+            elif entry.get("type") in _ENTITY_TYPES:
                 text = entry.get("text", "").strip()
                 if text:
                     seen.setdefault(text, None)
