@@ -10,6 +10,7 @@ authors = [
 ]
 dependencies = [
   "click>=8.3.1",
+  "ddgs>=8",
   "rapidfuzz>=3.14.5",
 ]
 

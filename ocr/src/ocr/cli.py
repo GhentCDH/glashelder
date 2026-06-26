@@ -197,6 +197,136 @@ def _build_split_contents(
     return meta_content, crop_content
 
 
+SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search",
+        "description": "Search the web; returns titles, snippets, and URLs. Use fetch_url on a result URL to read the full page.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+}
+
+FETCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "fetch_url",
+        "description": "Fetch the full text content of a URL (e.g. from a search result).",
+        "parameters": {
+            "type": "object",
+            "properties": {"url": {"type": "string"}},
+            "required": ["url"],
+        },
+    },
+}
+
+_FETCH_TRUNCATE = 4000
+
+
+def _fetch_url(url: str, verbose: bool = False) -> str:
+    import html.parser
+
+    class _Stripper(html.parser.HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self._parts: list[str] = []
+            self._skip = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag in {"script", "style", "nav", "header", "footer"}:
+                self._skip = True
+
+        def handle_endtag(self, tag):
+            if tag in {"script", "style", "nav", "header", "footer"}:
+                self._skip = False
+
+        def handle_data(self, data):
+            if not self._skip and data.strip():
+                self._parts.append(data.strip())
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        return f"[fetch failed: {e}]"
+
+    s = _Stripper()
+    s.feed(raw)
+    text = " ".join(s._parts)[:_FETCH_TRUNCATE]
+    if verbose:
+        log.info(f"  fetched {url}: {len(text)} chars")
+    return text
+
+
+def _run_search(query: str, sites: list[str], verbose: bool = False) -> str:
+    from ddgs import DDGS
+
+    if sites:
+        site_filter = " OR ".join(f"site:{s}" for s in sites)
+        query = f"({site_filter}) {query}"
+    results = DDGS().text(query, max_results=5)
+    lines = []
+    for i, r in enumerate(results):
+        lines.append(f"[{r.get('href', '?')}]\n{r['title']}\n{r['body']}")
+        if verbose:
+            log.info(
+                f"  result: [{r.get('href', '?')}] {r['title']}\n    {r['body'][:120]}"
+            )
+        if i == 0 and r.get("href"):
+            full = _fetch_url(r["href"], verbose)
+            lines.append(f"[full page content]\n{full}")
+    return "\n\n".join(lines)
+
+
+def _call_vllm_with_tools(
+    base_url: str,
+    model: str,
+    messages: list[dict],
+    sites: list[str],
+    max_searches: int = 0,
+    no_search: bool = False,
+    verbose: bool = False,
+) -> str:
+    searches = 0
+    while True:
+        allow_tools = not no_search and (max_searches == 0 or searches < max_searches)
+        payload: dict = {"model": model, "messages": messages}
+        if allow_tools:
+            payload["tools"] = [SEARCH_TOOL]
+            payload["tool_choice"] = "auto"
+        req = urllib.request.Request(
+            f"{base_url}/v1/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            result = json.load(resp)
+        choice = result["choices"][0]
+        messages.append(choice["message"])
+        if choice["finish_reason"] != "tool_calls":
+            return choice["message"]["content"] or ""
+        for tc in choice["message"]["tool_calls"]:
+            args = json.loads(tc["function"]["arguments"])
+            if tc["function"]["name"] == "fetch_url":
+                log.info(f"fetch: {args['url']!r}")
+                content = _fetch_url(args["url"], verbose)
+            else:
+                searches += 1
+                log.info(f"search #{searches}: {args['query']!r}")
+                content = _run_search(args["query"], sites, verbose)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": content,
+                }
+            )
+
+
 def _call_vllm(base_url: str, payload: dict, use_cache: bool, label: str) -> str:
     cached = _cache_dir() / f"{_cache_key(payload)}.txt" if use_cache else None
     if cached and cached.exists():
@@ -716,6 +846,118 @@ def validate(
 
     with open(output, "w") as f:
         json.dump(asdict(report), f, ensure_ascii=False, indent=2)
+
+
+_DEFAULT_ENRICH_PROMPT = (
+    "Given this OCR result from a historical glass plate:\n{ocr}\n\n"
+    "Use search to find more information about the places, creators, and years mentioned."
+)
+
+
+@ocr.command()
+@click.argument(
+    "ocr_json",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--base-url",
+    default="http://localhost:8000",
+    show_default=True,
+    help="vLLM service base URL",
+)
+@click.option("--model", default=None, help="Model id (skips interactive selection)")
+@click.option(
+    "-i",
+    "--images",
+    default=lambda: os.environ.get("ASSETS_DIR"),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    help="Images directory; image matching OCR JSON stem is included in prompt [default: $ASSETS_DIR]",
+)
+@click.option(
+    "--site",
+    "sites",
+    multiple=True,
+    metavar="DOMAIN",
+    help="Restrict search to this domain (repeatable, e.g. --site en.wikipedia.org)",
+)
+@click.option(
+    "--prompt",
+    default=_DEFAULT_ENRICH_PROMPT,
+    show_default=True,
+    help="Prompt template; {ocr} is replaced with the OCR JSON content",
+)
+@click.option(
+    "--max-searches",
+    default=0,
+    show_default=True,
+    help="Max search calls the model may make (0 = unlimited)",
+)
+@click.option(
+    "--no-search",
+    is_flag=True,
+    help="Disable web search entirely; model answers from image+OCR only",
+)
+@click.option(
+    "--verbose-search",
+    is_flag=True,
+    help="Log each search result URL and snippet to stderr",
+)
+def enrich(
+    ocr_json: Path,
+    base_url: str,
+    model: str | None,
+    images: Path | None,
+    sites: tuple[str, ...],
+    prompt: str,
+    max_searches: int,
+    no_search: bool,
+    verbose_search: bool,
+):
+    """Enrich OCR output with web search via VLM tool calling."""
+    from PIL import Image
+
+    base_url = base_url.rstrip("/")
+    console = Console()
+    model = model or _pick_model(base_url, console)
+    log.info(f"selected model {model!r}")
+
+    raw = json.loads(ocr_json.read_text())
+    # strip base64 image data when OCR was run with --include-input
+    ocr_data = raw.get("output", raw)
+    ocr_text = json.dumps(ocr_data, ensure_ascii=False)
+
+    content: list[dict] = [{"type": "text", "text": prompt.format(ocr=ocr_text)}]
+    if images is not None:
+        image_path = images / f"{ocr_json.stem}.jpg"
+        if image_path.exists():
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _data_url(Image.open(image_path))},
+                }
+            )
+            log.info(f"included image {image_path.name}")
+        else:
+            log.warning(f"image not found: {image_path}")
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Je bent een assistent die historische glasplaten uit Belgische archieven onderzoekt. Zoek altijd in het Nederlands. Geef je antwoord in het Nederlands.",
+        },
+        {"role": "user", "content": content},
+    ]
+    print(
+        _call_vllm_with_tools(
+            base_url,
+            model,
+            messages,
+            list(sites),
+            max_searches,
+            no_search,
+            verbose_search,
+        )
+    )
 
 
 @ocr.command()
