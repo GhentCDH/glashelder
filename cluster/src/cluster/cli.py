@@ -135,7 +135,7 @@ def cluster():
     default=0.0,
     help="`min_dist` parameter of UMAP dimensionality reduction",
 )
-def do_clustering(embeddings, save_json_path, output_files, count, reduce, nbs, md):
+def do_clustering(embeddings, save, output_files, count, reduce, nbs, md):
     import json
 
     from embed import (
@@ -173,20 +173,24 @@ def do_clustering(embeddings, save_json_path, output_files, count, reduce, nbs, 
     log_images_3d(visualization_embeddings, image_paths, 500)
 
     # Get cluster labels
-    labels = clusterer.labels_
+    labels = [int(x) for x in clusterer.labels_]
 
     # Print cluster statistics
     unique_labels = set(labels)
     logger.info(
         f"Number of clusters: {len(unique_labels) - (1 if -1 in unique_labels else 0)}"
     )
-    logger.info(f"Number of noise points: {sum(labels == -1)}")
+    logger.info(
+        f"Number of noise points: {sum(label for label in labels if label == -1)}"
+    )
     logger.info("Cluster sizes:")
     for label in sorted(unique_labels):
         if label == -1:
-            logger.info(f"  Noise: {sum(labels == label)} points")
+            logger.info(f"  Noise: {sum(la for la in labels if la == label)} points")
         else:
-            logger.info(f"  Cluster {label}: {sum(labels == label)} points")
+            logger.info(
+                f"  Cluster {label}: {sum(la for la in labels if la == label)} points"
+            )
 
     # Get unique clusters (excluding noise)
     unique_clusters: list[int] = sorted([label for label in set(labels) if label != -1])
@@ -228,7 +232,7 @@ def do_clustering(embeddings, save_json_path, output_files, count, reduce, nbs, 
             )
 
     # save the json
-    with open(save_json_path, "w", encoding="utf-8") as f:
+    with open(save, "w", encoding="utf-8") as f:
         json.dump(clusters_json, f, ensure_ascii=False)
 
     if not output_files:
