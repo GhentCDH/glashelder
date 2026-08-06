@@ -16,6 +16,7 @@ from embed import get_device
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
+CLUSTERS_JSON = "clusters.json"
 PACKAGE_ROOT = PROJECT_ROOT / "cluster"
 EMBEDDINGS_PATH = PROJECT_ROOT / "embed" / "embeddings.pkl"
 
@@ -107,6 +108,9 @@ def cluster():
     "--embeddings", default=EMBEDDINGS_PATH, help="Path of the embeddings pkl file"
 )
 @click.option(
+    "-s", "--save", default=CLUSTERS_JSON, help="Path where the clusters are written to"
+)
+@click.option(
     "-o",
     "--output-files",
     is_flag=True,
@@ -131,7 +135,9 @@ def cluster():
     default=0.0,
     help="`min_dist` parameter of UMAP dimensionality reduction",
 )
-def do_clustering(embeddings, output_files, count, reduce, nbs, md):
+def do_clustering(embeddings, save_json_path, output_files, count, reduce, nbs, md):
+    import json
+
     from embed import (
         load_embeddings,
     )
@@ -145,7 +151,7 @@ def do_clustering(embeddings, output_files, count, reduce, nbs, md):
 
     logger.info("Loading embeddings")
     data = load_embeddings(embeddings)
-    image_paths = data["images"]
+    image_paths: list[str] = data["images"]
     embeddings = data["embeddings"].to(device)
     logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
 
@@ -182,40 +188,51 @@ def do_clustering(embeddings, output_files, count, reduce, nbs, md):
         else:
             logger.info(f"  Cluster {label}: {sum(labels == label)} points")
 
-    if not output_files:
-        return
-
-    # Create output directory
-    output_dir = Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
-    output_dir.mkdir(exist_ok=True)
-
     # Get unique clusters (excluding noise)
-    unique_clusters = sorted([label for label in set(labels) if label != -1])
+    unique_clusters: list[int] = sorted([label for label in set(labels) if label != -1])
 
-    # For each cluster, copy 3 sample images
+    if output_files:
+        # Create output directory
+        output_dir = Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
+        output_dir.mkdir(exist_ok=True)
+
+    # save the clusters to a json file
+    clusters_json = {}
+
+    # For each cluster, copy up to 4 sample images
     for cluster_id in unique_clusters:
-        # Create cluster directory
-        cluster_dir = output_dir / f"cluster_{cluster_id}"
-        # remove the directory if it already exists
-        shutil.rmtree(cluster_dir)
-        cluster_dir.mkdir(exist_ok=True)
-
         # Get indices of images in this cluster
         cluster_indices = [i for i, label in enumerate(labels) if label == cluster_id]
 
-        # Select up to 2 samples
-        sample_indices = cluster_indices[:4]
+        clusters_json[cluster_id] = [image_paths[idx] for idx in cluster_indices]
 
-        # Copy and resize images
-        for idx in sample_indices:
-            src_path = image_paths[idx]
-            filename = Path(src_path).name
-            dst_path = cluster_dir / filename
-            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+        if output_files:
+            # Create cluster directory
+            cluster_dir = output_dir / f"cluster_{cluster_id}"
+            # remove the directory if it already exists
+            shutil.rmtree(cluster_dir)
+            cluster_dir.mkdir(exist_ok=True)
 
-        print(
-            f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
-        )
+            # Select up to 4 samples
+            sample_indices = cluster_indices[:4]
+
+            # Copy and resize images
+            for idx in sample_indices:
+                src_path = image_paths[idx]
+                filename = Path(src_path).name
+                dst_path = cluster_dir / filename
+                resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+
+            print(
+                f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
+            )
+
+    # save the json
+    with open(save_json_path, "w", encoding="utf-8") as f:
+        json.dump(clusters_json, f, ensure_ascii=False)
+
+    if not output_files:
+        return
 
     # Optionally handle noise points
     noise_indices = [i for i, label in enumerate(labels) if label == -1]
