@@ -2,9 +2,13 @@
 
 Runs Glaswacht (`risk_assessment`) headlessly — no TUI — on a batch of glass
 plate images, then imports only the images that need human review into Label
-Studio as tasks. Everything goes over the Label Studio HTTP API
-(`commit_to_project=false` upload + `/import`), so nothing needs to be mounted
-or shared with the Label Studio host.
+Studio as tasks. Everything goes over the Label Studio HTTP API, so nothing
+needs to be mounted or shared with the Label Studio host.
+
+Two different upload strategies are used, depending on the command — see
+"How images actually get to Label Studio" below for why: `assess`/`import`/
+`pipeline`/`test-run` embed each image directly in its task's JSON; `sample`
+uploads to Label Studio's file storage first and references that.
 
 ## Setup
 
@@ -172,29 +176,45 @@ the rest of that chunk rather than retried forever.
 was only ever dry-run, you can commit it later with the plain `import`
 command without re-running Glaswacht.
 
+## How images actually get to Label Studio
+
+Label Studio has a real, confirmed-against-a-live-instance restriction: its
+"direct file upload" endpoint (`commit_to_project=false`, meant to pre-upload
+a file so a task can later reference its storage path) flatly **refuses any
+project whose labeling config has more than one data key** — the response is
+`400 Bad Request`, `"Your label config has more than one data key and direct
+file upload supports only one data key."` Any project that shows a human
+reviewer the model's rating and rationale alongside the image (i.e. anything
+built with this tool in mind) necessarily has more than one key — `$image`
+plus `$model_1_rating`, `$model_1_rationale`, etc. — so that upload path is a
+dead end here, not a bug to work around in the usual sense.
+
+- **`assess`/`import`/`pipeline`/`test-run`** (anything carrying model
+  ratings) sidestep it entirely: each image is read locally and embedded
+  directly in its task's `data.image` field as a base64 `data:` URI, sent in
+  the same JSON request as the rating fields. No separate upload step, no
+  dependency on the project's label config shape. Tradeoff: ~33% larger
+  request payloads (a 500KB image becomes ~650KB in the request), and every
+  task's data permanently carries its own image rather than a lightweight
+  reference to shared storage.
+- **`sample`** has no metadata to attach — its target project only needs
+  `$image` — so it still uses the more efficient upload-then-reference path:
+  one file per HTTP request to Label Studio's storage (Label Studio's import
+  endpoint only registers the *first* file when several are bundled under
+  one multipart request — confirmed live: 3 files in one POST produced only
+  1 `file_upload_id` — so batching there would silently drop most of every
+  batch), then the resulting `/data/upload/{project}/...` path is referenced
+  in a plain `{"image": ...}` task. After uploading, it briefly retries the
+  file-uploads listing if a just-uploaded name isn't visible yet (eventual
+  consistency; also follows pagination on larger projects).
+
 ## Notes
 
 - `import`/`pipeline` always write `--tasks-json` (default `taken.json`)
-  first; inspect it before re-running with `--commit`, especially the first
-  time — if your own filenames contain a hyphen, the uuid-stripping match
-  against Label Studio's stored filenames can go wrong.
-- `import` only uploads the images actually listed in `--csv-path` — if
+  first; inspect it before re-running with `--commit`.
+- `import` only imports the images actually listed in `--csv-path` — if
   `--image-path` is a folder with more images than the CSV (e.g. because
-  `assess` filtered out the Safe ones), those extra files are skipped, not
-  uploaded.
-- Uploads go one file per HTTP request. Label Studio's import endpoint only
-  registers the *first* file when several are sent under the repeated `file`
-  field of a single multipart request (confirmed against a live instance:
-  bundling 3 files in one request only produced 1 `file_upload_id`) — the
-  earlier batched version silently dropped most of every batch. This is
-  slower for large folders but correct; shout if it needs to get faster
-  (e.g. a few requests in parallel) once correctness is confirmed on your end.
-- After uploading, the just-uploaded filenames are checked against Label
-  Studio's file-uploads listing (which can also be paginated on larger
-  projects — that's handled too); if a few aren't visible on the very next
-  GET, it retries briefly before giving up, as a safety net for eventual
-  consistency. A "N CSV row(s) had no matching uploaded file" warning after
-  that means the file genuinely never made it into that listing.
+  `assess` filtered out the Safe ones), those extra files are ignored.
 - Glaswacht's own `risk_assessment` package always writes its own full,
   unfiltered record — `combined_risk_assessment_results.csv` in the current
   directory, with `category` and `majority_vote` included — as a side effect

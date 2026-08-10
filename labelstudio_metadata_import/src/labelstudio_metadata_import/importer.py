@@ -4,9 +4,10 @@ mounting any shared storage. Everything goes over HTTPS to the LS API.
 
 from __future__ import annotations
 
-import csv
+import base64
 import json
 import logging
+import mimetypes
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,96 @@ class HealthCheckResult:
     detail: str = ""
 
 
+def resolve_image_files(
+    image_path: str | Path | list[str | Path],
+    filenames: set[str] | None = None,
+) -> list[Path]:
+    """Resolve IMAGE_PATH — a folder, a single file, or an explicit list of
+    file paths (the last avoids re-scanning a large/slow, e.g. network
+    mounted, folder once per checkpoint chunk) — to a list of Path objects.
+
+    If FILENAMES is given, only files whose name is in FILENAMES are kept
+    (checked against every form of IMAGE_PATH, including an explicit list).
+    """
+    if isinstance(image_path, list):
+        files = [Path(p) for p in image_path]
+    else:
+        image_path = Path(image_path)
+        if image_path.is_dir():
+            files = sorted(
+                p for p in image_path.iterdir() if p.suffix.lower() in EXTENSIONS
+            )
+        elif image_path.is_file():
+            files = [image_path]
+        else:
+            raise ValueError(f"Invalid image path: {image_path}")
+
+    if filenames is not None:
+        files = [p for p in files if p.name in filenames]
+    return files
+
+
+def resolve_image_files_by_name(
+    image_path: str | Path | list[str | Path],
+    filenames: set[str] | None = None,
+) -> dict[str, Path]:
+    """resolve_image_files, keyed by filename for row-by-row lookup."""
+    return {p.name: p for p in resolve_image_files(image_path, filenames)}
+
+
+def image_to_data_uri(path: Path) -> str:
+    """Read an image file and encode it as a data: URI, for embedding
+    directly in a task's data instead of uploading it to Label Studio's file
+    storage first. See build_tasks_from_paths for why.
+    """
+    mime_type, _ = mimetypes.guess_type(path.name)
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type or 'application/octet-stream'};base64,{encoded}"
+
+
+def build_tasks_from_paths(
+    rows: list[dict],
+    image_path: str | Path | list[str | Path],
+    image_field: str = "image",
+) -> tuple[list[dict], list[str]]:
+    """Build Label Studio tasks from in-memory metadata ROWS, embedding each
+    row's image (found under IMAGE_PATH, matched by the row's IMAGE_FIELD
+    filename) as a base64 data: URI rather than referencing an uploaded
+    file's storage path.
+
+    This sidesteps a real Label Studio restriction: its "direct file upload"
+    endpoint (commit_to_project=false, used to pre-upload a file so a task
+    can later reference its storage path) outright refuses any project whose
+    labeling config has more than one data key — which any project showing
+    per-model ratings alongside the image necessarily has. Embedding the
+    image inline instead never touches that endpoint, and works for any
+    label config, at the cost of a larger request payload (base64 inflates
+    size by ~33%) and every task's data permanently carrying its own image.
+
+    Rows are not mutated. Returns (tasks, filenames_missing_locally).
+    """
+    filenames = {row[image_field] for row in rows}
+    resolved = resolve_image_files_by_name(image_path, filenames)
+
+    tasks = []
+    missing = []
+    for row in rows:
+        data = dict(row)
+        filename = data.pop(image_field)
+        path = resolved.get(filename)
+        if path is None:
+            missing.append(filename)
+            continue
+        tasks.append({"data": {image_field: image_to_data_uri(path), **data}})
+
+    if missing:
+        logger.warning(
+            "%d row(s) had no matching local file: %s", len(missing), missing[:10]
+        )
+
+    return tasks, missing
+
+
 class LabelStudioImporter:
     def __init__(self, base_url: str, api_key: str, project_id: int):
         self.base_url = base_url.rstrip("/")
@@ -41,16 +132,13 @@ class LabelStudioImporter:
         """Upload images to Label Studio's file storage, without creating
         tasks (commit_to_project=false).
 
-        IMAGE_PATH is either a folder, a single file, or an explicit list of
-        file paths (the last avoids re-scanning a large/slow — e.g. network
-        mounted — folder for every call, which matters when this is called
-        once per checkpoint chunk).
-
-        If FILENAMES is given, only files whose name is in FILENAMES are
-        uploaded (checked against every form of IMAGE_PATH, including an
-        explicit list) — use this to skip images that were filtered out
-        (e.g. rated Safe by every model) instead of uploading everything
-        passed in.
+        Only usable for a project whose labeling config has a single data
+        key (e.g. just $image) — Label Studio rejects this endpoint outright
+        for any project with more than one, such as anything showing
+        per-model ratings alongside the image. Use build_tasks_from_paths
+        (base64-embedded images) instead for those; this remains the more
+        efficient path (no ~33% base64 inflation) for single-key projects
+        like the `sample` command's.
 
         One file per request: Label Studio's import endpoint only registers
         the first file when several are sent under the repeated "file" field
@@ -60,25 +148,10 @@ class LabelStudioImporter:
 
         Returns {original_filename: "/data/upload/{project}/{stored_name}"}.
         """
-        if isinstance(image_path, list):
-            files = [Path(p) for p in image_path]
-        else:
-            image_path = Path(image_path)
-            if image_path.is_dir():
-                files = sorted(
-                    p for p in image_path.iterdir() if p.suffix.lower() in EXTENSIONS
-                )
-            elif image_path.is_file():
-                files = [image_path]
-            else:
-                raise ValueError(f"Invalid image path: {image_path}")
-
-        if filenames is not None:
-            files = [p for p in files if p.name in filenames]
-
+        files = resolve_image_files(image_path, filenames)
         if not files:
             raise ValueError(f"No images found in {image_path}")
-        logger.info("Uploading %d image(s) from %s", len(files), image_path)
+        logger.info("Uploading %d image(s): %s", len(files), [p.name for p in files])
 
         for i, p in enumerate(files, start=1):
             with open(p, "rb") as fh:
@@ -216,49 +289,3 @@ class LabelStudioImporter:
             results.append(HealthCheckResult("file-uploads endpoint", True))
 
         return results
-
-
-def csv_image_filenames(csv_path: str | Path, image_field: str = "image") -> set[str]:
-    """Read just the IMAGE_FIELD column of a metadata CSV."""
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        return {row[image_field] for row in csv.DictReader(f)}
-
-
-def build_tasks_from_rows(
-    rows: list[dict], server_paths: dict[str, str], image_field: str = "image"
-) -> tuple[list[dict], list[str]]:
-    """Build Label Studio tasks from in-memory metadata rows, matching each
-    row to an uploaded file by filename (the row's IMAGE_FIELD value).
-
-    Rows are not mutated. Returns (tasks, filenames_missing_from_server_paths).
-    """
-    tasks = []
-    missing = []
-
-    for row in rows:
-        data = dict(row)
-        filename = data.pop(image_field)
-        if filename not in server_paths:
-            missing.append(filename)
-            continue
-        tasks.append({"data": {image_field: server_paths[filename], **data}})
-
-    if missing:
-        logger.warning(
-            "%d row(s) had no matching uploaded file: %s", len(missing), missing[:10]
-        )
-
-    return tasks, missing
-
-
-def build_tasks(
-    csv_path: str | Path, server_paths: dict[str, str], image_field: str = "image"
-) -> tuple[list[dict], list[str]]:
-    """Build Label Studio tasks from a metadata CSV, matching each row to an
-    uploaded file by filename (the CSV's IMAGE_FIELD column).
-
-    Returns (tasks, filenames_missing_from_server_paths).
-    """
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    return build_tasks_from_rows(rows, server_paths, image_field)

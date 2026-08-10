@@ -26,7 +26,10 @@ class Pixtral(SafetyModel):
     def load_model(self) -> None:
         logger.info("Downloading/loading Pixtral model: mistral-community/pixtral-12b")
         quantization_config = BitsAndBytesConfig(
-            load_in_8bit=True, llm_int8_threshold=6.0
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.float16,
         )
 
         model_id = "mistral-community/pixtral-12b"

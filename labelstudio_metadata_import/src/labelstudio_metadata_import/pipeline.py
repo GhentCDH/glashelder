@@ -11,8 +11,7 @@ from pathlib import Path
 from labelstudio_metadata_import.checkpoint import Checkpoint, load_or_create_checkpoint
 from labelstudio_metadata_import.importer import (
     LabelStudioImporter,
-    build_tasks_from_rows,
-    csv_image_filenames,
+    build_tasks_from_paths,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,26 +114,25 @@ def import_rows(
     tasks_json: str = "taken.json",
     commit: bool = False,
 ) -> tuple[list[dict], list[str]]:
-    """Upload the images referenced in ROWS (each needs an "image" filename
-    key) and their metadata to a Label Studio project. IMAGE_PATH is a
-    folder, single file, or explicit list of file paths — see
-    LabelStudioImporter.upload_images. Always writes TASKS_JSON for
-    inspection; only calls the import API when COMMIT is set.
+    """Build tasks for ROWS (each needs an "image" filename key) with their
+    image embedded as base64 — see build_tasks_from_paths for why a plain
+    upload-then-reference doesn't work for a project with per-model rating
+    fields — and import them to a Label Studio project. IMAGE_PATH is a
+    folder, single file, or explicit list of file paths. Always writes
+    TASKS_JSON for inspection; only calls the import API when COMMIT is set.
     """
     if not rows:
         Path(tasks_json).write_text("[]", encoding="utf-8")
         return [], []
 
-    filenames = {row["image"] for row in rows}
-    importer = LabelStudioImporter(ls_url, ls_token, project_id)
-    server_paths = importer.upload_images(image_path, filenames=filenames)
-    tasks, missing = build_tasks_from_rows(rows, server_paths)
+    tasks, missing = build_tasks_from_paths(rows, image_path)
 
     Path(tasks_json).write_text(
         json.dumps(tasks, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
     if commit:
+        importer = LabelStudioImporter(ls_url, ls_token, project_id)
         result = importer.import_tasks(tasks)
         logger.info("Imported into Label Studio: %s", result)
 
@@ -150,17 +148,12 @@ def import_results(
     tasks_json: str = "taken.json",
     commit: bool = False,
 ) -> tuple[list[dict], list[str]]:
-    """Upload the images referenced in CSV_PATH and its metadata to a Label
-    Studio project. Only images actually listed in the CSV are uploaded — if
+    """Import the images referenced in CSV_PATH and their metadata to a Label
+    Studio project. Only images actually listed in the CSV are used — if
     IMAGE_PATH is a folder with more (e.g. Safe-rated) images than the CSV,
     those are skipped. Always writes TASKS_JSON for inspection; only calls the
     import API when COMMIT is set.
     """
-    filenames = csv_image_filenames(csv_path)
-    if not filenames:
-        Path(tasks_json).write_text("[]", encoding="utf-8")
-        return [], []
-
     with open(csv_path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     return import_rows(
