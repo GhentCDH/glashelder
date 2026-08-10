@@ -85,6 +85,20 @@ class Orchestrator:
     ) -> list[Rating]:
         from risk_assessment.models.utils import get_images
 
+        return self._run_model_on_files(model_class, get_images(image_path))
+
+    def _run_model_on_files(
+        self, model_class: type[SafetyModel], image_files: list[str]
+    ) -> list[Rating]:
+        """Load MODEL_CLASS, run it over exactly IMAGE_FILES, unload it.
+
+        Appends every rating to self.assessments[name] (the cumulative,
+        process-lifetime record used by the TUI / write_combined_csv), but
+        returns only the ratings produced by THIS call — callers processing
+        a chunk get a chunk-scoped result, not the running total.
+        """
+        from risk_assessment.models.utils import model_device
+
         name = model_class.name
         self.update_model_state(
             name, status=ModelStatus.LOADING, current_task=f"Loading {name} model..."
@@ -99,12 +113,23 @@ class Orchestrator:
             )
             raise ModelLoadError(str(exc)) from exc
 
+        device = model_device(getattr(model, "model", None))
+        logger.info("%s loaded on device: %s", name, device)
+        if not device.startswith("cuda"):
+            logger.warning(
+                "%s is NOT running on GPU (device=%s) — this will be extremely slow "
+                "and 4/8-bit quantized weights typically require CUDA to load at all.",
+                name,
+                device,
+            )
+        self.update_model_state(name, current_task=f"Loaded on {device}")
+
         run_success = False
+        ratings: list[Rating] = []
         try:
             self.update_model_state(
                 name, status=ModelStatus.RUNNING, current_task="Processing images..."
             )
-            image_files = get_images(image_path)
             logger.info("%s: processing %d images", name, len(image_files))
 
             for i, image_file in enumerate(image_files):
@@ -126,6 +151,7 @@ class Orchestrator:
                     )
                     continue
 
+                ratings.append(assessment)
                 self.assessments[name].append(assessment)
                 logger.info(
                     "%s [%d/%d] %s → %s",
@@ -139,7 +165,7 @@ class Orchestrator:
                 self.update_majority_votes_live()
 
             run_success = True
-            return self.assessments[name]
+            return ratings
         finally:
             self.update_model_state(name, current_task=f"Unloading {name} model...")
             model.unload_model()
@@ -147,6 +173,23 @@ class Orchestrator:
                 self.update_model_state(
                     name, status=ModelStatus.DONE, current_task="Done"
                 )
+
+    def run_chunk(self, image_files: list[str]) -> dict[str, list[Rating]]:
+        """Run every configured model over exactly IMAGE_FILES (a chunk),
+        loading/unloading each model once for this chunk. Returns
+        {model_name: [Rating, ...]} scoped to this chunk only — the shape
+        expected by labelstudio_metadata_import.pipeline.combine_ratings.
+
+        Raises ModelLoadError if a model fails to load; nothing is caught
+        here, unlike run_all(), since the caller (which owns checkpointing)
+        needs to know a chunk did not complete.
+        """
+        chunk_assessments: dict[str, list[Rating]] = {}
+        for model_class in self.model_classes:
+            chunk_assessments[model_class.name] = self._run_model_on_files(
+                model_class, image_files
+            )
+        return chunk_assessments
 
     def run_all(self, path: str) -> None:
         from risk_assessment.models.utils import write_combined_csv

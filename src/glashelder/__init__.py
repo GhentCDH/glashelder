@@ -49,6 +49,7 @@ def register_commands():
     from preprocessing.cli import preprocessing
     from qwenvlm.cli import qwenvlm
     from risk_assessment.cli import risk_assessment
+    from labelstudio_metadata_import.cli import labelstudio_metadata_import
 
     main.add_command(cluster)
     main.add_command(qwenvlm)
@@ -58,6 +59,7 @@ def register_commands():
     main.add_command(artmatcher)
     main.add_command(embed)
     main.add_command(ocr)
+    main.add_command(labelstudio_metadata_import)
 
 
 # Register commands on import so the CLI sees them.

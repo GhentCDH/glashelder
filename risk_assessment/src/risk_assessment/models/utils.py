@@ -20,6 +20,14 @@ def show_prompt(prompt_file=None):
     print(prompt)
 
 
+def model_device(model) -> str:
+    """Best-effort device a loaded HF model's parameters actually live on."""
+    try:
+        return str(next(model.parameters()).device)
+    except (StopIteration, AttributeError, TypeError):
+        return "unknown"
+
+
 def get_images(image_path):
     """Get a list of images from a folder or a single image path."""
     if os.path.isdir(image_path):
