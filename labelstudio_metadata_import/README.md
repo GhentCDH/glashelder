@@ -144,17 +144,41 @@ before writing anything — for a big batch that can be hours of GPU work with
 nothing on disk and nothing in Label Studio until the very end. If it crashes
 partway (or you need to stop it), you lose that work and start over.
 
-`pipeline --checkpoint-dir DIR [--chunk-size N]` (default `N=200`) instead:
+`pipeline --checkpoint-dir DIR [--chunk-size N] [--interject-safe-percent P]`
+(defaults `N=200`, `P=2`) instead:
 
 1. Splits the folder into chunks of `--chunk-size` images.
-2. For each chunk: runs every model over just that chunk, filters (same
-   Safe-only-dropped rule as `assess`), and uploads the flagged images to
+2. For each chunk, runs every model over just that chunk and classifies each
+   image into one of three buckets:
+   - **flagged** — at least one model rated it something other than Safe
+     (a real judgment call) → uploaded to Label Studio.
+   - **needs research** — at least one model returned something other than
+     `Safe`/`Potentially Problematic`/`Unsafe` (e.g. `Unknown`/`Error`, from
+     `risk_assessment` failing to parse that model's output) → **never**
+     sent to Label Studio; appended to `DIR/needs_research.csv` instead,
+     since that's not a real safety judgment and needs a human to look at
+     the image (and/or the raw output) directly.
+   - **safe** — every model rated it exactly Safe.
+3. Randomly interjects `--interject-safe-percent`% of the chunk's size
+   (rounded, capped by how many safe images are actually available) from the
+   safe bucket into that chunk's upload, mixed in with the flagged ones —
+   see "Why interject safe images" below. Uploads flagged + interjected to
    Label Studio right away — you see results in LS as the run progresses,
    not only at the end.
-3. Records the chunk's images as done in `DIR/manifest.json` only *after*
+4. Records the chunk's images as done in `DIR/manifest.json` only *after*
    that upload (or dry-run write) succeeds, and appends every processed
-   image's row (flagged or not) to `DIR/results.csv`, a running full record.
-4. Moves to the next chunk.
+   image's row — flagged, safe, or needing research — to `DIR/results.csv`,
+   a running full record regardless of bucket.
+5. Moves to the next chunk.
+
+**Why interject safe images:** every image in a review queue built purely
+from `flagged` rows has already passed through Glaswacht's Safe filter — a
+reviewer only ever sees images the models already suspected. Mixing in a
+few genuinely-Safe images, indistinguishable from the flagged ones in the
+Label Studio UI, gives a baseline read on the models' true negative rate and
+keeps reviewers from anchoring on "everything in front of me is already
+suspect." Selection uses `secrets.SystemRandom` (not the default seeded
+PRNG), same as `sample` — not reproducible, and there's no `--seed`.
 
 Re-running the exact same command (same `--checkpoint-dir`, same `--path`,
 same `--model` selection) skips every image already recorded as done and
@@ -169,12 +193,18 @@ Two things worth knowing about the failure-recovery granularity: a chunk is
 the unit of both crash-safety and "done" — if the process dies mid-chunk,
 that whole chunk (not just the remaining images in it) gets redone on
 restart, and if one image within an otherwise-successful chunk fails
-assessment (corrupt file, decode error), it's still marked done along with
-the rest of that chunk rather than retried forever.
+assessment outright (corrupt file, decode error), it's treated the same as
+an invalid rating — routed to `needs_research.csv`, not retried forever.
 
-`DIR/results.csv` is always a valid `import --csv-path` input, so if a chunk
-was only ever dry-run, you can commit it later with the plain `import`
-command without re-running Glaswacht.
+`DIR/results.csv` is a complete audit trail — every processed image, flagged,
+safe, or needing research alike — **not** a ready-to-reimport queue; don't
+feed it straight to `import --csv-path`, that would also send the Safe and
+needs-research rows. If you dry-ran a chunk and want to commit it later
+without re-running Glaswacht, `DIR/chunk_NNNN_tasks.json` holds that exact
+chunk's already-built, base64-embedded upload payload (flagged + interjected
+only) — POST that JSON to Label Studio directly. Re-running `pipeline` with
+`--commit` won't do it for you: that chunk's images are already marked done,
+so they'd just be skipped, not uploaded.
 
 ## How images actually get to Label Studio
 

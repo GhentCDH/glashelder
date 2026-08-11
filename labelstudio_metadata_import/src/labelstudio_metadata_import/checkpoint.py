@@ -12,6 +12,7 @@ from pathlib import Path
 
 MANIFEST_FILENAME = "manifest.json"
 RESULTS_FILENAME = "results.csv"
+NEEDS_RESEARCH_FILENAME = "needs_research.csv"
 
 
 @dataclass
@@ -28,20 +29,34 @@ class Checkpoint:
     def results_csv_path(self) -> Path:
         return self.checkpoint_dir / RESULTS_FILENAME
 
-    def mark_chunk_done(self, image_names: list[str], rows: list[dict]) -> None:
-        """Persist that IMAGE_NAMES are fully assessed and append ROWS (this
-        chunk's Label Studio-format rows, flagged or not) to the running
-        results CSV.
+    @property
+    def needs_research_csv_path(self) -> Path:
+        return self.checkpoint_dir / NEEDS_RESEARCH_FILENAME
+
+    def mark_chunk_done(
+        self,
+        image_names: list[str],
+        rows: list[dict],
+        needs_research_rows: list[dict] | None = None,
+    ) -> None:
+        """Persist that IMAGE_NAMES are fully assessed: append ROWS (every
+        row this chunk produced — flagged, safe, or needing research) to the
+        running results CSV, and separately append NEEDS_RESEARCH_ROWS (rows
+        where a model returned something other than Safe/Potentially
+        Problematic/Unsafe — a parse failure, not a real judgment) to their
+        own CSV, since those are never sent to Label Studio and need a human
+        to look at them directly.
 
         Call only after any upload for this chunk has already succeeded (or
         after a deliberate dry-run write), so a crash mid-upload can't mark
         work as done that was never actually pushed.
         """
-        self._append_results(rows)
+        self._append_csv(self.results_csv_path, rows)
+        self._append_csv(self.needs_research_csv_path, needs_research_rows or [])
         self.done_images.update(image_names)
         self._save_manifest()
 
-    def _append_results(self, rows: list[dict]) -> None:
+    def _append_csv(self, path: Path, rows: list[dict]) -> None:
         if not rows:
             return
         model_count = len(self.model_names)
@@ -50,8 +65,8 @@ class Checkpoint:
             for i in range(1, model_count + 1)
             for attr in ("rating", "rationale")
         ]
-        is_new = not self.results_csv_path.exists()
-        with open(self.results_csv_path, "a", newline="", encoding="utf-8") as f:
+        is_new = not path.exists()
+        with open(path, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
             if is_new:
                 writer.writeheader()

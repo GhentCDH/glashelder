@@ -6,6 +6,7 @@ import csv
 import json
 import logging
 import os
+import secrets
 from pathlib import Path
 
 from labelstudio_metadata_import.checkpoint import Checkpoint, load_or_create_checkpoint
@@ -18,7 +19,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CSV = "labelstudio_review.csv"
 DEFAULT_CHUNK_SIZE = 200
+DEFAULT_INTERJECT_SAFE_PERCENT = 2.0
 SAFE_RATING = "Safe"
+POTENTIALLY_PROBLEMATIC_RATING = "Potentially Problematic"
+UNSAFE_RATING = "Unsafe"
+VALID_RATINGS = {SAFE_RATING, POTENTIALLY_PROBLEMATIC_RATING, UNSAFE_RATING}
 
 
 def _resolve_model_classes(model_names: tuple[str, ...]) -> tuple[list[str], list]:
@@ -75,6 +80,57 @@ def needs_review(row: dict, model_count: int) -> bool:
     """True unless every model that ran rated the image Safe."""
     ratings = [row.get(f"model_{i}_rating") for i in range(1, model_count + 1)]
     return not all(r == SAFE_RATING for r in ratings)
+
+
+def classify_rows(
+    rows: list[dict], model_count: int
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split ROWS into (flagged, safe, needs_research), used by the
+    checkpointed pipeline instead of the simpler needs_review():
+
+    - needs_research: at least one model returned a rating outside
+      {Safe, Potentially Problematic, Unsafe} — e.g. "Unknown"/"Error" from
+      risk_assessment failing to parse that model's output. That's not a
+      real safety judgment, so these are never sent to Label Studio; they
+      need a human to look at the image (and/or the raw model output)
+      directly.
+    - safe: every model that ran rated exactly Safe (and every rating is
+      valid — a row is never in both buckets).
+    - flagged: everything else — at least one model flagged it, and every
+      rating is valid.
+    """
+    flagged, safe, needs_research = [], [], []
+    for row in rows:
+        ratings = [row.get(f"model_{i}_rating") for i in range(1, model_count + 1)]
+        if any(r not in VALID_RATINGS for r in ratings):
+            needs_research.append(row)
+        elif all(r == SAFE_RATING for r in ratings):
+            safe.append(row)
+        else:
+            flagged.append(row)
+    return flagged, safe, needs_research
+
+
+def interject_safe_rows(
+    safe_rows: list[dict], chunk_size: int, percent: float
+) -> list[dict]:
+    """Randomly select PERCENT% of CHUNK_SIZE from SAFE_ROWS (capped by how
+    many are actually available) to mix into the upload as controls.
+
+    Every image sent to Label Studio otherwise passed through Glaswacht's
+    Safe filter first — reviewers only ever see images the models already
+    flagged. Interjecting a few genuinely-Safe images (indistinguishable
+    from the flagged ones in the review UI) gives a baseline read on the
+    models' true negative rate and keeps reviewers from assuming everything
+    in front of them is already suspect.
+
+    Uses secrets.SystemRandom (not the default seeded PRNG), same as the
+    `sample` command — the selection is intentionally not reproducible.
+    """
+    size = min(len(safe_rows), round(chunk_size * percent / 100))
+    if size <= 0:
+        return []
+    return secrets.SystemRandom().sample(safe_rows, size)
 
 
 def write_labelstudio_csv(rows: list[dict], output_csv: str, model_count: int) -> Path:
@@ -210,26 +266,33 @@ def run_glaswacht_checkpointed(
     ls_url: str,
     ls_token: str | None,
     commit: bool,
+    interject_safe_percent: float = DEFAULT_INTERJECT_SAFE_PERCENT,
 ) -> dict:
     """Run Glaswacht over PATH in resumable chunks of CHUNK_SIZE images.
 
     After every chunk (every configured model has rated every image in it),
-    the chunk's flagged rows are uploaded to Label Studio — if PROJECT_ID and
-    LS_TOKEN are given — and the chunk is recorded as done in CHECKPOINT_DIR
-    before moving on to the next one. Re-running with the same
-    CHECKPOINT_DIR skips images already recorded as done, so an interrupted
-    run only redoes its current, in-flight chunk, not the whole batch.
+    each row is classified — see classify_rows() — into flagged, safe, or
+    needs_research. The upload to Label Studio (if PROJECT_ID and LS_TOKEN
+    are given) is the flagged rows plus a small random interjection of safe
+    ones (see interject_safe_rows(), INTERJECT_SAFE_PERCENT of the chunk
+    size); needs_research rows are never uploaded — see classify_rows(). The
+    chunk is then recorded as done in CHECKPOINT_DIR before moving on to the
+    next one. Re-running with the same CHECKPOINT_DIR skips images already
+    recorded as done, so an interrupted run only redoes its current,
+    in-flight chunk, not the whole batch.
 
-    A chunk is the unit of both crash-safety and "done" tracking: if a model
-    fails to rate a specific image within a chunk (corrupt file, decode
-    error — see risk_assessment's per-image skip handling), that image still
-    counts as done once its chunk finishes, just with missing model_N_rating
-    fields; needs_review() treats a missing rating as "needs review" rather
-    than silently dropping it, and retrying it forever isn't an option that
-    scales (a permanently-corrupt file would never let the run finish).
+    A chunk is the unit of both crash-safety and "done" tracking: if one
+    image within an otherwise-successful chunk fails assessment outright
+    (corrupt file, decode error — see risk_assessment's per-image skip
+    handling), it still counts as done once its chunk finishes, just with
+    missing model_N_rating fields — classify_rows() treats that the same as
+    an invalid rating (needs_research) rather than silently dropping it, and
+    retrying it forever isn't an option that scales (a permanently-corrupt
+    file would never let the run finish).
 
     Returns a summary dict: total_images, already_done, processed_this_run,
-    flagged_this_run, chunks, checkpoint_dir, results_csv.
+    flagged_this_run, interjected_safe_this_run, needs_research_this_run,
+    chunks, checkpoint_dir, results_csv, needs_research_csv.
     """
     from risk_assessment.models.utils import get_images
     from risk_assessment.orchestrator import Orchestrator
@@ -252,49 +315,63 @@ def run_glaswacht_checkpointed(
 
     processed_this_run = 0
     flagged_this_run = 0
+    interjected_this_run = 0
+    needs_research_this_run = 0
     for chunk_num, chunk in enumerate(chunks, start=1):
         logger.info(
             "Chunk %d/%d: processing %d image(s)...", chunk_num, len(chunks), len(chunk)
         )
         chunk_assessments = orchestrator.run_chunk(chunk)
         chunk_rows, model_count = combine_ratings(chunk_assessments)
-        flagged = [row for row in chunk_rows if needs_review(row, model_count)]
+        flagged, safe, needs_research = classify_rows(chunk_rows, model_count)
+        interjected = interject_safe_rows(safe, len(chunk), interject_safe_percent)
+        to_upload = flagged + interjected
 
         if project_id is not None and ls_token:
             tasks_json = str(Path(checkpoint_dir) / f"chunk_{chunk_num:04d}_tasks.json")
             tasks, missing = import_rows(
-                chunk, flagged, project_id, ls_url, ls_token, tasks_json, commit
+                chunk, to_upload, project_id, ls_url, ls_token, tasks_json, commit
             )
             logger.info(
-                "Chunk %d/%d: %d/%d flagged, %d task(s) %s%s",
+                "Chunk %d/%d: %d flagged + %d safe-control = %d task(s) %s%s, "
+                "%d needing manual research",
                 chunk_num,
                 len(chunks),
                 len(flagged),
-                len(chunk_rows),
+                len(interjected),
                 len(tasks),
                 "imported" if commit else "dry-run written",
                 f", {len(missing)} missing" if missing else "",
+                len(needs_research),
             )
         else:
             logger.info(
-                "Chunk %d/%d: %d/%d flagged (no --project-id/--ls-token — "
-                "assessed only, not uploaded)",
+                "Chunk %d/%d: %d flagged + %d safe-control (no --project-id/"
+                "--ls-token — assessed only, not uploaded), %d needing manual research",
                 chunk_num,
                 len(chunks),
                 len(flagged),
-                len(chunk_rows),
+                len(interjected),
+                len(needs_research),
             )
 
-        ck.mark_chunk_done([os.path.basename(f) for f in chunk], chunk_rows)
+        ck.mark_chunk_done(
+            [os.path.basename(f) for f in chunk], chunk_rows, needs_research
+        )
         processed_this_run += len(chunk)
         flagged_this_run += len(flagged)
+        interjected_this_run += len(interjected)
+        needs_research_this_run += len(needs_research)
 
     return {
         "total_images": len(all_images),
         "already_done": already_done,
         "processed_this_run": processed_this_run,
         "flagged_this_run": flagged_this_run,
+        "interjected_safe_this_run": interjected_this_run,
+        "needs_research_this_run": needs_research_this_run,
         "chunks": len(chunks),
         "checkpoint_dir": str(checkpoint_dir),
         "results_csv": str(ck.results_csv_path),
+        "needs_research_csv": str(ck.needs_research_csv_path),
     }

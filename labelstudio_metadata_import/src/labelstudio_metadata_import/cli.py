@@ -8,6 +8,7 @@ from labelstudio_metadata_import.importer import LabelStudioImporter
 from labelstudio_metadata_import.pipeline import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CSV,
+    DEFAULT_INTERJECT_SAFE_PERCENT,
     assess_for_labelstudio,
     import_images,
     import_results,
@@ -327,12 +328,22 @@ def sample(
     show_default=True,
     help="Images per checkpoint, only used with --checkpoint-dir.",
 )
+@click.option(
+    "--interject-safe-percent",
+    type=click.FloatRange(0, 100),
+    default=DEFAULT_INTERJECT_SAFE_PERCENT,
+    show_default=True,
+    help="Percent of each chunk's size to randomly interject as genuinely-Safe "
+    "control images alongside the flagged ones, only used with --checkpoint-dir "
+    "— so reviewers aren't only ever shown pre-flagged images.",
+)
 @_ls_command()
 def pipeline(
     path,
     model_names,
     checkpoint_dir,
     chunk_size,
+    interject_safe_percent,
     project_id,
     ls_url,
     ls_token,
@@ -350,15 +361,23 @@ def pipeline(
             ls_url,
             ls_token,
             commit,
+            interject_safe_percent,
         )
         click.echo(
             f"{summary['total_images']} image(s) total, "
             f"{summary['already_done']} already checkpointed, "
             f"{summary['processed_this_run']} processed this run across "
-            f"{summary['chunks']} chunk(s), {summary['flagged_this_run']} flagged."
+            f"{summary['chunks']} chunk(s): {summary['flagged_this_run']} flagged, "
+            f"{summary['interjected_safe_this_run']} safe-control interjected, "
+            f"{summary['needs_research_this_run']} needing manual research."
         )
         click.echo(f"Checkpoint: {summary['checkpoint_dir']}")
         click.echo(f"Full record of every processed image: {summary['results_csv']}")
+        if summary["needs_research_this_run"]:
+            click.echo(
+                f"Needs manual research (not sent to Label Studio): "
+                f"{summary['needs_research_csv']}"
+            )
         if not commit:
             click.echo("Dry run — re-run with --commit to actually import.")
         return
