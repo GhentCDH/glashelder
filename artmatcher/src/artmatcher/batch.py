@@ -1,5 +1,6 @@
 """Batch classification for artwork matching across glashelder dataset."""
 
+import contextlib
 import csv
 import json
 import logging
@@ -18,6 +19,7 @@ from rich.progress import (
     MofNCompleteColumn,
     Progress,
     SpinnerColumn,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
@@ -189,12 +191,23 @@ def _get_default_features(similarities: list[float]) -> dict[str, float]:
     return features
 
 
+class _NullProgress:
+    """No-op stand-in for rich.progress.Progress when progress output is disabled."""
+
+    def add_task(self, *args: Any, **kwargs: Any) -> TaskID:
+        return TaskID(0)
+
+    def advance(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
 def extract_features_batch(
     work_items: list[tuple[int, str, str, list[float], int]],
     workers: int,
     cache: FeatureCache | None = None,
     timeout_per_item: float = 30.0,
     cache_save_interval: int = 100,
+    progress: bool = True,
 ) -> dict[int, dict[str, float]]:
     """Extract ORB/hash features for a batch of image pairs in parallel.
 
@@ -204,6 +217,7 @@ def extract_features_batch(
         cache: Optional feature cache
         timeout_per_item: Timeout in seconds per item (default 30s)
         cache_save_interval: Save cache to disk every N items (default 100)
+        progress: If False, suppress the progress bar and all console output
 
     Returns:
         Dict mapping index to feature dict
@@ -232,17 +246,23 @@ def extract_features_batch(
     # Allow timeout_per_item seconds per item, but at least 5 minutes
     global_timeout = max(300, len(uncached_items) * timeout_per_item / workers)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task(
+    progress_cm = (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        )
+        if progress
+        else contextlib.nullcontext(_NullProgress())
+    )
+
+    with progress_cm as progress_bar:
+        task = progress_bar.add_task(
             "[cyan]Extracting ORB/hash features...",
             total=len(uncached_items),
         )
@@ -287,13 +307,14 @@ def extract_features_batch(
                     cache.save(quiet=True)
 
                 n_completed += 1
-                progress.advance(task)
+                progress_bar.advance(task)
 
         except TimeoutError:
             # Global timeout - cancel remaining futures and use defaults
-            console.print(
-                f"[yellow]Global timeout reached after {n_completed} items[/yellow]"
-            )
+            if progress:
+                console.print(
+                    f"[yellow]Global timeout reached after {n_completed} items[/yellow]"
+                )
             for future, item in future_to_item.items():
                 if not future.done():
                     future.cancel()
@@ -302,7 +323,7 @@ def extract_features_batch(
                     if idx not in results:
                         results[idx] = _get_default_features(similarities)
                         n_failed += 1
-                        progress.advance(task)
+                        progress_bar.advance(task)
 
             # Save cache on timeout for crash recovery
             if cache:
@@ -310,12 +331,28 @@ def extract_features_batch(
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
 
-    if n_failed > 0:
+    if n_failed > 0 and progress:
         console.print(
             f"[yellow]Warning: {n_failed} items failed feature extraction[/yellow]"
         )
 
     return results
+
+
+def predict_confidences(
+    classifier: MLClassifier,
+    features_by_index: dict[int, dict[str, float]],
+    indices: list[int],
+) -> list[float]:
+    """Vectorized match-confidence prediction for a set of feature dicts."""
+    if not indices:
+        return []
+
+    feature_matrix = np.array(
+        [classifier._features_to_array(features_by_index[i]) for i in indices]
+    )
+    all_proba = classifier._model.predict_proba(feature_matrix)  # type:ignore
+    return all_proba[:, 1].astype(float).tolist()
 
 
 def batch_classify(
@@ -388,18 +425,11 @@ def batch_classify(
     console.print("\n[cyan]Phase 3: Running ML classification...[/cyan]")
     classifier.threshold = threshold
 
-    # Build all feature vectors at once (vectorized)
-    feature_matrix = np.array(
-        [
-            [features_map[i].get(f, 0.0) for f in classifier.FEATURE_ORDER]
-            for i in range(n_glashelder)
-        ]
-    )
-
     # Batch predict all at once - much faster than one-by-one
-    all_proba = classifier._model.predict_proba(feature_matrix)  # type:ignore
-    confidences = all_proba[:, 1].astype(float)
-    is_match_arr = confidences >= threshold
+    confidences = predict_confidences(
+        classifier, features_map, list(range(n_glashelder))
+    )
+    is_match_arr = np.asarray(confidences) >= threshold
     n_matches = int(is_match_arr.sum())
 
     # Build results list
