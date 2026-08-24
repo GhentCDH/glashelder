@@ -616,12 +616,6 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     "--threshold", default=0.2, help="Diff threshold for match classification"
 )
 @click.option(
-    "--classifier",
-    type=click.Choice(["simple", "ml"]),
-    default="simple",
-    help="Classifier to use: 'simple' (polynomial fit) or 'ml' (Random Forest)",
-)
-@click.option(
     "--ml-model",
     type=click.Path(exists=True),
     default=None,
@@ -676,7 +670,6 @@ def serve(
     port: int,
     top_k: int,
     threshold: float,
-    classifier: Literal["simple", "ml"],
     ml_model: str | None,
     search_workers: int,
     search_batch_size: int,
@@ -697,14 +690,6 @@ def serve(
     Or use --classifier=ml with --ml-model to compute on the fly.
     Use --search-workers to parallelize ORB/hash extraction during search.
     """
-    # Validate options
-    if results_json is None:
-        if classifier == "ml" and ml_model is None:
-            click.echo(
-                "Error: --ml-model is required when using --classifier=ml", err=True
-            )
-            return
-
     if glashelder_images is None:
         logger.error(
             "!! You need to set the `--glashelder-images` argument to the directory where the glashelder images are on your system"
@@ -739,9 +724,8 @@ def serve(
         from .loading import load_classifier, load_matching_inputs
         from .web.source import LiveSource
 
-        ml_classifier_instance = (
-            load_classifier(ml_model, threshold) if classifier == "ml" else None
-        )
+        # `None` when ml_model isn't given
+        ml_classifier_instance = load_classifier(ml_model, threshold)
         try:
             inputs = load_matching_inputs(
                 wikiart_embeddings=wikiart_embeddings,
