@@ -3,8 +3,6 @@
 import glob
 import json
 import logging
-import random
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal
 
@@ -13,7 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from common import ASSETS_DIR, require_auth
+from common import ASSETS_DIR
 from embed import get_device
 
 from .similarity_classifier import SimpleClassifier
@@ -695,16 +693,6 @@ def serve(
     Or use --classifier=ml with --ml-model to compute on the fly.
     Use --search-workers to parallelize ORB/hash extraction during search.
     """
-    from flask import Flask, render_template, send_file
-
-    import embed
-
-    from .ml_classifier import (
-        MLClassifier,
-        _extract_orb_worker,
-        _init_orb_worker,
-    )
-
     # Validate options
     if results_json is None:
         if classifier == "ml" and ml_model is None:
@@ -749,450 +737,34 @@ def serve(
         app.run(host=host, port=port, debug=True)
         return
 
-    app = Flask(
-        __name__,
-        template_folder=Path(__file__).parent / "templates",
+    from .loading import load_classifier, load_matching_inputs
+    from .web.app import create_app
+    from .web.source import LiveSource
+
+    ml_classifier_instance = (
+        load_classifier(ml_model, threshold) if classifier == "ml" else None
     )
-
-    # Add authentication middleware
-    if auth:
-        require_auth(app)
-
-    # Original on-the-fly computation mode
-    device = get_device()
-    logger.info(f"Using device: {device}")
-
-    # Load ML classifier if specified
-    ml_classifier_instance: MLClassifier | None = None
-    if classifier == "ml" and ml_model:
-        logger.info(f"Loading ML classifier from {ml_model}...")
-        ml_classifier_instance = MLClassifier.load(ml_model, threshold=threshold)
-        logger.info("ML classifier loaded")
-
-    # Load wikiart embeddings
-    logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
-    wikiart_data = embed.load_embeddings(wikiart_embeddings, root=reference_images)
-    wikiart_emb = wikiart_data["embeddings"].to(device)
-    wikiart_paths: list[str] = wikiart_data["images"]
-    embedding_model_name = wikiart_data.get("model", "clip")
-    logger.info(f"Loaded {len(wikiart_paths)} wikiart images")
-    logger.info(f"Embedding model: {embedding_model_name}")
-
-    if embedding_model_name != model:
-        logger.warning(
-            f"Wikiart embeddings use model '{embedding_model_name}' but --model is '{model}'. "
-            f"Using '{embedding_model_name}' for consistency."
+    try:
+        inputs = load_matching_inputs(
+            wikiart_embeddings=wikiart_embeddings,
+            glashelder_embeddings=glashelder_embeddings,
+            model=model,
+            image_dir=image_dir,
+            wikiart_root=reference_images,
+            glashelder_root=glashelder_images,
         )
-        model = embedding_model_name
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        return
 
-    # Load or generate glashelder embeddings
-    if glashelder_embeddings is not None:
-        logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
-        glashelder_data = embed.load_embeddings(
-            glashelder_embeddings, root=glashelder_images
-        )
-        glashelder_emb = glashelder_data["embeddings"].to(device)
-        glashelder_paths: list[str] = glashelder_data["images"]
-        logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
-    else:
-        logger.info(f"Loading embedder model: {model}")
-        embedder = embed.get_embedder(model)
-        embedder.load(device)
-
-        glashelder_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
-        logger.info(f"Found {len(glashelder_paths)} glashelder images")
-
-        logger.info("Generating glashelder embeddings (this may take a while)...")
-        glashelder_emb, glashelder_paths = embedder.encode_images(
-            glashelder_paths, batch_size=64
-        )
-        glashelder_emb = glashelder_emb.to(device)
-        logger.info(f"Generated embeddings for {len(glashelder_paths)} images")
-
-    # Create shuffled order of indices
-    shuffled_indices = list(range(len(glashelder_paths)))
-    random.shuffle(shuffled_indices)
-    logger.info(f"Shuffled {len(shuffled_indices)} images for random traversal")
-
-    # State for tracking current position, threshold, and labeled dataset
-    state: dict = {
-        "queue_position": 0,  # Position in shuffled_indices
-        "current_item": None,  # Current classified item
-        "threshold": threshold,
-        "dataset": {
-            "positives": [],  # True matches (classifier correct when predicting match)
-            "negatives": [],  # True negatives (classifier correct when predicting no match)
-            "false_positives": [],  # Classifier said match but was wrong
-            "false_negatives": [],  # Classifier said no match but was wrong
-        },
-    }
-
-    # Classification cache: image_index -> (features, threshold used)
-    # We cache features but recompute is_match when threshold changes
-    classification_cache: dict[int, dict] = {}
-
-    def get_simple_classifier() -> SimpleClassifier:
-        return SimpleClassifier(threshold=state["threshold"])
-
-    def get_embedding_results(image_index: int) -> tuple[list[int], list[float]]:
-        """Get embedding search results for an image (fast)."""
-        import cluster
-
-        emb = glashelder_emb[image_index]
-        top_indices, top_values = cluster.perform_search(
-            top_k, emb.unsqueeze(0), wikiart_emb, wikiart_paths
-        )
-        return top_indices.cpu().numpy().tolist(), top_values.cpu().numpy().tolist()
-
-    def classify_image(image_index: int, use_cache: bool = True) -> dict | None:
-        """Classify a single image by its index in glashelder_paths."""
-        if image_index < 0 or image_index >= len(glashelder_paths):
-            return None
-
-        current_threshold = state["threshold"]
-
-        # Check cache for features (but recompute is_match with current threshold)
-        if use_cache and image_index in classification_cache:
-            cached = classification_cache[image_index]
-            # Recompute is_match with current threshold
-            if ml_classifier_instance is not None:
-                confidence = cached["diff"]
-                is_match = confidence >= current_threshold
-            else:
-                is_match = cached["diff"] > current_threshold
-            return {
-                **cached,
-                "is_match": is_match,
-                "threshold": current_threshold,
-            }
-
-        top_indices_list, similarities = get_embedding_results(image_index)
-
-        glashelder_path = glashelder_paths[image_index]
-        wikiart_path = wikiart_paths[top_indices_list[0]] if top_indices_list else None
-
-        # Use ML classifier if available, otherwise simple classifier
-        if ml_classifier_instance is not None:
-            ml_classifier_instance.threshold = current_threshold
-            result = ml_classifier_instance.classify(
-                similarities, glashelder_path, wikiart_path
-            )
-            item = {
-                "glashelder_index": image_index,
-                "glashelder_path": glashelder_path,
-                "top_indices": top_indices_list,
-                "similarities": similarities,
-                "is_match": result.is_match,
-                "diff": result.confidence,
-                "threshold": current_threshold,
-                "classifier_type": "ml",
-                "features": result.features,
-            }
-        else:
-            simple_clf = get_simple_classifier()
-            result = simple_clf.classify(similarities)
-            item = {
-                "glashelder_index": image_index,
-                "glashelder_path": glashelder_path,
-                "top_indices": top_indices_list,
-                "similarities": similarities,
-                "is_match": result.is_match,
-                "diff": result.diff,
-                "threshold": current_threshold,
-                "classifier_type": "simple",
-            }
-
-        # Cache the result
-        classification_cache[image_index] = item
-        return item
-
-    def classify_batch_parallel(image_indices: list[int]) -> list[dict | None]:
-        """Classify multiple images in parallel (ML classifier with ORB/hash)."""
-        if ml_classifier_instance is None:
-            # Simple classifier is fast, no need for parallelization
-            return [classify_image(idx) for idx in image_indices]
-
-        current_threshold = state["threshold"]
-        results: list[dict | None] = [None] * len(image_indices)
-
-        # Separate cached and uncached indices
-        uncached_batch = []
-        for batch_idx, image_index in enumerate(image_indices):
-            if image_index in classification_cache:
-                cached = classification_cache[image_index]
-                confidence = cached["diff"]
-                is_match = confidence >= current_threshold
-                results[batch_idx] = {
-                    **cached,
-                    "is_match": is_match,
-                    "threshold": current_threshold,
-                }
-            else:
-                uncached_batch.append((batch_idx, image_index))
-
-        if not uncached_batch:
-            return results
-
-        # Get embedding results for uncached images (fast, sequential)
-        embedding_data = []
-        for batch_idx, image_index in uncached_batch:
-            top_indices_list, similarities = get_embedding_results(image_index)
-            glashelder_path = glashelder_paths[image_index]
-            wikiart_path = (
-                wikiart_paths[top_indices_list[0]] if top_indices_list else ""
-            )
-            embedding_data.append(
-                {
-                    "batch_idx": batch_idx,
-                    "image_index": image_index,
-                    "top_indices_list": top_indices_list,
-                    "similarities": similarities,
-                    "glashelder_path": glashelder_path,
-                    "wikiart_path": wikiart_path,
-                }
-            )
-
-        # Prepare work items for parallel ORB/hash extraction
-        work_items = [
-            (i, d["glashelder_path"], d["wikiart_path"], d["similarities"], 0)
-            for i, d in enumerate(embedding_data)
-        ]
-
-        # Extract ORB/hash features in parallel
-        orb_results: dict[int, dict] = {}
-        with ProcessPoolExecutor(
-            max_workers=search_workers,
-            initializer=_init_orb_worker,
-        ) as executor:
-            future_to_idx = {
-                executor.submit(_extract_orb_worker, item): item[0]
-                for item in work_items
-            }
-            for future in as_completed(future_to_idx):
-                idx, features, _ = future.result()
-                orb_results[idx] = features
-
-        # Build final results with ML predictions
-        for i, data in enumerate(embedding_data):
-            features = orb_results[i]
-            feature_vector = np.array(
-                [features.get(f, 0.0) for f in ml_classifier_instance.FEATURE_ORDER]
-            ).reshape(1, -1)
-
-            proba = ml_classifier_instance._model.predict_proba(feature_vector)[0]  # type:ignore
-            confidence = float(proba[1])
-            is_match = confidence >= current_threshold
-
-            item = {
-                "glashelder_index": data["image_index"],
-                "glashelder_path": data["glashelder_path"],
-                "top_indices": data["top_indices_list"],
-                "similarities": data["similarities"],
-                "is_match": is_match,
-                "diff": confidence,
-                "threshold": current_threshold,
-                "classifier_type": "ml",
-                "features": features,
-            }
-            results[data["batch_idx"]] = item
-            classification_cache[data["image_index"]] = item
-
-        return results
-
-    def find_next_in_queue(start_queue_pos: int, want_match: bool) -> dict | None:
-        """Find next image in shuffled queue that matches/doesn't match.
-
-        Uses batch parallel classification for ML classifier to speed up search.
-        """
-        remaining = len(shuffled_indices) - start_queue_pos
-        if remaining <= 0:
-            return None
-
-        # Process in batches for parallel ORB/hash extraction
-        batch_size = search_batch_size if ml_classifier_instance else 1
-
-        for batch_start in range(start_queue_pos, len(shuffled_indices), batch_size):
-            batch_end = min(batch_start + batch_size, len(shuffled_indices))
-            batch_queue_positions = list(range(batch_start, batch_end))
-            batch_image_indices = [
-                shuffled_indices[pos] for pos in batch_queue_positions
-            ]
-
-            # Classify batch in parallel
-            batch_results = classify_batch_parallel(batch_image_indices)
-
-            # Check results in order
-            for i, item in enumerate(batch_results):
-                if item is None:
-                    continue
-                if item["is_match"] == want_match:
-                    queue_pos = batch_queue_positions[i]
-                    state["queue_position"] = queue_pos
-                    state["current_item"] = item
-                    return item
-
-        return None
-
-    def get_dataset_counts() -> dict:
-        """Get counts for each category in the dataset."""
-        return {
-            "positives": len(state["dataset"]["positives"]),
-            "negatives": len(state["dataset"]["negatives"]),
-            "false_positives": len(state["dataset"]["false_positives"]),
-            "false_negatives": len(state["dataset"]["false_negatives"]),
-            "total": sum(len(v) for v in state["dataset"].values()),
-        }
-
-    def render_content(item: dict | None, want_match: bool) -> str:
-        if item is None:
-            return render_template(
-                "content.html",
-                error=f"No more {'matches' if want_match else 'negatives'} to show.",
-                dataset_counts=get_dataset_counts(),
-            )
-
-        return render_template(
-            "content.html",
-            error=None,
-            current_index=item["glashelder_index"],
-            total_images=len(glashelder_paths),
-            glashelder_path=item["glashelder_path"],
-            wikiart_path=wikiart_paths[item["top_indices"][0]],
-            top_match_index=item["top_indices"][0],
-            similarities=item["similarities"],
-            is_match=item["is_match"],
-            diff=item["diff"],
-            threshold=item["threshold"],
-            dataset_counts=get_dataset_counts(),
-            classifier_type=item.get("classifier_type", "simple"),
-            features=item.get("features", {}),
-        )
-
-    @app.route("/")
-    def index():
-        # Find first match or first image in shuffled order
-        item = find_next_in_queue(0, True)
-        if item is None and shuffled_indices:
-            item = classify_image(shuffled_indices[0])
-            state["queue_position"] = 0
-            state["current_item"] = item
-
-        return render_template(
-            "labeler.html",
-            error=None if item else "No images found.",
-            current_index=item["glashelder_index"] if item else 0,
-            total_images=len(glashelder_paths),
-            glashelder_path=item["glashelder_path"] if item else "",
-            wikiart_path=wikiart_paths[item["top_indices"][0]] if item else "",
-            top_match_index=item["top_indices"][0] if item else 0,
-            similarities=item["similarities"] if item else [],
-            is_match=item["is_match"] if item else False,
-            diff=item["diff"] if item else 0.0,
-            threshold=item["threshold"] if item else state["threshold"],
-            dataset_counts=get_dataset_counts(),
-            classifier_type=item.get("classifier_type", "simple") if item else "simple",
-            features=item.get("features", {}) if item else {},
-        )
-
-    @app.route("/next-match", methods=["POST"])
-    def next_match():
-        item = find_next_in_queue(state["queue_position"] + 1, True)
-        return render_content(item, True)
-
-    @app.route("/next-negative", methods=["POST"])
-    def next_negative():
-        item = find_next_in_queue(state["queue_position"] + 1, False)
-        return render_content(item, False)
-
-    @app.route("/set-threshold", methods=["POST"])
-    def set_threshold():
-        from flask import request
-
-        new_threshold = request.form.get("threshold", type=float)
-        if new_threshold is not None:
-            state["threshold"] = new_threshold
-        # Re-classify current image with new threshold
-        if state["current_item"]:
-            item = classify_image(state["current_item"]["glashelder_index"])
-            state["current_item"] = item
-        else:
-            item = None
-        return render_content(item, True)
-
-    @app.route("/label-correct", methods=["POST"])
-    def label_correct():
-        """Mark current classification as correct and move to next."""
-        item = state["current_item"]
-        if item:
-            entry = {
-                "glashelder_index": item["glashelder_index"],
-                "glashelder_path": item["glashelder_path"],
-                "wikiart_index": item["top_indices"][0],
-                "wikiart_path": wikiart_paths[item["top_indices"][0]],
-                "diff": item["diff"],
-                "threshold": item["threshold"],
-                "similarities": item["similarities"],
-            }
-            if item["is_match"]:
-                state["dataset"]["positives"].append(entry)
-            else:
-                state["dataset"]["negatives"].append(entry)
-
-        # Move to next (prefer matches)
-        next_item = find_next_in_queue(state["queue_position"] + 1, True)
-        if next_item is None:
-            next_item = find_next_in_queue(state["queue_position"] + 1, False)
-        return render_content(next_item, True)
-
-    @app.route("/label-incorrect", methods=["POST"])
-    def label_incorrect():
-        """Mark current classification as incorrect and move to next."""
-        item = state["current_item"]
-        if item:
-            entry = {
-                "glashelder_index": item["glashelder_index"],
-                "glashelder_path": item["glashelder_path"],
-                "wikiart_index": item["top_indices"][0],
-                "wikiart_path": wikiart_paths[item["top_indices"][0]],
-                "diff": item["diff"],
-                "threshold": item["threshold"],
-                "similarities": item["similarities"],
-            }
-            if item["is_match"]:
-                state["dataset"]["false_positives"].append(entry)
-            else:
-                state["dataset"]["false_negatives"].append(entry)
-
-        # Move to next (prefer matches)
-        next_item = find_next_in_queue(state["queue_position"] + 1, True)
-        if next_item is None:
-            next_item = find_next_in_queue(state["queue_position"] + 1, False)
-        return render_content(next_item, True)
-
-    @app.route("/download-dataset")
-    def download_dataset():
-        from flask import Response
-
-        dataset_json = json.dumps(state["dataset"], indent=2)
-        return Response(
-            dataset_json,
-            mimetype="application/json",
-            headers={
-                "Content-Disposition": "attachment;filename=labeling_dataset.json"
-            },
-        )
-
-    @app.route("/glashelder-image/<int:index>")
-    def serve_glashelder_image(index: int):
-        if index < 0 or index >= len(glashelder_paths):
-            return "Image not found", 404
-        return send_file(glashelder_paths[index])
-
-    @app.route("/wikiart-image/<int:index>")
-    def serve_wikiart_image(index: int):
-        if index < 0 or index >= len(wikiart_paths):
-            return "Image not found", 404
-        return send_file(wikiart_paths[index])
+    source = LiveSource(
+        inputs,
+        top_k=top_k,
+        classifier=ml_classifier_instance,
+        search_workers=search_workers,
+        search_batch_size=search_batch_size,
+    )
+    app = create_app(source, threshold=threshold, auth=auth)
 
     logger.info(f"Starting Flask server on {host}:{port}...")
     logger.info(f"Open http://localhost:{port} in your browser")

@@ -1089,7 +1089,7 @@ class MLClassifier:
         proba = self._model.predict_proba(feature_vector)[0]
         confidence = float(proba[1])  # Probability of class 1 (match)
 
-        is_match = confidence >= self.threshold
+        is_match = confidence > self.threshold
 
         return MLClassificationResult(
             is_match=is_match,

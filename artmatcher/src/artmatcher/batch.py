@@ -429,7 +429,7 @@ def batch_classify(
     confidences = predict_confidences(
         classifier, features_map, list(range(n_glashelder))
     )
-    is_match_arr = np.asarray(confidences) >= threshold
+    is_match_arr = np.asarray(confidences) > threshold
     n_matches = int(is_match_arr.sum())
 
     # Build results list
