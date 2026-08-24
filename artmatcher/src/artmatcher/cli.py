@@ -24,7 +24,6 @@ from .stitching import (
 )
 
 WINDOW = "image-matching"
-PACKAGE_ROOT = Path(__file__).parent.parent.parent
 
 logger = logging.getLogger(__name__)
 
@@ -716,7 +715,7 @@ def serve(
 
     app = Flask(
         __name__,
-        template_folder=PACKAGE_ROOT / "templates",
+        template_folder=Path(__file__).parent / "templates",
     )
 
     # Add authentication middleware
