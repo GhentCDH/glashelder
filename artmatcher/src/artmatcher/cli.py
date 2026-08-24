@@ -664,6 +664,9 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
 @click.option(
     "--auth", is_flag=True, help="Enable secret url parameter based authentication."
 )
+@click.option(
+    "--debug", is_flag=True, help="Enable the Flask debugger and auto-reloader."
+)
 def serve(
     wikiart_embeddings: str,
     glashelder_embeddings: str | None,
@@ -681,6 +684,7 @@ def serve(
     glashelder_images: Path | None,
     reference_images: Path | None,
     auth: bool,
+    debug: bool,
 ):
     """Start a web interface for labeling artwork matches.
 
@@ -717,9 +721,10 @@ def serve(
     else:
         reference_images = Path(reference_images)
 
+    from .web.app import create_app
+
     # If results_json is provided, use pre-computed results mode
     if results_json is not None:
-        from .web.app import create_app
         from .web.source import PrecomputedSource
 
         logger.info(f"Loading pre-computed results from {results_json}...")
@@ -730,45 +735,39 @@ def serve(
         logger.info(f"Loaded {len(results)} pre-computed results")
 
         source = PrecomputedSource(results, glashelder_images, reference_images)
-        app = create_app(source, threshold=threshold, auth=auth)
+    else:
+        from .loading import load_classifier, load_matching_inputs
+        from .web.source import LiveSource
 
-        logger.info(f"Starting Flask server on {host}:{port}...")
-        logger.info(f"Open http://localhost:{port} in your browser")
-        app.run(host=host, port=port, debug=True)
-        return
-
-    from .loading import load_classifier, load_matching_inputs
-    from .web.app import create_app
-    from .web.source import LiveSource
-
-    ml_classifier_instance = (
-        load_classifier(ml_model, threshold) if classifier == "ml" else None
-    )
-    try:
-        inputs = load_matching_inputs(
-            wikiart_embeddings=wikiart_embeddings,
-            glashelder_embeddings=glashelder_embeddings,
-            model=model,
-            image_dir=image_dir,
-            wikiart_root=reference_images,
-            glashelder_root=glashelder_images,
+        ml_classifier_instance = (
+            load_classifier(ml_model, threshold) if classifier == "ml" else None
         )
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        return
+        try:
+            inputs = load_matching_inputs(
+                wikiart_embeddings=wikiart_embeddings,
+                glashelder_embeddings=glashelder_embeddings,
+                model=model,
+                image_dir=image_dir,
+                wikiart_root=reference_images,
+                glashelder_root=glashelder_images,
+            )
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            return
 
-    source = LiveSource(
-        inputs,
-        top_k=top_k,
-        classifier=ml_classifier_instance,
-        search_workers=search_workers,
-        search_batch_size=search_batch_size,
-    )
+        source = LiveSource(
+            inputs,
+            top_k=top_k,
+            classifier=ml_classifier_instance,
+            search_workers=search_workers,
+            search_batch_size=search_batch_size,
+        )
+
     app = create_app(source, threshold=threshold, auth=auth)
 
     logger.info(f"Starting Flask server on {host}:{port}...")
     logger.info(f"Open http://localhost:{port} in your browser")
-    app.run(host=host, port=port, debug=True)
+    app.run(host=host, port=port, debug=debug)
 
 
 @artmatcher.command()
