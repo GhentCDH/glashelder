@@ -1583,8 +1583,6 @@ def batch_classify(
             -o results.json \\
             --workers 32
     """
-    import embed
-
     from .batch import (
         FeatureCache,
         write_csv_output,
@@ -1593,67 +1591,34 @@ def batch_classify(
     from .batch import (
         batch_classify as do_batch_classify,
     )
-    from .ml_classifier import MLClassifier
+    from .loading import load_classifier, load_matching_inputs
 
-    device = get_device()
-    logger.info(f"Using device: {device}")
-
-    # Load ML classifier
-    logger.info(f"Loading ML classifier from {ml_model}...")
-    classifier = MLClassifier.load(ml_model, threshold=threshold)
-    logger.info("ML classifier loaded")
-
-    # Load wikiart embeddings
-    logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
-    wikiart_data = embed.load_embeddings(wikiart_embeddings)
-    wikiart_emb = wikiart_data["embeddings"].to(device)
-    wikiart_paths: list[str] = wikiart_data["images"]
-    embedding_model_name = wikiart_data.get("model", "clip")
-    logger.info(f"Loaded {len(wikiart_paths)} wikiart images")
-    logger.info(f"Embedding model: {embedding_model_name}")
-
-    if embedding_model_name != model:
-        logger.warning(
-            f"Wikiart embeddings use model '{embedding_model_name}' but --model is '{model}'. "
-            f"Using '{embedding_model_name}' for consistency."
+    classifier = load_classifier(ml_model, threshold)
+    assert classifier is not None
+    # NOTE: batch_classify passes no wikiart root (unlike `serve`, which passes
+    # --reference-images). Preserved as-is; changing it is out of scope.
+    try:
+        inputs = load_matching_inputs(
+            wikiart_embeddings=wikiart_embeddings,
+            glashelder_embeddings=glashelder_embeddings,
+            model=model,
+            image_dir=image_dir,
+            wikiart_root=None,
+            glashelder_root=image_dir,
         )
-        model = embedding_model_name
-
-    # Load or generate glashelder embeddings
-    if glashelder_embeddings is not None:
-        logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
-        glashelder_data = embed.load_embeddings(glashelder_embeddings, root=image_dir)
-        glashelder_emb = glashelder_data["embeddings"].to(device)
-        glashelder_paths: list[str] = glashelder_data["images"]
-        logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
-    else:
-        logger.info(f"Loading embedder model: {model}")
-        embedder = embed.get_embedder(model)
-        embedder.load(device)
-
-        glashelder_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
-        logger.info(f"Found {len(glashelder_paths)} glashelder images")
-
-        if not glashelder_paths:
-            click.echo(f"Error: No images found in {image_dir}", err=True)
-            return
-
-        logger.info("Generating glashelder embeddings (this may take a while)...")
-        glashelder_emb, glashelder_paths = embedder.encode_images(
-            glashelder_paths, batch_size=64
-        )
-        glashelder_emb = glashelder_emb.to(device)
-        logger.info(f"Generated embeddings for {len(glashelder_paths)} images")
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        return
 
     # Setup feature cache
     cache = FeatureCache(cache_path) if cache_features else None
 
     # Run batch classification
     result = do_batch_classify(
-        glashelder_emb=glashelder_emb,
-        glashelder_paths=glashelder_paths,
-        wikiart_emb=wikiart_emb,
-        wikiart_paths=wikiart_paths,
+        glashelder_emb=inputs.glashelder_emb,
+        glashelder_paths=inputs.glashelder_paths,
+        wikiart_emb=inputs.wikiart_emb,
+        wikiart_paths=inputs.wikiart_paths,
         classifier=classifier,
         top_k=top_k,
         threshold=threshold,
