@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image
 
 from common import ASSETS_DIR, require_auth
-from embed import get_device
+from embed import get_device, rebase_paths
 
 from .similarity_classifier import SimpleClassifier
 from .stitching import (
@@ -652,6 +652,21 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
     default=None,
     help="Path to pre-computed batch_classify JSON output. Skips on-the-fly computation.",
 )
+@click.option(
+    "--glashelder-images",
+    type=click.Path(exists=True, dir_okay=True, file_okay=False),
+    default=None,
+    help="Path of the directory where the glashelder images live",
+)
+@click.option(
+    "--reference-images",
+    type=click.Path(exists=True, dir_okay=True, file_okay=False),
+    default=None,
+    help="Path of the directory where the reference images live",
+)
+@click.option(
+    "--auth", is_flag=True, help="Enable secret url parameter based authentication."
+)
 def serve(
     wikiart_embeddings: str,
     glashelder_embeddings: str | None,
@@ -666,6 +681,9 @@ def serve(
     search_workers: int,
     search_batch_size: int,
     results_json: str | None,
+    glashelder_images: Path | None,
+    reference_images: Path | None,
+    auth: bool,
 ):
     """Start a web interface for labeling artwork matches.
 
@@ -702,7 +720,24 @@ def serve(
     )
 
     # Add authentication middleware
-    require_auth(app)
+    if auth:
+        require_auth(app)
+
+    if glashelder_images is None:
+        logger.error(
+            "!! You need to set the `--glashelder-images` argument to the directory where the glashelder images are on your system"
+        )
+        return
+    else:
+        glashelder_images = Path(glashelder_images)
+
+    if reference_images is None:
+        logger.error(
+            "!! You need to set the `--reference-images` argument to the directory where the reference images are on your system"
+        )
+        return
+    else:
+        reference_images = Path(reference_images)
 
     # If results_json is provided, use pre-computed results mode
     if results_json is not None:
@@ -723,6 +758,11 @@ def serve(
         wikiart_paths = [""] * (max_wikiart_idx + 1)
         for idx, path in wikiart_paths_set.items():
             wikiart_paths[idx] = path
+
+        # The JSON stores absolute paths from the machine that produced it, so
+        # rebase them onto the image directories of *this* machine.
+        glashelder_paths = rebase_paths(glashelder_paths, glashelder_images)
+        wikiart_paths = rebase_paths(wikiart_paths, reference_images)
 
         # Create shuffled order of indices
         shuffled_indices = list(range(len(glashelder_paths)))
@@ -985,7 +1025,7 @@ def serve(
 
     # Load wikiart embeddings
     logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
-    wikiart_data = embed.load_embeddings(wikiart_embeddings)
+    wikiart_data = embed.load_embeddings(wikiart_embeddings, root=reference_images)
     wikiart_emb = wikiart_data["embeddings"].to(device)
     wikiart_paths: list[str] = wikiart_data["images"]
     embedding_model_name = wikiart_data.get("model", "clip")
@@ -1002,7 +1042,9 @@ def serve(
     # Load or generate glashelder embeddings
     if glashelder_embeddings is not None:
         logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
-        glashelder_data = embed.load_embeddings(glashelder_embeddings)
+        glashelder_data = embed.load_embeddings(
+            glashelder_embeddings, root=glashelder_images
+        )
         glashelder_emb = glashelder_data["embeddings"].to(device)
         glashelder_paths: list[str] = glashelder_data["images"]
         logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
@@ -1581,7 +1623,7 @@ def batch_classify(
     # Load or generate glashelder embeddings
     if glashelder_embeddings is not None:
         logger.info(f"Loading glashelder embeddings from {glashelder_embeddings}...")
-        glashelder_data = embed.load_embeddings(glashelder_embeddings)
+        glashelder_data = embed.load_embeddings(glashelder_embeddings, root=image_dir)
         glashelder_emb = glashelder_data["embeddings"].to(device)
         glashelder_paths: list[str] = glashelder_data["images"]
         logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
