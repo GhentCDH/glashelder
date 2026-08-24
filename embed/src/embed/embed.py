@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PIL import Image
@@ -716,14 +717,90 @@ def get_embedder(model_name: str = "clip") -> EmbeddingModel:
     return EMBEDDING_MODELS[model_name]()
 
 
-def load_embeddings(path: str) -> dict:
+def _common_root(image_paths: list[str]) -> str | None:
+    """Infer the directory all image paths live under, or None if not derivable."""
+    import os.path
+
+    absolute = [p for p in image_paths if p and os.path.isabs(p)]
+    if not absolute:
+        return None
+    if len(absolute) == 1:
+        return os.path.dirname(absolute[0])
+    return os.path.commonpath(absolute)
+
+
+def relativize_image_paths(
+    image_paths: list[str], root: str | Path | None
+) -> tuple[list[str], str | None]:
+    """Strip `root` from image paths so they can be rebased on another machine.
+
+    Falls back to the common ancestor of the given paths when `root` is not
+    provided, which is what makes legacy pickles (absolute paths, no stored
+    root) portable as well.
+
+    Returns:
+        Tuple of (relative paths, the root they are relative to).
+    """
+    root_str = str(root) if root is not None else _common_root(image_paths)
+    if root_str is None:
+        return list(image_paths), None
+
+    root_path = Path(root_str)
+    relative = []
+    for p in image_paths:
+        # "" is a placeholder for a missing image; Path("") would become "."
+        if p == "":
+            relative.append(p)
+            continue
+        candidate = Path(p)
+        if candidate.is_absolute():
+            try:
+                candidate = candidate.relative_to(root_path)
+            except ValueError:
+                logger.warning(f"Image path {p} is not under root {root_str}")
+        relative.append(str(candidate))
+
+    return relative, root_str
+
+
+def rebase_paths(image_paths: list[str], root: str | Path | None) -> list[str]:
+    """Re-root image paths recorded on another machine onto `root`.
+
+    This is the single place where "paths were stored somewhere else" is fixed:
+    the stored paths are made relative to their common ancestor and re-joined
+    with the local image directory. Empty entries (used as placeholders) and
+    already-relative paths are preserved. Returns the paths unchanged when
+    `root` is None.
+    """
+    if root is None:
+        return list(image_paths)
+
+    root_path = Path(root)
+    relative, stored_root = relativize_image_paths(image_paths, None)
+    if stored_root is not None and str(root_path) != stored_root:
+        logger.info(f"Rebasing image paths from {stored_root} onto {root_path}")
+
+    return [str(root_path / p) if p else p for p in relative]
+
+
+def load_embeddings(path: str, root: str | Path | None = None) -> dict:
     """Load embeddings from a pickle file.
+
+    Image paths are always returned relative to `root`, which is the single
+    place where the mismatch between the machine that generated the pickle and
+    the machine reading it gets resolved. Pickles written by `save_embeddings`
+    already store relative paths; older ones store absolute paths, which are
+    made relative to their common ancestor directory here.
 
     Args:
         path: Path to the pickle file.
+        root: Directory the images live in on *this* machine. When omitted, the
+            root recorded in the pickle (or inferred from it) is used, which
+            only works if the images are in the same place as when embedded.
 
     Returns:
-        Dictionary containing 'images', 'embeddings', and optionally model metadata.
+        Dictionary containing 'images' (absolute paths under `root`),
+        'embeddings', 'root', and model metadata.
     """
     import pickle
 
@@ -740,6 +817,18 @@ def load_embeddings(path: str) -> dict:
         data["model_id"] = CLIP_MODEL_ID
         data["embedding_dim"] = 768
 
+    resolved_root = root if root is not None else data.get("root") or None
+    if resolved_root is None:
+        logger.warning(
+            f"Embeddings at {path} have no image root and none was given; "
+            "using image paths as stored."
+        )
+        data["root"] = None
+        return data
+
+    data["root"] = str(resolved_root)
+    data["images"] = rebase_paths(data["images"], resolved_root)
+
     return data
 
 
@@ -748,22 +837,30 @@ def save_embeddings(
     image_paths: list[str],
     embeddings: torch.Tensor,
     embedder: EmbeddingModel,
+    root: str | Path | None = None,
 ) -> None:
     """Save embeddings to a pickle file with model metadata.
+
+    Image paths are stored relative to `root` (inferred from the paths when not
+    given) so that the pickle stays usable when the image directory moves.
 
     Args:
         path: Path to save the pickle file.
         image_paths: List of image paths.
         embeddings: Tensor of embeddings.
         embedder: The embedding model used to generate the embeddings.
+        root: Directory the image paths are under.
     """
     import pickle
+
+    relative_paths, stored_root = relativize_image_paths(image_paths, root)
 
     data = {
         "model": embedder.name,
         "model_id": embedder.model_id,
         "embedding_dim": embedder.embedding_dim,
-        "images": image_paths,
+        "root": stored_root,
+        "images": relative_paths,
         "embeddings": embeddings,
     }
 
@@ -772,5 +869,6 @@ def save_embeddings(
 
     logger.info(f"Saved embeddings to {path}")
     logger.info(f"  Model: {embedder.name} ({embedder.model_id})")
+    logger.info(f"  Image root: {stored_root}")
     logger.info(f"  Images: {len(image_paths)}")
     logger.info(f"  Embedding dim: {embedder.embedding_dim}")

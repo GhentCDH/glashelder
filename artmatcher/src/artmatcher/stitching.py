@@ -175,6 +175,7 @@ def stitch_pair(
 
 def load_image(path: str) -> np.ndarray:
     """Load an image from disk."""
+
     img = cv2.imread(path)
     if img is None:
         raise ValueError(f"Could not load image {path}")

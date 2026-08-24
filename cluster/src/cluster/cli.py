@@ -108,6 +108,11 @@ def cluster():
     "--embeddings", default=EMBEDDINGS_PATH, help="Path of the embeddings pkl file"
 )
 @click.option(
+    "--image-dir",
+    default=ASSETS_DIR,
+    help="Directory the embedded images live in on this machine",
+)
+@click.option(
     "-s", "--save", default=CLUSTERS_JSON, help="Path where the clusters are written to"
 )
 @click.option(
@@ -135,7 +140,7 @@ def cluster():
     default=0.0,
     help="`min_dist` parameter of UMAP dimensionality reduction",
 )
-def do_clustering(embeddings, save, output_files, count, reduce, nbs, md):
+def do_clustering(embeddings, image_dir, save, output_files, count, reduce, nbs, md):
     import json
 
     from embed import (
@@ -150,7 +155,7 @@ def do_clustering(embeddings, save, output_files, count, reduce, nbs, md):
     init_rerun(os.getenv("RERUN_ADDR"))
 
     logger.info("Loading embeddings")
-    data = load_embeddings(embeddings)
+    data = load_embeddings(embeddings, root=image_dir)
     image_paths: list[str] = data["images"]
     embeddings = data["embeddings"].to(device)
     logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
@@ -296,7 +301,7 @@ def search(
 
     # Get image embeddings and determine which model to use for text encoding
     if embeddings is not None:
-        data = load_embeddings(embeddings)
+        data = load_embeddings(embeddings, root=image_dir)
         image_paths = data["images"]
         image_embeddings = data["embeddings"].to(device)
         embedding_model_name = data.get("model", "clip")
@@ -441,7 +446,7 @@ def analyze(
     # Load or generate embeddings
     if embeddings is not None and os.path.exists(embeddings):
         logger.info("Loading embeddings")
-        data = load_embeddings(embeddings)
+        data = load_embeddings(embeddings, root=image_dir)
         image_paths = data["images"][:sample_size]
         embeddings_tensor = data["embeddings"][:sample_size].to(device)
         embedding_model_name = data.get("model", "clip")

@@ -68,7 +68,7 @@ def generate_embeddings(image_dir, save_path, count, batch_size, model):
             f"Skipped {len(input_paths) - len(processed_paths)} images due to load errors"
         )
 
-    save_embeddings(save_path, processed_paths, embeddings, embedder)
+    save_embeddings(save_path, processed_paths, embeddings, embedder, root=image_dir)
 
 
 def perform_search(top_k, text_embedding, image_embeddings, image_paths):
@@ -116,9 +116,14 @@ def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self
 @click.option(
     "--embeddings", default=EMBEDDINGS_PATH, help="Path to embeddings pickle file"
 )
+@click.option(
+    "--image-dir",
+    default=ASSETS_DIR,
+    help="Directory the embedded images live in on this machine",
+)
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=5000, help="Port to bind to")
-def serve(embeddings, host, port):
+def serve(embeddings, image_dir, host, port):
     """Start a web server for interactive image search.
 
     Authentication is required. Set the GLASHELDER_SECRET environment variable,
@@ -148,7 +153,7 @@ def serve(embeddings, host, port):
     device = get_device()
     logger.info(f"Using device: {device}")
 
-    data = load_embeddings(embeddings)
+    data = load_embeddings(embeddings, root=image_dir)
     image_paths = data["images"]
     image_embeddings = data["embeddings"].to(device)
     embedding_model_name = data.get("model", "clip")

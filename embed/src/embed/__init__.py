@@ -8,6 +8,8 @@ from .embed import (
     get_device,
     get_embedder,
     load_embeddings,
+    rebase_paths,
+    relativize_image_paths,
     save_embeddings,
 )
 
@@ -21,5 +23,7 @@ __all__ = [
     "get_device",
     "get_embedder",
     "load_embeddings",
+    "rebase_paths",
+    "relativize_image_paths",
     "save_embeddings",
 ]
