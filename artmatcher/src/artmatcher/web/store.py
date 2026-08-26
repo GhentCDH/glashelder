@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import re
-import secrets
 from datetime import datetime
 from pathlib import Path
 
@@ -25,8 +24,17 @@ def is_valid_session_id(session_id: str) -> bool:
     return bool(SESSION_ID_RE.match(session_id))
 
 
-def new_session_id() -> str:
-    return f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2)}"
+def slugify_session_name(name: str) -> str:
+    """Turn a name typed by a person into a usable session id.
+
+    Session names double as filenames, so spaces become dashes and anything
+    outside the allowed set is dropped. Returns "" when nothing usable is left,
+    which callers report back rather than silently inventing a name.
+    """
+    slug = re.sub(r"\s+", "-", name.strip())
+    slug = re.sub(r"[^A-Za-z0-9_-]", "", slug)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-_")
+    return slug[:64]
 
 
 BUCKETS = ("positives", "negatives", "false_positives", "false_negatives")
@@ -132,6 +140,7 @@ class SessionStore:
             order=order,
             dataset=dataset,
             created_at=data.get("created_at"),
+            want_match=bool(data.get("want_match", True)),
         )
         session.rebuild_labeled()
 
@@ -153,6 +162,7 @@ class SessionStore:
             "created_at": session.created_at,
             "updated_at": now,
             "threshold": session.threshold,
+            "want_match": session.want_match,
             "total_images": session.total_images,
             "labeled_count": session.labeled_count,
             "dataset": session.dataset.as_dict(),
@@ -165,6 +175,35 @@ class SessionStore:
             os.replace(tmp, path)
         except OSError as e:
             logger.error(f"Could not save session {session.session_id} to {path}: {e}")
+
+    def rename(self, old_id: str, new_id: str) -> None:
+        """Move a session's file to a new id.
+
+        Raises ValueError when either id is unusable or the target already
+        exists -- renaming must never quietly overwrite someone's labels.
+        """
+        old_path = self.path_for(old_id)
+        new_path = self.path_for(new_id)
+        if new_path.exists():
+            raise ValueError(f"A session named {new_id!r} already exists")
+
+        if old_path.is_file():
+            os.replace(old_path, new_path)
+            # The id is stored inside the file too, so keep the two in step.
+            try:
+                with open(new_path) as f:
+                    data = json.load(f)
+                data["session_id"] = new_id
+                tmp = new_path.with_suffix(".json.tmp")
+                with open(tmp, "w") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(tmp, new_path)
+            except (OSError, json.JSONDecodeError) as e:
+                logger.error(
+                    f"Renamed {old_id} to {new_id} but could not rewrite it: {e}"
+                )
+
+        logger.info(f"Renamed session {old_id} to {new_id}")
 
     def list_sessions(self) -> list[dict]:
         """Summaries of every stored session, most recently updated first."""

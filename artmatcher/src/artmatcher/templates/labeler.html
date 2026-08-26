@@ -43,7 +43,10 @@
     hx-vals='{"session": "{{ session_id }}"}'
     data-session-id="{{ session_id }}"
   >
-    <div class="p-8">
+    <!-- Every labeler request syncs on this element with the "replace"
+         strategy, so pressing a button aborts whatever is still in flight
+         instead of letting a slow earlier search land on top of it later. -->
+    <div class="p-8" id="labeler" hx-sync="closest #labeler:replace">
       <h1 class="text-2xl mb-4">Artwork Labeler</h1>
 
       <div
@@ -53,9 +56,27 @@
         <code class="bg-white border border-neutral-300 rounded px-2 py-1"
           >{{ session_id }}</code
         >
-        <span class="text-neutral-600">
-          labeled {{ labeled_count }} / {{ total_images }} ({{ remaining }} to go)
-        </span>
+        {% include "session_progress.html" %}
+
+        <form
+          hx-post="/rename-session"
+          hx-target="#content"
+          hx-indicator="#loading"
+          class="flex gap-2 items-center"
+        >
+          <input
+            type="text"
+            name="new_name"
+            placeholder="rename to…"
+            class="border border-neutral-300 rounded px-2 py-1 w-40"
+          />
+          <button
+            type="submit"
+            class="bg-neutral-700 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+          >
+            Rename
+          </button>
+        </form>
 
         <label for="session-picker" class="ml-auto">Resume:</label>
         <select
@@ -71,13 +92,27 @@
           {% endfor %}
         </select>
 
-        <button
-          class="bg-neutral-800 text-white rounded px-4 py-2 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
-          hx-post="/new-session"
-          onclick="localStorage.removeItem('artmatcher.sessionId')"
+        <form
+          method="post"
+          action="/new-session"
+          class="flex gap-2 items-center"
+          onsubmit="localStorage.removeItem('artmatcher.sessionId')"
         >
-          New Session
-        </button>
+          <input type="hidden" name="session" value="{{ session_id }}" />
+          <input
+            type="text"
+            name="name"
+            placeholder="new session name…"
+            required
+            class="border border-neutral-300 rounded px-2 py-1 w-40"
+          />
+          <button
+            type="submit"
+            class="bg-neutral-800 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+          >
+            New Session
+          </button>
+        </form>
 
         <form
           hx-post="/import-session"
@@ -95,13 +130,20 @@
             id="dataset"
             name="dataset"
             accept=".json,application/json"
-            class="text-xs w-56"
+            class="text-xs w-48"
+          />
+          <input
+            type="text"
+            name="name"
+            placeholder="name for it…"
+            required
+            class="border border-neutral-300 rounded px-2 py-1 w-36"
           />
           <button
-            class="bg-neutral-800 text-white rounded px-4 py-2 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+            class="bg-neutral-800 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
             type="submit"
           >
-            Resume File
+            Import
           </button>
         </form>
       </div>
@@ -163,39 +205,29 @@
       </div>
       {% endif %}
 
+      {% if page_error %}
+      <div class="bg-red-50 border border-red-300 text-red-800 p-3 rounded mb-4 text-sm">
+        {{ page_error }}
+      </div>
+      {% endif %}
+
       <div id="content">
         {% include "content.html" %}
       </div>
     </div>
 
     <script>
-      // The browser remembers only the session id; the server owns the labels.
-      // Landing on "/" with no ?session= resumes the remembered one instead of
-      // silently starting a fresh session on every reload.
+      // The browser remembers only which session it was working on; the server
+      // owns the labels. Landing on "/" with no ?session= sends you to the
+      // remembered one (see start.html) instead of a fresh unnamed session.
       (function () {
-        var KEY = 'artmatcher.sessionId';
-        var rendered = document.body.dataset.sessionId;
-        var fromUrl = new URLSearchParams(window.location.search).get('session');
-        var stored = null;
         try {
-          stored = localStorage.getItem(KEY);
+          localStorage.setItem(
+            'artmatcher.sessionId',
+            document.body.dataset.sessionId
+          );
         } catch (e) {
-          // private mode / blocked storage: fall through to the rendered id
-        }
-
-        if (fromUrl) {
-          try {
-            localStorage.setItem(KEY, fromUrl);
-          } catch (e) {}
-          return;
-        }
-
-        var target = stored || rendered;
-        if (target) {
-          try {
-            localStorage.setItem(KEY, target);
-          } catch (e) {}
-          window.location.replace('/?session=' + encodeURIComponent(target));
+          // private mode / blocked storage: nothing to remember, carry on
         }
       })();
     </script>
