@@ -6,6 +6,11 @@
   <span class="text-orange-600">FP: {{ dataset_counts.false_positives }}</span>
   <span class="text-red-600">FN: {{ dataset_counts.false_negatives }}</span>
   <span class="ml-auto font-bold">Total: {{ dataset_counts.total }}</span>
+  {% if total_images %}
+  <span class="text-neutral-600">
+    ({{ labeled_count }}/{{ total_images }} labeled, {{ remaining }} to go)
+  </span>
+  {% endif %}
 </div>
 {% endif %} {% if error %}
 <div class="bg-red-500 text-white p-4 rounded">{{ error }}</div>

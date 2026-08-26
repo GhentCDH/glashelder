@@ -38,9 +38,73 @@
       }
     </style>
   </head>
-  <body class="max-w-[2000px] mx-auto p-5 bg-white">
+  <body
+    class="max-w-[2000px] mx-auto p-5 bg-white"
+    hx-vals='{"session": "{{ session_id }}"}'
+    data-session-id="{{ session_id }}"
+  >
     <div class="p-8">
       <h1 class="text-2xl mb-4">Artwork Labeler</h1>
+
+      <div
+        class="flex gap-4 items-center p-3 bg-neutral-100 rounded mb-4 text-sm flex-wrap"
+      >
+        <span class="font-bold">Session:</span>
+        <code class="bg-white border border-neutral-300 rounded px-2 py-1"
+          >{{ session_id }}</code
+        >
+        <span class="text-neutral-600">
+          labeled {{ labeled_count }} / {{ total_images }} ({{ remaining }} to go)
+        </span>
+
+        <label for="session-picker" class="ml-auto">Resume:</label>
+        <select
+          id="session-picker"
+          class="border border-neutral-300 rounded px-2 py-1 bg-white"
+          onchange="if (this.value) { localStorage.setItem('artmatcher.sessionId', this.value); window.location = '/?session=' + encodeURIComponent(this.value); }"
+        >
+          <option value="">— pick a session —</option>
+          {% for s in sessions %}
+          <option value="{{ s.session_id }}" {% if s.session_id == session_id %}selected{% endif %}>
+            {{ s.session_id }} — {{ s.labeled_count }} labeled{% if s.updated_at %} ({{ s.updated_at }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+
+        <button
+          class="bg-neutral-800 text-white rounded px-4 py-2 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+          hx-post="/new-session"
+          onclick="localStorage.removeItem('artmatcher.sessionId')"
+        >
+          New Session
+        </button>
+
+        <form
+          hx-post="/import-session"
+          hx-encoding="multipart/form-data"
+          hx-target="#content"
+          hx-indicator="#loading"
+          class="flex gap-2 items-center border-l-2 border-neutral-300 pl-4"
+          onsubmit="localStorage.removeItem('artmatcher.sessionId')"
+        >
+          <label for="dataset" title="Continue from a previously downloaded dataset JSON">
+            Import:
+          </label>
+          <input
+            type="file"
+            id="dataset"
+            name="dataset"
+            accept=".json,application/json"
+            class="text-xs w-56"
+          />
+          <button
+            class="bg-neutral-800 text-white rounded px-4 py-2 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+            type="submit"
+          >
+            Resume File
+          </button>
+        </form>
+      </div>
 
       <div class="flex gap-4 mb-4 flex-wrap">
         <div class="flex gap-2">
@@ -83,7 +147,7 @@
 
         <div class="border-l-2 border-neutral-300 pl-4">
           <a
-            href="/download-dataset"
+            href="/download-dataset?session={{ session_id }}"
             class="bg-neutral-800 text-white rounded px-6 py-3 cursor-pointer hover:bg-neutral-600 transition-colors border-0 inline-block"
           >
             Download Dataset
@@ -93,9 +157,47 @@
         <span id="loading" class="htmx-indicator text-neutral-500 self-center">Loading...</span>
       </div>
 
+      {% if notice %}
+      <div class="bg-green-50 border border-green-300 text-green-800 p-3 rounded mb-4 text-sm">
+        {{ notice }}
+      </div>
+      {% endif %}
+
       <div id="content">
         {% include "content.html" %}
       </div>
     </div>
+
+    <script>
+      // The browser remembers only the session id; the server owns the labels.
+      // Landing on "/" with no ?session= resumes the remembered one instead of
+      // silently starting a fresh session on every reload.
+      (function () {
+        var KEY = 'artmatcher.sessionId';
+        var rendered = document.body.dataset.sessionId;
+        var fromUrl = new URLSearchParams(window.location.search).get('session');
+        var stored = null;
+        try {
+          stored = localStorage.getItem(KEY);
+        } catch (e) {
+          // private mode / blocked storage: fall through to the rendered id
+        }
+
+        if (fromUrl) {
+          try {
+            localStorage.setItem(KEY, fromUrl);
+          } catch (e) {}
+          return;
+        }
+
+        var target = stored || rendered;
+        if (target) {
+          try {
+            localStorage.setItem(KEY, target);
+          } catch (e) {}
+          window.location.replace('/?session=' + encodeURIComponent(target));
+        }
+      })();
+    </script>
   </body>
 </html>
