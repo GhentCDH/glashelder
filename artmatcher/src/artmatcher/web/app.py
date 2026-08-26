@@ -3,6 +3,7 @@ import logging
 import random
 from pathlib import Path
 from typing import cast
+from urllib.parse import quote
 
 from flask import Flask, Response, render_template, request, send_file
 
@@ -14,8 +15,8 @@ from .store import (
     SessionStore,
     dataset_threshold,
     is_valid_session_id,
-    new_session_id,
     normalize_dataset,
+    slugify_session_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ def create_app(
                     index_by_name.setdefault(Path(path).name, index)
         return index_by_name
 
-    def _import_session(data: dict) -> tuple[LabelSession, dict]:
+    def _import_session(data: dict, session_id: str) -> tuple[LabelSession, dict]:
         """Turn an uploaded dataset export into a resumable session."""
         dataset = normalize_dataset(data)
         by_name = _index_by_name()
@@ -100,7 +101,6 @@ def create_app(
             labeled.add(index)
             resolved += 1
 
-        session_id = new_session_id()
         session = LabelSession(
             session_id=session_id,
             threshold=dataset_threshold(dataset, threshold),
@@ -188,11 +188,25 @@ def create_app(
             f"try the other button or a different threshold)."
         )
 
+    def _progress_oob(session: LabelSession) -> str:
+        """The session bar's counter, swapped out-of-band.
+
+        The bar sits outside #content, so without this it would keep showing
+        the counts from when the page was first loaded.
+        """
+        return render_template(
+            "session_progress.html",
+            oob=True,
+            labeled_count=session.labeled_count,
+            total_images=source.total_images,
+            remaining=session.remaining,
+        )
+
     def _render_content(
         session: LabelSession, item: MatchItem | None, want_match: bool
     ) -> str:
         if item is None:
-            return render_template(
+            body = render_template(
                 "content.html",
                 error=_exhausted_message(session, want_match),
                 session_id=session.session_id,
@@ -201,14 +215,21 @@ def create_app(
                 labeled_count=session.labeled_count,
                 remaining=session.remaining,
             )
-        return render_template("content.html", **_context(session, item))
+        else:
+            body = render_template("content.html", **_context(session, item))
+        return body + _progress_oob(session)
 
-    def _find_next(session: LabelSession, want_match: bool) -> MatchItem | None:
+    def _find_next(
+        session: LabelSession, want_match: bool, seq: int | None = None
+    ) -> MatchItem | None:
         """Next unlabeled image matching the wanted verdict.
 
         Scans the whole queue starting just after the current position and
         wrapping around, skipping images that already carry a label. Nothing is
         ever stepped past permanently, so the full sample stays reachable.
+
+        `seq` makes the scan abandonable: when a newer request has arrived the
+        scan stops at the next chunk boundary and touches no session state.
         """
         n = len(session.order)
         if n == 0:
@@ -228,26 +249,45 @@ def create_app(
 
         batch_size = max(1, source.batch_size)
         for start in range(0, len(candidates), batch_size):
+            # A newer click has taken over: stop burning CPU on a result whose
+            # response the browser has already thrown away.
+            if not session.is_current(seq):
+                logger.info(
+                    f"Abandoning {'match' if want_match else 'negative'} search in "
+                    f"{session.session_id}: superseded by a newer request"
+                )
+                return None
+
             chunk_positions = candidates[start : start + batch_size]
             chunk_indices = [session.order[pos] for pos in chunk_positions]
             items = source.classify_many(chunk_indices, session.threshold)
             for pos, item in zip(chunk_positions, items, strict=True):
                 if item is not None and item.is_match == want_match:
-                    session.queue_position = pos
-                    session.current_item = item
+                    # Only the newest request may move the cursor.
+                    if session.is_current(seq):
+                        session.queue_position = pos
+                        session.current_item = item
                     return item
 
-        session.note_exhausted(want_match)
+        if session.is_current(seq):
+            session.note_exhausted(want_match)
         return None
 
-    def _advance(session: LabelSession) -> MatchItem | None:
-        """Next match if there is one, else next negative."""
-        item = _find_next(session, True)
-        if item is None:
-            item = _find_next(session, False)
+    def _advance(session: LabelSession, seq: int | None = None) -> MatchItem | None:
+        """Next image of the kind being worked on, falling back to the other.
+
+        `want_match` follows the last Next Match / Next Negative press, so
+        labeling a negative serves the next negative instead of jumping back
+        to matches. The fallback keeps the session going once one kind runs out.
+        """
+        item = _find_next(session, session.want_match, seq)
+        if item is None and session.is_current(seq):
+            item = _find_next(session, not session.want_match, seq)
         return item
 
     def _label(session: LabelSession, is_correct: bool) -> str:
+        # The label itself always commits -- it is the user's actual work. Only
+        # the search for the next image afterwards is abandonable.
         item = cast("MatchItem | None", session.current_item)
         if item is not None:
             wikiart_idx = item.top_indices[0]
@@ -277,7 +317,8 @@ def create_app(
             session.labeled.add(item.glashelder_index)
             store.save(session)
 
-        return _render_content(session, _advance(session), True)
+        seq = session.begin_request()
+        return _render_content(session, _advance(session, seq), session.want_match)
 
     def _missing_session() -> str:
         return render_template(
@@ -290,10 +331,17 @@ def create_app(
     def index():
         session_id = request.args.get("session", "").strip()
         if not session_id or not is_valid_session_id(session_id):
-            session_id = new_session_id()
+            # Sessions are always named by a person, so there is nothing to
+            # fall back to: ask for a name instead of inventing one.
+            return render_template(
+                "start.html",
+                sessions=store.list_sessions(),
+                total_images=source.total_images,
+                error=request.args.get("error"),
+            )
 
         session = _session(session_id)
-        item = _advance(session)
+        item = _advance(session, session.begin_request())
         if item is None and session.order and session.remaining > 0:
             item = source.classify(session.order[0], session.threshold)
             session.queue_position = 0
@@ -314,16 +362,89 @@ def create_app(
             )
 
         return render_template(
-            "labeler.html", sessions=store.list_sessions(), notice=notice, **ctx
+            "labeler.html",
+            sessions=store.list_sessions(),
+            notice=notice,
+            page_error=request.args.get("error"),
+            **ctx,
         )
+
+    def _requested_name(field: str = "name") -> tuple[str, str | None]:
+        """Slugify a name typed by a person; returns (id, error)."""
+        raw = request.form.get(field, "")
+        session_id = slugify_session_name(raw)
+        if not session_id:
+            return "", (
+                "Give the session a name (letters, digits, dashes and underscores)."
+            )
+        if store.exists(session_id):
+            return (
+                "",
+                f"A session named {session_id!r} already exists — resume it instead.",
+            )
+        return session_id, None
 
     @app.route("/new-session", methods=["POST"])
     def new_session():
-        session_id = new_session_id()
-        _session(session_id)
-        response = Response("", status=204)
-        response.headers["HX-Redirect"] = f"/?session={session_id}"
+        session_id, error = _requested_name()
+        if error:
+            # Stay where they were, rather than dumping them out of a session
+            # they were in the middle of, just because a name was rejected.
+            came_from = request.form.get("session", "").strip()
+            keep = (
+                f"session={came_from}&"
+                if came_from and is_valid_session_id(came_from)
+                else ""
+            )
+            return _redirect_to(f"/?{keep}error={quote(error)}")
+
+        # Created and opened in one step: the new session becomes the live one.
+        session = _session(session_id)
+        store.save(session)
+        return _redirect_to(f"/?session={session_id}")
+
+    @app.route("/rename-session", methods=["POST"])
+    def rename_session():
+        session = _requested_session()
+        if session is None:
+            return _missing_session()
+
+        new_id, error = _requested_name("new_name")
+        if error:
+            return _render_content_with_error(session, f"Rename failed: {error}")
+
+        old_id = session.session_id
+        try:
+            store.rename(old_id, new_id)
+        except ValueError as e:
+            return _render_content_with_error(session, f"Rename failed: {e}")
+
+        sessions.pop(old_id, None)
+        session.session_id = new_id
+        sessions[new_id] = session
+        store.save(session)
+        return _redirect_to(f"/?session={new_id}")
+
+    def _redirect_to(location: str) -> Response:
+        """HTMX-aware redirect: a header for hx requests, a 302 otherwise."""
+        if request.headers.get("HX-Request"):
+            response = Response("", status=204)
+            response.headers["HX-Redirect"] = location
+            return response
+        response = Response("", status=302)
+        response.headers["Location"] = location
         return response
+
+    def _render_content_with_error(session: LabelSession, message: str) -> str:
+        return render_template(
+            "content.html",
+            error=message,
+            session_id=session.session_id,
+            dataset_counts=session.dataset.counts(),
+            total_images=source.total_images,
+            labeled_count=session.labeled_count,
+            remaining=session.remaining,
+        ) + _progress_oob(session)
 
     @app.route("/sessions")
     def list_sessions():
@@ -336,6 +457,10 @@ def create_app(
         if upload is None or not upload.filename:
             return _import_error("Choose a dataset JSON file to import.")
 
+        session_id, name_error = _requested_name()
+        if name_error:
+            return _import_error(name_error)
+
         try:
             data = json.load(upload.stream)
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
@@ -345,44 +470,56 @@ def create_app(
             return _import_error("Expected a JSON object with labeling buckets.")
 
         try:
-            session, stats = _import_session(data)
+            session, stats = _import_session(data, session_id)
         except ValueError as e:
             return _import_error(str(e))
 
         if stats["resolved"] == 0 and stats["entries"] > 0:
+            sessions.pop(session_id, None)
             return _import_error(
                 f"None of the {stats['entries']} labeled images in that file are part "
                 "of the sample this server is serving. Is it the right dataset?"
             )
 
-        response = Response("", status=204)
-        response.headers["HX-Redirect"] = f"/?session={session.session_id}&imported=1"
-        return response
+        return _redirect_to(f"/?session={session.session_id}&imported=1")
 
-    def _import_error(message: str) -> str:
-        return render_template(
-            "content.html", error=f"Import failed: {message}", dataset_counts=None
-        )
+    def _import_error(message: str):
+        """Report an import problem, as a fragment or a redirect as appropriate."""
+        if request.headers.get("HX-Request"):
+            return render_template(
+                "content.html", error=f"Import failed: {message}", dataset_counts=None
+            )
+        return _redirect_to(f"/?error={quote(f'Import failed: {message}')}")
 
     @app.route("/next-match", methods=["POST"])
     def next_match():
         session = _requested_session()
         if session is None:
             return _missing_session()
-        return _render_content(session, _find_next(session, True), True)
+        seq = session.begin_request()
+        session.want_match = True
+        store.save(session)
+        return _render_content(session, _find_next(session, True, seq), True)
 
     @app.route("/next-negative", methods=["POST"])
     def next_negative():
         session = _requested_session()
         if session is None:
             return _missing_session()
-        return _render_content(session, _find_next(session, False), False)
+        seq = session.begin_request()
+        session.want_match = False
+        store.save(session)
+        return _render_content(session, _find_next(session, False, seq), False)
 
     @app.route("/set-threshold", methods=["POST"])
     def set_threshold():
         session = _requested_session()
         if session is None:
             return _missing_session()
+
+        # Supersedes any in-flight search, whose verdicts were decided at the
+        # old threshold and would land on screen looking authoritative.
+        seq = session.begin_request()
 
         new_threshold = request.form.get("threshold", type=float)
         if new_threshold is not None and new_threshold != session.threshold:
@@ -392,10 +529,11 @@ def create_app(
         current = cast("MatchItem | None", session.current_item)
         if current:
             item = source.classify(current.glashelder_index, session.threshold)
-            session.current_item = item
+            if session.is_current(seq):
+                session.current_item = item
         else:
             item = None
-        return _render_content(session, item, True)
+        return _render_content(session, item, session.want_match)
 
     @app.route("/label-correct", methods=["POST"])
     def label_correct():

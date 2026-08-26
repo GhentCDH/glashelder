@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Artwork Labeler</title>
+    <script
+      src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"
+      integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz"
+      crossorigin="anonymous"
+    ></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: 'JetBrains Mono', monospace;
+      }
+    </style>
+  </head>
+  <body class="max-w-3xl mx-auto p-5 bg-white">
+    <div class="p-8">
+      <h1 class="text-2xl mb-2">Artwork Labeler</h1>
+      <p class="text-sm text-neutral-600 mb-6">
+        {{ total_images }} images in this sample. Sessions are named by you, and
+        every label is written to its own JSON file on the server.
+      </p>
+
+      {% if error %}
+      <div class="bg-red-500 text-white p-4 rounded mb-6">{{ error }}</div>
+      {% endif %}
+
+      <div class="border border-neutral-300 rounded p-5 mb-6">
+        <h2 class="text-lg mb-3">Start a new session</h2>
+        <form method="post" action="/new-session" class="flex gap-2 items-center">
+          <input
+            type="text"
+            name="name"
+            placeholder="e.g. miel-2026-08-26"
+            required
+            autofocus
+            class="border border-neutral-300 rounded px-3 py-2 flex-1"
+          />
+          <button
+            type="submit"
+            class="bg-green-600 text-white rounded px-6 py-2 cursor-pointer hover:bg-green-700 transition-colors border-0"
+          >
+            Start
+          </button>
+        </form>
+        <p class="text-xs text-neutral-500 mt-2">
+          Letters, digits, dashes and underscores; spaces become dashes.
+        </p>
+      </div>
+
+      {% if sessions %}
+      <div class="border border-neutral-300 rounded p-5 mb-6">
+        <h2 class="text-lg mb-3">Resume a session</h2>
+        <ul class="text-sm">
+          {% for s in sessions %}
+          <li class="flex gap-3 items-center py-1 border-b border-neutral-100">
+            <a
+              href="/?session={{ s.session_id }}"
+              class="text-blue-700 hover:underline"
+              >{{ s.session_id }}</a
+            >
+            <span class="text-neutral-600">
+              {{ s.labeled_count }}{% if s.total_images %} / {{ s.total_images }}{% endif %}
+              labeled
+            </span>
+            {% if s.updated_at %}
+            <span class="ml-auto text-neutral-400">{{ s.updated_at }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <div class="border border-neutral-300 rounded p-5">
+        <h2 class="text-lg mb-3">Continue from a downloaded dataset</h2>
+        <p class="text-xs text-neutral-500 mb-3">
+          Upload a dataset JSON from an earlier run — including one exported by
+          the older version of this tool — to pick up where it left off.
+        </p>
+        <form
+          method="post"
+          action="/import-session"
+          enctype="multipart/form-data"
+          class="flex gap-2 items-center flex-wrap"
+        >
+          <input
+            type="file"
+            name="dataset"
+            accept=".json,application/json"
+            required
+            class="text-sm"
+          />
+          <input
+            type="text"
+            name="name"
+            placeholder="name for the session"
+            required
+            class="border border-neutral-300 rounded px-3 py-2"
+          />
+          <button
+            type="submit"
+            class="bg-neutral-800 text-white rounded px-6 py-2 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+          >
+            Import
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      // If this browser was already working on a session, go straight back to it.
+      (function () {
+        try {
+          var stored = localStorage.getItem('artmatcher.sessionId');
+          if (stored) {
+            window.location.replace('/?session=' + encodeURIComponent(stored));
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </body>
+</html>

@@ -60,6 +60,24 @@ class LabelSession:
     labeled: set[int] = field(default_factory=set)
     created_at: str | None = None
 
+    # Which kind of image the labeler is walking through: set by the last
+    # Next Match / Next Negative press, and reused after every label so the
+    # labeler keeps serving the kind that is actually being worked on.
+    want_match: bool = True
+
+    # Bumped by every navigating request. A scan that discovers a newer request
+    # has started is superseded: it stops early and keeps its result to itself,
+    # so a slow search cannot overwrite the image a later click already put on
+    # screen (which would otherwise attach the next label to the wrong image).
+    request_seq: int = 0
+
+    def begin_request(self) -> int:
+        self.request_seq += 1
+        return self.request_seq
+
+    def is_current(self, seq: int | None) -> bool:
+        return seq is None or seq == self.request_seq
+
     # Threshold at which a scan for a match / a negative last came up empty.
     # Labeling only ever removes candidates, so the answer stays valid until the
     # threshold changes -- which keeps the endgame from rescanning (and, in live
