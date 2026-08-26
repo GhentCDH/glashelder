@@ -661,6 +661,13 @@ def label(embeddings: str, model: Literal["clip", "dinov2", "qwen3vl"], image_di
 @click.option(
     "--debug", is_flag=True, help="Enable the Flask debugger and auto-reloader."
 )
+@click.option(
+    "--session-dir",
+    type=click.Path(file_okay=False),
+    default="labeling-sessions",
+    show_default=True,
+    help="Directory where labeling sessions are stored (one JSON file each)",
+)
 def serve(
     wikiart_embeddings: str,
     glashelder_embeddings: str | None,
@@ -678,10 +685,11 @@ def serve(
     reference_images: Path | None,
     auth: bool,
     debug: bool,
+    session_dir: str,
 ):
     """Start a web interface for labeling artwork matches.
 
-    Authentication is required. Set the GLASHELDER_SECRET environment variable,
+    Authentication is required when `--auth` is set. Set the GLASHELDER_SECRET environment variable,
     then access the server with /?secret=<your-secret> to get a session cookie.
 
     Use --results-json to load pre-computed results from batch_classify.
@@ -728,8 +736,8 @@ def serve(
         ml_classifier_instance = load_classifier(ml_model, threshold)
         try:
             inputs = load_matching_inputs(
-                wikiart_embeddings=wikiart_embeddings,
                 glashelder_embeddings=glashelder_embeddings,
+                wikiart_embeddings=wikiart_embeddings,
                 model=model,
                 image_dir=image_dir,
                 wikiart_root=reference_images,
@@ -747,7 +755,7 @@ def serve(
             search_batch_size=search_batch_size,
         )
 
-    app = create_app(source, threshold=threshold, auth=auth)
+    app = create_app(source, threshold=threshold, auth=auth, session_dir=session_dir)
 
     logger.info(f"Starting Flask server on {host}:{port}...")
     logger.info(f"Open http://localhost:{port} in your browser")
