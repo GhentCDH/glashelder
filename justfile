@@ -18,8 +18,9 @@ new name:
         pass
     EOF
 
-    sed -i ':a;N;$!ba; s/\(.*from [a-z_]*\.cli import [a-z_]*\)/\1\n    from {{name}}.cli import {{name}}/' src/glashelder/__init__.py
-    sed -i ':a;N;$!ba; s/\(.*main\.add_command([a-z_]*)\)/\1\n    main.add_command({{name}})/' src/glashelder/__init__.py
+    # register the new group in the lazy COMMANDS table; the help line shows in `--help`
+    sed -i 's|^COMMANDS: dict\[str, tuple\[str, str\]\] = {$|&\n    "{{name}}": ("{{name}}.cli:{{name}}", "TODO: describe {{name}}."),|' src/glashelder/__init__.py
+    uv run ruff format src/glashelder/__init__.py
 
 jupyter experiment:
     uv run --package {{experiment}} --with jupyter jupyter lab --no-browser
