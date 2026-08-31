@@ -55,12 +55,13 @@ async def enrich_pool(
     ctx: Context,
     urls: list[str],
     fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
+    limit: int = 0,
 ) -> AsyncIterator[Artwork]:
     """Run `fetch_one` over `urls` with a bounded pool, yielding as results land.
 
     Per-artwork failures are logged and dropped: one bad page must not kill the run.
     """
-    todo = (url for url in urls if url not in ctx.seen)
+    todo = iter(urls)
     queue: asyncio.Queue[Artwork | None] = asyncio.Queue(maxsize=ctx.workers)
     done = asyncio.Event()
 
@@ -89,11 +90,45 @@ async def enrich_pool(
         while (artwork := await queue.get()) is not None:
             yield artwork
             yielded += 1
-            if ctx.limit and yielded >= ctx.limit:
+            if limit and yielded >= limit:
                 return
     finally:
         done.set()
         runner.cancel()
+
+
+async def stream_sitemaps(
+    ctx: Context,
+    sitemaps: list[str],
+    fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
+    from_url: Callable[[str], Artwork | None],
+) -> AsyncIterator[Artwork]:
+    """Yield artworks from a list of sitemaps, one sitemap at a time.
+
+    Deliberately not gathering every URL up front: a full run is hundreds of
+    thousands of them per source, and only one sitemap's worth needs to be in
+    memory at a time.
+    """
+    yielded = 0
+    for sitemap in sitemaps:
+        urls = [url for url in await sitemap_locs(ctx, sitemap) if url not in ctx.seen]
+        logger.info("%d urls to scrape from %s", len(urls), sitemap)
+        remaining = ctx.limit - yielded if ctx.limit else 0
+
+        if ctx.with_images:
+            async for artwork in enrich_pool(ctx, urls, fetch_one, remaining):
+                yield artwork
+                yielded += 1
+        else:
+            for url in urls:
+                if (artwork := from_url(url)) is not None:
+                    yield artwork
+                    yielded += 1
+                if ctx.limit and yielded >= ctx.limit:
+                    break
+
+        if ctx.limit and yielded >= ctx.limit:
+            return
 
 
 def registry() -> dict[str, Backend]:

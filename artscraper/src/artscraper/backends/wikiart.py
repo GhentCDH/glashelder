@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..client import RestrictedError, fetch_text
 from ..model import Artwork
-from . import Context, enrich_pool, sitemap_locs
+from . import Context, stream_sitemaps
 
 BASE_URL = "https://www.wikiart.org"
 PAINTING_SITEMAPS = [f"{BASE_URL}/sitemap/paintings-{n}.xml" for n in range(1, 7)]
@@ -100,28 +100,11 @@ class WikiArt:
     name = "wikiart"
 
     async def stream(self, ctx: Context) -> AsyncIterator[Artwork]:
-        urls: list[str] = []
-        for sitemap in PAINTING_SITEMAPS:
-            locs = await sitemap_locs(ctx, sitemap)
-            urls.extend(
-                loc for loc in locs if ARTWORK_PATH.match(loc.removeprefix(BASE_URL))
-            )
-            logger.info("wikiart: %d artwork urls after %s", len(urls), sitemap)
-            if ctx.limit and len(urls) >= ctx.limit + len(ctx.seen):
-                break  # no point listing 240k urls for a small run
-
-        if not ctx.with_images:
-            wanted = (url for url in urls if url not in ctx.seen)
-            for count, url in enumerate(wanted, start=1):
-                if (artwork := parse_artwork_url(url)) is not None:
-                    yield artwork
-                if ctx.limit and count >= ctx.limit:
-                    return
-            return
-
         async def fetch_one(ctx: Context, url: str) -> Artwork | None:
             html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
             return parse_page(url, html)
 
-        async for artwork in enrich_pool(ctx, urls, fetch_one):
+        async for artwork in stream_sitemaps(
+            ctx, PAINTING_SITEMAPS, fetch_one, parse_artwork_url
+        ):
             yield artwork
