@@ -4,10 +4,12 @@ import logging
 import click
 
 from labelstudio_metadata_import import sampling
-from labelstudio_metadata_import.importer import LabelStudioImporter
+from labelstudio_metadata_import.dedupe import DedupeCache
+from labelstudio_metadata_import.importer import LabelStudioImporter, resolve_image_files
 from labelstudio_metadata_import.pipeline import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CSV,
+    DEFAULT_DEDUPE_WORKERS,
     DEFAULT_INTERJECT_SAFE_PERCENT,
     assess_for_labelstudio,
     import_images,
@@ -87,7 +89,9 @@ def _ls_command(project_id_envvar="LS_PROJECT_ID"):
     return decorator
 
 
-def _report_import(tasks, missing, tasks_json, commit, project_id):
+def _report_import(tasks, missing, tasks_json, commit, project_id, skipped_existing=0):
+    if skipped_existing:
+        click.echo(f"{skipped_existing} image(s) already in the project, skipped.")
     click.echo(f"{len(tasks)} task(s) written to {tasks_json}")
     if missing:
         click.echo(
@@ -147,6 +151,70 @@ def health(project_id, ls_url, ls_token):
         raise SystemExit(1)
 
 
+@labelstudio_metadata_import.command("known-images")
+@_project_id_option()
+@click.option(
+    "--ls-url",
+    default=_LS_URL_DEFAULT,
+    envvar="LS_URL",
+    show_default=True,
+    help="Label Studio base URL.",
+)
+@click.option(
+    "--ls-token",
+    envvar="LS_TOKEN",
+    required=True,
+    help="Label Studio API token.",
+)
+@click.option(
+    "--cache-path",
+    default="ls_known_images.json",
+    show_default=True,
+    type=click.Path(),
+    help="Where to persist the content-hash cache for this project. Reused "
+    "and incrementally extended on later runs (already-seen tasks aren't "
+    "re-fetched).",
+)
+@click.option(
+    "--check-path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Optional: a folder or file to check against the cache after "
+    "refreshing it, reporting which local images are already in the project.",
+)
+def known_images(project_id, ls_url, ls_token, cache_path, check_path):
+    """Build/refresh a local cache of every image already in a Label Studio
+    project, keyed by content hash (and by filename where available).
+
+    This is the expensive step other commands' --dedupe-cache options rely
+    on: Label Studio has no lightweight "list tasks" endpoint, so every task
+    is fetched in full (each one carrying its embedded image) to hash it.
+    Run this deliberately, ahead of time — not as a side effect of a normal
+    upload — and reuse --cache-path afterwards; re-running only fetches
+    tasks not already in the cache.
+    """
+    importer = LabelStudioImporter(ls_url, ls_token, project_id)
+    cache = DedupeCache.load(cache_path)
+    new_count = cache.refresh(importer)
+    click.echo(
+        f"{cache_path}: {len(cache.seen_task_ids)} task(s) cached "
+        f"({new_count} newly hashed this run)."
+    )
+
+    if check_path:
+        files = resolve_image_files(check_path)
+        dupes = [p for p in files if cache.contains_file(p)]
+        click.echo(
+            f"{len(dupes)}/{len(files)} local image(s) in {check_path} are "
+            f"already in project {project_id}."
+        )
+        if dupes:
+            for p in dupes[:20]:
+                click.echo(f"   - {p.name}")
+            if len(dupes) > 20:
+                click.echo(f"   ... and {len(dupes) - 20} more")
+
+
 @labelstudio_metadata_import.command("assess")
 @click.option(
     "--path",
@@ -189,13 +257,30 @@ def assess(path, model_names, output_csv):
     type=click.Path(exists=True, dir_okay=False),
     help="CSV with metadata; must have an 'image' column with filenames.",
 )
+@click.option(
+    "--dedupe-cache",
+    "dedupe_cache_path",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Cache built by `known-images` — skip rows whose image is already "
+    "in the project (by content hash). Read locally, no network call.",
+)
 @_ls_command()
-def import_cmd(image_path, csv_path, project_id, ls_url, ls_token, tasks_json, commit):
+def import_cmd(
+    image_path, csv_path, dedupe_cache_path, project_id, ls_url, ls_token, tasks_json, commit
+):
     """Upload images + CSV metadata to Label Studio as tasks."""
-    tasks, missing = import_results(
-        image_path, csv_path, project_id, ls_url, ls_token, tasks_json, commit
+    tasks, missing, skipped_existing = import_results(
+        image_path,
+        csv_path,
+        project_id,
+        ls_url,
+        ls_token,
+        tasks_json,
+        commit,
+        dedupe_cache_path,
     )
-    _report_import(tasks, missing, tasks_json, commit, project_id)
+    _report_import(tasks, missing, tasks_json, commit, project_id, skipped_existing)
 
 
 @labelstudio_metadata_import.command("sample")
@@ -337,6 +422,26 @@ def sample(
     "control images alongside the flagged ones, only used with --checkpoint-dir "
     "— so reviewers aren't only ever shown pre-flagged images.",
 )
+@click.option(
+    "--dedupe-cache",
+    "dedupe_cache_path",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Cache built by `known-images` — every pending image is content-"
+    "hashed and checked against it before chunks are even formed, so any "
+    "image already in the project is excluded up front and never sent to "
+    "the VLMs. Read locally, no network call.",
+)
+@click.option(
+    "--dedupe-workers",
+    type=click.IntRange(min=1),
+    default=DEFAULT_DEDUPE_WORKERS,
+    show_default=True,
+    help="Threads used to hash pending images against --dedupe-cache in "
+    "parallel. That step is I/O-bound (reading every pending image off "
+    "disk, often a network share), so this is worth raising on a fast "
+    "share/local disk and lowering on a slow or bandwidth-limited one.",
+)
 @_ls_command()
 def pipeline(
     path,
@@ -344,6 +449,8 @@ def pipeline(
     checkpoint_dir,
     chunk_size,
     interject_safe_percent,
+    dedupe_cache_path,
+    dedupe_workers,
     project_id,
     ls_url,
     ls_token,
@@ -362,10 +469,14 @@ def pipeline(
             ls_token,
             commit,
             interject_safe_percent,
+            dedupe_cache_path,
+            dedupe_workers,
         )
         click.echo(
             f"{summary['total_images']} image(s) total, "
             f"{summary['already_done']} already checkpointed, "
+            f"{summary['already_in_ls']} already in Label Studio (per "
+            "--dedupe-cache, excluded before assessment), "
             f"{summary['processed_this_run']} processed this run across "
             f"{summary['chunks']} chunk(s): {summary['flagged_this_run']} flagged, "
             f"{summary['interjected_safe_this_run']} safe-control interjected, "
@@ -390,10 +501,17 @@ def pipeline(
     if kept == 0:
         click.echo("Nothing to import.")
         return
-    tasks, missing = import_results(
-        path, str(csv_path), project_id, ls_url, ls_token, tasks_json, commit
+    tasks, missing, skipped_existing = import_results(
+        path,
+        str(csv_path),
+        project_id,
+        ls_url,
+        ls_token,
+        tasks_json,
+        commit,
+        dedupe_cache_path,
     )
-    _report_import(tasks, missing, tasks_json, commit, project_id)
+    _report_import(tasks, missing, tasks_json, commit, project_id, skipped_existing)
 
 
 @labelstudio_metadata_import.command("test-run")
@@ -447,8 +565,8 @@ def test_run(image, model_names, project_id, ls_url, ls_token, commit):
         f"\n[2/2] {'Importing into' if commit else 'Dry-run against'} "
         f"Label Studio project {project_id} ..."
     )
-    tasks, missing = import_results(
+    tasks, missing, skipped_existing = import_results(
         image, str(csv_path), project_id, ls_url, ls_token, "taken.json", commit
     )
     click.echo(json.dumps(tasks, indent=2, ensure_ascii=False))
-    _report_import(tasks, missing, "taken.json", commit, project_id)
+    _report_import(tasks, missing, "taken.json", commit, project_id, skipped_existing)

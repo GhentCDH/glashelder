@@ -7,12 +7,16 @@ import json
 import logging
 import os
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import click
 
 from labelstudio_metadata_import.checkpoint import Checkpoint, load_or_create_checkpoint
 from labelstudio_metadata_import.importer import (
     LabelStudioImporter,
     build_tasks_from_paths,
+    resolve_image_files_by_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -20,6 +24,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CSV = "labelstudio_review.csv"
 DEFAULT_CHUNK_SIZE = 200
 DEFAULT_INTERJECT_SAFE_PERCENT = 2.0
+DEFAULT_DEDUPE_WORKERS = 16
 SAFE_RATING = "Safe"
 POTENTIALLY_PROBLEMATIC_RATING = "Potentially Problematic"
 UNSAFE_RATING = "Unsafe"
@@ -203,18 +208,51 @@ def import_results(
     ls_token: str,
     tasks_json: str = "taken.json",
     commit: bool = False,
-) -> tuple[list[dict], list[str]]:
+    dedupe_cache_path: str | Path | None = None,
+) -> tuple[list[dict], list[str], int]:
     """Import the images referenced in CSV_PATH and their metadata to a Label
     Studio project. Only images actually listed in the CSV are used — if
     IMAGE_PATH is a folder with more (e.g. Safe-rated) images than the CSV,
-    those are skipped. Always writes TASKS_JSON for inspection; only calls the
-    import API when COMMIT is set.
+    those are skipped.
+
+    If DEDUPE_CACHE_PATH is given, rows whose local image content-hashes to
+    something already in that cache (built by `known-images` — see
+    dedupe.py) are skipped too, so re-running against the same CSV, or a CSV
+    covering images from an earlier run, doesn't duplicate tasks. This is a
+    local file read, not a network call — build/refresh the cache
+    separately with `known-images`, which is the part that's actually
+    expensive (Label Studio has no lightweight "list filenames" endpoint;
+    every task fetch carries its full embedded image).
+
+    Always writes TASKS_JSON for inspection; only calls the import API when
+    COMMIT is set.
+
+    Returns (tasks, missing, skipped_existing_count).
     """
     with open(csv_path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    return import_rows(
+
+    skipped_existing: list[dict] = []
+    if dedupe_cache_path is not None:
+        from labelstudio_metadata_import.dedupe import DedupeCache
+
+        cache = DedupeCache.load(dedupe_cache_path)
+        resolved = resolve_image_files_by_name(
+            image_path, {r["image"] for r in rows if r.get("image")}
+        )
+        kept = []
+        for row in rows:
+            local_path = resolved.get(row.get("image"))
+            if local_path is not None and cache.contains_file(local_path):
+                skipped_existing.append(row)
+            else:
+                kept.append(row)
+        rows = kept
+
+    tasks, missing = import_rows(
         image_path, rows, project_id, ls_url, ls_token, tasks_json, commit
     )
+    return tasks, missing, len(skipped_existing)
 
 
 def import_images(
@@ -267,6 +305,8 @@ def run_glaswacht_checkpointed(
     ls_token: str | None,
     commit: bool,
     interject_safe_percent: float = DEFAULT_INTERJECT_SAFE_PERCENT,
+    dedupe_cache_path: str | Path | None = None,
+    dedupe_workers: int = DEFAULT_DEDUPE_WORKERS,
 ) -> dict:
     """Run Glaswacht over PATH in resumable chunks of CHUNK_SIZE images.
 
@@ -290,9 +330,28 @@ def run_glaswacht_checkpointed(
     retrying it forever isn't an option that scales (a permanently-corrupt
     file would never let the run finish).
 
-    Returns a summary dict: total_images, already_done, processed_this_run,
-    flagged_this_run, interjected_safe_this_run, needs_research_this_run,
-    chunks, checkpoint_dir, results_csv, needs_research_csv.
+    DEDUPE_CACHE_PATH, if given, is a cache built by the `known-images` CLI
+    command (see dedupe.py) — a local file, so consulting it costs no
+    network round-trip. Every pending image's content is hashed and checked
+    against it *before* chunks are even formed, i.e. before anything is sent
+    to Glaswacht: a match is dropped from PENDING right there, marked done
+    in the checkpoint (see Checkpoint.mark_preexisting), and so never
+    appears in any chunk or reaches the VLMs at all. This is strictly a
+    per-image filter — a chunk containing one known image and nine new ones
+    still has those nine new ones assessed normally, just without the known
+    one alongside them.
+
+    That hashing reads every pending image off disk (often a network share),
+    so it's I/O-bound — DEDUPE_WORKERS files are hashed concurrently via a
+    thread pool (each thread releases the GIL while blocked on the read, and
+    hashlib releases it during the hash itself, so this isn't fighting
+    Python's single-core limit the way CPU-bound work would). Only affects
+    this local pre-filtering step; the VLM assessment itself is untouched.
+
+    Returns a summary dict: total_images, already_done, already_in_ls,
+    processed_this_run, flagged_this_run, interjected_safe_this_run,
+    needs_research_this_run, chunks, checkpoint_dir, results_csv,
+    needs_research_csv.
     """
     from risk_assessment.models.utils import get_images
     from risk_assessment.orchestrator import Orchestrator
@@ -303,10 +362,37 @@ def run_glaswacht_checkpointed(
     all_images = get_images(path)
     pending = [f for f in all_images if os.path.basename(f) not in ck.done_images]
     already_done = len(all_images) - len(pending)
+
+    already_in_ls = 0
+    if dedupe_cache_path is not None:
+        from labelstudio_metadata_import.dedupe import DedupeCache
+
+        dedupe_cache = DedupeCache.load(dedupe_cache_path)
+        still_pending, known = [], []
+        paths = [Path(f) for f in pending]
+        with click.progressbar(
+            length=len(pending), label="Checking dedupe cache", show_pos=True
+        ) as bar:
+            with ThreadPoolExecutor(max_workers=dedupe_workers) as pool:
+                for f, is_known in zip(pending, pool.map(dedupe_cache.contains_file, paths)):
+                    (known if is_known else still_pending).append(f)
+                    bar.update(1)
+        if known:
+            ck.mark_preexisting({os.path.basename(f) for f in known})
+            already_in_ls = len(known)
+            logger.info(
+                "%d pending image(s) already in Label Studio (per --dedupe-cache) "
+                "— excluded before assessment, never sent to the VLMs",
+                already_in_ls,
+            )
+        pending = still_pending
+
     logger.info(
-        "%d image(s) total, %d already checkpointed, %d pending",
+        "%d image(s) total, %d already checkpointed, %d already in Label Studio, "
+        "%d pending",
         len(all_images),
         already_done,
+        already_in_ls,
         len(pending),
     )
 
@@ -370,6 +456,7 @@ def run_glaswacht_checkpointed(
         "flagged_this_run": flagged_this_run,
         "interjected_safe_this_run": interjected_this_run,
         "needs_research_this_run": needs_research_this_run,
+        "already_in_ls": already_in_ls,
         "chunks": len(chunks),
         "checkpoint_dir": str(checkpoint_dir),
         "results_csv": str(ck.results_csv_path),

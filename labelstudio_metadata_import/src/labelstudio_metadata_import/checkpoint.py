@@ -56,6 +56,18 @@ class Checkpoint:
         self.done_images.update(image_names)
         self._save_manifest()
 
+    def mark_preexisting(self, image_names: set[str]) -> None:
+        """Mark IMAGE_NAMES as done without appending any result rows — used
+        to seed the checkpoint from images already present in Label Studio
+        (see LabelStudioImporter.uploaded_filenames), which have no local
+        Glaswacht assessment of their own to record.
+        """
+        added = image_names - self.done_images
+        if not added:
+            return
+        self.done_images.update(added)
+        self._save_manifest()
+
     def _append_csv(self, path: Path, rows: list[dict]) -> None:
         if not rows:
             return

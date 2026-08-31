@@ -44,3 +44,4 @@ clipcluster/analysis_report/data
 # artmatcher plots
 plots/
 labelstudio_metadata_import/src/labelstudio_metadata_import/taken.json
+ckpt

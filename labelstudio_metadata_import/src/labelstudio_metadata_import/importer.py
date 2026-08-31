@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif"}
 _SERVER_PATHS_RETRY_ATTEMPTS = 5
 _SERVER_PATHS_RETRY_DELAY_SECONDS = 1.5
+_TASKS_PAGE_SIZE = 50
+
+FILENAME_FIELD = "image_filename"
 
 
 @dataclass
@@ -94,7 +97,13 @@ def build_tasks_from_paths(
     label config, at the cost of a larger request payload (base64 inflates
     size by ~33%) and every task's data permanently carrying its own image.
 
-    Rows are not mutated. Returns (tasks, filenames_missing_locally).
+    Rows are not mutated. Each task's data also carries the original filename
+    under FILENAME_FIELD — the data: URI itself has no filename in it, and
+    without this a project's existing tasks are unmatchable against a local
+    folder, making "skip what's already uploaded" impossible for anything
+    imported before this field existed. See LabelStudioImporter.uploaded_filenames.
+
+    Returns (tasks, filenames_missing_locally).
     """
     filenames = {row[image_field] for row in rows}
     resolved = resolve_image_files_by_name(image_path, filenames)
@@ -108,7 +117,15 @@ def build_tasks_from_paths(
         if path is None:
             missing.append(filename)
             continue
-        tasks.append({"data": {image_field: image_to_data_uri(path), **data}})
+        tasks.append(
+            {
+                "data": {
+                    image_field: image_to_data_uri(path),
+                    FILENAME_FIELD: filename,
+                    **data,
+                }
+            }
+        )
 
     if missing:
         logger.warning(
@@ -219,6 +236,63 @@ class LabelStudioImporter:
             params = None  # 'next' already carries the full query string
 
         return paths
+
+    def task_count(self) -> int:
+        """Total number of tasks in this project — one cheap request, used
+        to size a progress bar around iter_tasks() without paginating
+        through everything first.
+        """
+        resp = requests.get(
+            f"{self.base_url}/api/projects/{self.project_id}/",
+            headers=self.headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.json().get("task_number", 0)
+
+    def iter_tasks(self, page_size: int = _TASKS_PAGE_SIZE):
+        """Yield every task in this project, one at a time, paginated.
+
+        Each task's data carries its full embedded image (there's no LS
+        endpoint that lists tasks without it), so this is inherently
+        expensive for a project of any size — see dedupe.py, which is the
+        one place that should call this, and only deliberately (caching the
+        result) rather than as a side effect of a normal upload run.
+
+        PAGE_SIZE defaults small: a page full of base64-embedded images is a
+        large response, and a too-large page_size has been observed to
+        502 through Label Studio's proxy.
+        """
+        url = f"{self.base_url}/api/tasks"
+        params = {"project": self.project_id, "page": 1, "page_size": page_size}
+
+        while True:
+            for attempt in range(1, _SERVER_PATHS_RETRY_ATTEMPTS + 1):
+                try:
+                    resp = requests.get(
+                        url, headers=self.headers, params=params, timeout=120
+                    )
+                    resp.raise_for_status()
+                    break
+                except requests.exceptions.RequestException as exc:
+                    if attempt == _SERVER_PATHS_RETRY_ATTEMPTS:
+                        raise
+                    logger.warning(
+                        "Fetching page %d failed (%s), retrying (%d/%d)...",
+                        params["page"],
+                        exc,
+                        attempt,
+                        _SERVER_PATHS_RETRY_ATTEMPTS,
+                    )
+                    time.sleep(_SERVER_PATHS_RETRY_DELAY_SECONDS)
+
+            data = resp.json()
+            tasks = data.get("tasks", [])
+            yield from tasks
+
+            if len(tasks) < page_size:
+                return
+            params["page"] += 1
 
     def import_tasks(self, tasks: list[dict]) -> dict:
         resp = requests.post(
