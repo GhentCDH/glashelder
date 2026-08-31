@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def fit_poly(
     values: list[float],
     inputs: list[float | int],
-    weights: None | list[float] | NDArray = None,
+    weights: list[float] | NDArray | None = None,
     degree: int = 1,
 ) -> tuple[float, ...]:
     """
