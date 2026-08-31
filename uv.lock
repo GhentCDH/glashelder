@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "artmatcher",
+    "artscraper",
     "classification",
     "cluster",
     "common",
@@ -161,6 +162,25 @@ requires-dist = [
     { name = "flask", specifier = ">=3.1.2" },
     { name = "imagehash", specifier = ">=4.3.1" },
     { name = "scikit-learn", specifier = ">=1.4.0" },
+]
+
+[[package]]
+name = "artscraper"
+version = "0.1.0"
+source = { editable = "artscraper" }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12" },
+    { name = "click", specifier = ">=8.3.1" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "rich", specifier = ">=13.9.4" },
 ]
 
 [[package]]
@@ -676,6 +696,7 @@ source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
     { name = "artmatcher" },
+    { name = "artscraper" },
     { name = "classification" },
     { name = "click" },
     { name = "cluster" },
@@ -712,6 +733,7 @@ dev = [
 requires-dist = [
     { name = "accelerate", specifier = "==1.12.0" },
     { name = "artmatcher", editable = "artmatcher" },
+    { name = "artscraper", editable = "artscraper" },
     { name = "classification", editable = "classification" },
     { name = "click", specifier = ">=8.3.1" },
     { name = "cluster", editable = "cluster" },

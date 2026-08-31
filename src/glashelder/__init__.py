@@ -41,6 +41,8 @@ def main():
 
 def register_commands():
     # register cli commands defined in other files
+    from artscraper.cli import artscraper
+
     from artmatcher.cli import artmatcher
     from classification.cli import classification
     from cluster.cli import cluster
@@ -58,6 +60,7 @@ def register_commands():
     main.add_command(artmatcher)
     main.add_command(embed)
     main.add_command(ocr)
+    main.add_command(artscraper)
 
 
 # Register commands on import so the CLI sees them.
