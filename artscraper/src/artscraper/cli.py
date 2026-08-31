@@ -157,9 +157,7 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
     if tui:
         view = TuiView(limit)
         with Live(view, console=console, screen=True, refresh_per_second=4):
-            artworks = run(
-                names, view.report, jsonl, concurrency, rate, limit, with_images
-            )
+            run(names, view.report, jsonl, concurrency, rate, limit, with_images)
     else:
         columns = [
             SpinnerColumn(),
@@ -168,7 +166,7 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
             TimeElapsedColumn(),
         ]
         with Progress(*columns, console=console) as progress:
-            artworks = run(
+            run(
                 names,
                 progress_reporter(progress),
                 jsonl,
@@ -178,13 +176,13 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
                 with_images,
             )
 
-    write_json(artworks, output)
+    write_json(jsonl, output)
 
 
 def run(names, report, jsonl, concurrency, rate, limit, with_images):
-    """Scrape, and hand back whatever was collected if the user interrupts."""
+    """Scrape, keeping whatever reached the JSONL if the user interrupts."""
     try:
-        return asyncio.run(
+        asyncio.run(
             scrape(
                 names,
                 jsonl=jsonl,
@@ -196,7 +194,4 @@ def run(names, report, jsonl, concurrency, rate, limit, with_images):
             )
         )
     except KeyboardInterrupt:
-        from .harness import read_jsonl
-
         logger.warning("interrupted, keeping what was scraped so far")
-        return read_jsonl(jsonl)

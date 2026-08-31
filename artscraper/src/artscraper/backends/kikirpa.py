@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Context, enrich_pool, sitemap_locs
+from . import Context, sitemap_locs, stream_sitemaps
 
 BASE_URL = "https://balat.kikirpa.be"
 SITEMAP_INDEX = f"{BASE_URL}/sitemap.xml"
@@ -72,25 +72,13 @@ class Kikirpa:
         ]
         logger.info("kikirpa: %d object sitemaps", len(sitemaps))
 
-        urls: list[str] = []
-        for sitemap in sitemaps:
-            urls.extend(await sitemap_locs(ctx, sitemap))
-            logger.info("kikirpa: %d object urls after %s", len(urls), sitemap)
-            if ctx.limit and len(urls) >= ctx.limit + len(ctx.seen):
-                break  # no point listing 500k urls for a small run
-
-        if not ctx.with_images:
-            # the sitemaps carry no metadata at all, so this is url-only
-            wanted = (url for url in urls if url not in ctx.seen)
-            for count, url in enumerate(wanted, start=1):
-                yield Artwork(source="kikirpa", url=url, image_url=None)
-                if ctx.limit and count >= ctx.limit:
-                    return
-            return
-
         async def fetch_one(ctx: Context, url: str) -> Artwork | None:
             html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
             return parse_page(url, html)
 
-        async for artwork in enrich_pool(ctx, urls, fetch_one):
+        def bare(url: str) -> Artwork:
+            # the sitemaps carry no metadata at all, so this is url-only
+            return Artwork(source="kikirpa", url=url, image_url=None)
+
+        async for artwork in stream_sitemaps(ctx, sitemaps, fetch_one, bare):
             yield artwork

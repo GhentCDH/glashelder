@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import sys
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -17,21 +18,35 @@ type Reporter = Callable[[str, Artwork | None, Stats], None]
 """Called with the backend name and every artwork it produces, for progress views."""
 
 
-def read_jsonl(path: Path) -> list[Artwork]:
-    """Load artworks from an earlier, possibly interrupted, run."""
+def scraped_urls(path: Path) -> dict[str, set[str]]:
+    """URLs an earlier, possibly interrupted, run already scraped, per backend."""
+    done: dict[str, set[str]] = {}
     if not path.exists():
-        return []
+        return done
     with path.open() as file:
-        return [Artwork(**json.loads(line)) for line in file if line.strip()]
+        for line in file:
+            if line.strip():
+                row = json.loads(line)
+                done.setdefault(row["source"], set()).add(row["url"])
+    return done
 
 
-def write_json(artworks: list[Artwork], path: Path | None) -> None:
-    payload = json.dumps([asdict(a) for a in artworks], ensure_ascii=False, indent=1)
-    if path is None:
-        print(payload)
-    else:
-        path.write_text(payload)
-        logger.info("wrote %d artworks to %s", len(artworks), path)
+def write_json(jsonl: Path, path: Path | None) -> None:
+    """Turn the JSONL sink into one JSON list, a line at a time."""
+    out = path.open("w") if path else sys.stdout
+    count = 0
+    try:
+        out.write("[\n")
+        with jsonl.open() as file:
+            for line in file:
+                if line.strip():
+                    out.write(f"{',\n' if count else ''} {line.strip()}")
+                    count += 1
+        out.write("\n]\n")
+    finally:
+        if path:
+            out.close()
+            logger.info("wrote %d artworks to %s", count, path)
 
 
 async def scrape(
@@ -43,25 +58,27 @@ async def scrape(
     limit: int = 0,
     with_images: bool = True,
     report: Reporter | None = None,
-) -> list[Artwork]:
-    """Scrape every named backend concurrently.
+) -> None:
+    """Scrape every named backend concurrently, appending to `jsonl`.
 
-    Results are appended to `jsonl` as they arrive, and URLs already in that file
-    are skipped, so an interrupted run can simply be started again.
+    URLs already in that file are skipped, so an interrupted run can simply be
+    started again. Nothing is kept in memory beyond the URLs seen so far: a full
+    run is millions of records, so `jsonl` is the result.
     """
     backends = registry()
     if unknown := [name for name in names if name not in backends]:
         raise ValueError(f"unknown backend(s): {', '.join(unknown)}")
 
-    done = read_jsonl(jsonl)
+    done = scraped_urls(jsonl)
     if done:
-        logger.info("resuming: %d artworks already in %s", len(done), jsonl)
-    results = {name: [a for a in done if a.source == name] for name in names}
+        logger.info(
+            "resuming: %d artworks already in %s", sum(map(len, done.values())), jsonl
+        )
 
     with jsonl.open("a") as sink:
 
         async def run(name: str) -> None:
-            seen = {a.url for a in results[name]}
+            seen = done.get(name, set())
             if limit and len(seen) >= limit:
                 logger.info(
                     "%s: already has %d artworks, nothing to do", name, len(seen)
@@ -82,7 +99,6 @@ async def scrape(
                     name, None, ctx.stats
                 )  # register the backend before its first item
             async for artwork in backends[name].stream(ctx):
-                results[name].append(artwork)
                 ctx.stats.items += 1
                 sink.write(json.dumps(asdict(artwork), ensure_ascii=False) + "\n")
                 if report:
@@ -91,5 +107,3 @@ async def scrape(
 
         async with make_client(concurrency) as client:
             await asyncio.gather(*(run(name) for name in names))
-
-    return [artwork for name in names for artwork in results[name]]
