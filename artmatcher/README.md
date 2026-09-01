@@ -9,15 +9,28 @@ Uses a calibrated Random Forest classifier that combines three types of features
 
 See [`notebooks/artmatcher/artmatcher.ipynb`](../notebooks/artmatcher/artmatcher.ipynb) for a walkthrough.
 
+A reference artwork is identified by a string that is either a local path or an
+image URL from an `artscraper` scrape, so no reference images need to be kept on
+disk. Passing `--artworks` (or setting `paths.artworks`) joins each match back to
+its title, artist, year and source link.
+
 ## Commands
 
+Artifact locations and tuning defaults live in `glashelder.toml` at the repo root,
+so the options below are only needed when overriding it.
+
 ```bash
-# train the classifier on a labeled dataset
-uv run glashelder artmatcher train-classifier
+# embed the reference artworks, fetching their images while the model works
+uv run glashelder embed generate-embeddings --artworks artworks.jsonl --save-path embeddings/reference.pkl
 
-# classify image pairs in batch
-uv run glashelder artmatcher batch-classify
+# label a starting set, then train the classifier on it
+uv run glashelder artmatcher serve --glashelder-images <dir>
+uv run glashelder artmatcher train-classifier labeling_dataset.json model.pkl --workers 48
 
-# start the web interface
-uv run glashelder artmatcher serve
+# classify the whole set
+uv run glashelder artmatcher batch-classify -o classes.json
+
+# review the results
+uv run glashelder artmatcher serve --results-json classes.json --glashelder-images <dir>
+uv run glashelder artmatcher plot-results -i classes.json -o plots/
 ```

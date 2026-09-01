@@ -492,12 +492,35 @@ def batch_classify(
     )
 
 
-def write_json_output(output: BatchClassifyOutput, path: str | Path) -> None:
+def artwork_of(reference: str, artworks: dict | None) -> dict | None:
+    """The scraped record a matched reference describes, if we have it.
+
+    The reference is the join key: a URL for scraped artworks, a path for local
+    files (looked up by name, since the directory may differ per machine).
+    """
+    if not artworks:
+        return None
+    artwork = artworks.get(reference) or artworks.get(Path(reference).name)
+    if artwork is None:
+        return None
+    return {
+        "source": artwork.source,
+        "url": artwork.url,
+        "title": artwork.title,
+        "artist": artwork.artist,
+        "year": artwork.year,
+    }
+
+
+def write_json_output(
+    output: BatchClassifyOutput, path: str | Path, artworks: dict | None = None
+) -> None:
     """Write batch classification output to JSON file.
 
     Args:
         output: BatchClassifyOutput to write
         path: Output file path
+        artworks: Scraped artwork records, joined onto each result when given
     """
     data = {
         "metadata": output.metadata,
@@ -513,6 +536,7 @@ def write_json_output(output: BatchClassifyOutput, path: str | Path) -> None:
                 "confidence": r.confidence,
                 "threshold": r.threshold,
                 "features": r.features,
+                "artwork": artwork_of(r.wikiart_path, artworks),
             }
             for r in output.results
         ],
@@ -524,12 +548,15 @@ def write_json_output(output: BatchClassifyOutput, path: str | Path) -> None:
     console.print(f"[green]Wrote JSON output to {path}[/green]")
 
 
-def write_csv_output(output: BatchClassifyOutput, path: str | Path) -> None:
+def write_csv_output(
+    output: BatchClassifyOutput, path: str | Path, artworks: dict | None = None
+) -> None:
     """Write batch classification output to CSV file.
 
     Args:
         output: BatchClassifyOutput to write
         path: Output file path
+        artworks: Scraped artwork records, joined onto each result when given
     """
     if not output.results:
         console.print("[yellow]No results to write to CSV[/yellow]")
@@ -547,6 +574,10 @@ def write_csv_output(output: BatchClassifyOutput, path: str | Path) -> None:
         "is_match",
         "confidence",
         "threshold",
+        "title",
+        "artist",
+        "year",
+        "artwork_url",
     ]
     # Add similarity columns
     n_sims = len(output.results[0].similarities)
@@ -559,6 +590,7 @@ def write_csv_output(output: BatchClassifyOutput, path: str | Path) -> None:
         writer.writerow(header)
 
         for r in output.results:
+            artwork = artwork_of(r.wikiart_path, artworks) or {}
             row = [
                 r.glashelder_path,
                 r.glashelder_index,
@@ -567,6 +599,10 @@ def write_csv_output(output: BatchClassifyOutput, path: str | Path) -> None:
                 r.is_match,
                 r.confidence,
                 r.threshold,
+                artwork.get("title"),
+                artwork.get("artist"),
+                artwork.get("year"),
+                artwork.get("url"),
             ]
             row.extend(r.similarities)
             row.extend([r.features.get(fn, 0.0) for fn in feature_names])

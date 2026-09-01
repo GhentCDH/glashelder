@@ -1,15 +1,25 @@
 [project]
 name = "artmatcher"
 version = "0.1.0"
-description = "Add your description here"
+description = "Match glass plate photos against a reference set of artworks."
 readme = "README.md"
 authors = [{ name = "Miel Peeters", email = "peetersmiel@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
+  "common",
+  "embed",
+  "cluster",
+  "artscraper",
   "click>=8.3.1",
   "flask>=3.1.2",
   "imagehash>=4.3.1",
   "scikit-learn>=1.4.0",
+  "opencv-python>=4.11.0.86",
+  "numpy>=2.2.3",
+  "pillow>=12.0.0",
+  "rich>=13.9.4",
+  "matplotlib>=3.10.7",
+  "torch>=2.6.0",
 ]
 
 [build-system]

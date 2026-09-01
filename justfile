@@ -29,10 +29,15 @@ enter:
     docker compose exec --user dev glashelder bash -c 'tmux new-session -d -s main 2>/dev/null; tmux attach -t main'
 
 classify:
-    uv run glashelder image-matching batch-classify -w image-matching/wikiart-dino.pkl -g clipcluster/dino.pkl --workers 45 --threshold 0.82 --cache-features --cache-path feature_cache.pkl --cache-save-interval 10 --ml-model model-orb.pkl -o classes.json
+    # paths and tuning come from glashelder.toml
+    uv run glashelder artmatcher batch-classify -o classes.json --cache-features --cache-save-interval 10
 
 generate:
-    uv run glashelder clipcluster generate-embeddings --image-dir /mnt/share/shares/glashelder/kikirpa --save-path embeddings/kikirpa-dino.pkl --model dinov2 --count 200000 --batch-size 512
+    uv run glashelder embed generate-embeddings --image-dir /mnt/share/shares/glashelder/kikirpa --save-path embeddings/kikirpa-dino.pkl --model dinov2 --count 200000 --batch-size 512
+
+# embed the scraped reference artworks straight from their image urls
+reference:
+    uv run glashelder embed generate-embeddings --artworks artworks.jsonl --save-path embeddings/reference.pkl --model dinov2 --count 200000 --batch-size 512
 
 servesearch:
     uv run glashelder embed serve --host 0.0.0.0 --port 5000 --embeddings embeddings/glashelder-clip.pkl

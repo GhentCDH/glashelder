@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import quote
 
-from flask import Flask, Response, render_template, request, send_file
+from flask import Flask, Response, redirect, render_template, request, send_file
 
 from common import require_auth
+from common.images import is_url
 
 from .session import LabelSession
 from .source import ClassificationSource, MatchItem
@@ -149,6 +150,7 @@ def create_app(
                 "glashelder_path": "",
                 "wikiart_path": "",
                 "top_match_index": 0,
+                "artwork": None,
                 "similarities": [],
                 "is_match": False,
                 "diff": 0.0,
@@ -166,6 +168,7 @@ def create_app(
             "glashelder_path": item.glashelder_path,
             "wikiart_path": source.wikiart_path(wikiart_idx),
             "top_match_index": wikiart_idx,
+            "artwork": source.artwork(wikiart_idx),
             "similarities": item.similarities,
             "is_match": item.is_match,
             "diff": item.diff,
@@ -573,9 +576,13 @@ def create_app(
 
     @app.route("/wikiart-image/<int:index>")
     def serve_wikiart_image(index: int):
-        path = source.wikiart_path(index)
-        if not path:
+        reference = source.wikiart_path(index)
+        if not reference:
             return "Image not found", 404
-        return send_file(path)
+        if is_url(reference):
+            # let the browser fetch it straight from the source, so the labeler
+            # never waits on this server doing IO
+            return redirect(reference)
+        return send_file(reference)
 
     return app

@@ -38,6 +38,9 @@ class MatchItem:
 class ClassificationSource(ABC):
     """Supplies classification items for the labeling UI."""
 
+    _artworks: dict
+    """Scraped artwork records, keyed by reference. Set by each subclass."""
+
     @property
     @abstractmethod
     def total_images(self) -> int: ...
@@ -53,7 +56,31 @@ class ClassificationSource(ABC):
 
     @abstractmethod
     def wikiart_path(self, index: int) -> str:
-        """Path for a wikiart index, or "" if unknown/out of range."""
+        """Reference for a wikiart index, or "" if unknown/out of range.
+
+        A local path or, for a scraped artwork, the image URL.
+        """
+
+    def artwork(self, index: int) -> dict | None:
+        """The scraped record behind a reference: title, artist, year, source url."""
+        artworks = getattr(self, "_artworks", {})
+        reference = self.wikiart_path(index)
+        if not reference or not artworks:
+            return None
+        found = artworks.get(reference)
+        if found is None:
+            from pathlib import Path as _Path
+
+            found = artworks.get(_Path(reference).name)
+        if found is None:
+            return None
+        return {
+            "source": found.source,
+            "url": found.url,
+            "title": found.title,
+            "artist": found.artist,
+            "year": found.year,
+        }
 
     @abstractmethod
     def classify(self, index: int, threshold: float) -> MatchItem | None:
@@ -68,8 +95,15 @@ class ClassificationSource(ABC):
 class PrecomputedSource(ClassificationSource):
     """Serves classification items from pre-computed batch_classify results."""
 
-    def __init__(self, results: list[dict], glashelder_root, reference_root):
+    def __init__(
+        self,
+        results: list[dict],
+        glashelder_root,
+        reference_root,
+        artworks: dict | None = None,
+    ):
         self._results = results
+        self._artworks = artworks or {}
 
         glashelder_paths = [r["glashelder_path"] for r in results]
         self._glashelder_paths = rebase_paths(glashelder_paths, glashelder_root)
@@ -136,7 +170,9 @@ class LiveSource(ClassificationSource):
         classifier: MLClassifier | None = None,
         search_workers: int = 8,
         search_batch_size: int = 32,
+        artworks: dict | None = None,
     ):
+        self._artworks = artworks or {}
         self._glashelder_emb = inputs.glashelder_emb
         self._glashelder_paths = inputs.glashelder_paths
         self._wikiart_emb = inputs.wikiart_emb

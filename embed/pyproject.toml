@@ -8,6 +8,8 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "common",
+    "artscraper",
     "click>=8.3.1",
 ]
 

@@ -1,17 +1,13 @@
-"""Image matching and artwork recognition using SIFT features."""
+"""Matching glass plate photos against a reference set of artworks."""
 
-from .recognition import (
-    MatchResult,
-    RecognitionDatabase,
-    build_database,
-    find_painting,
-)
-from .stitching import stitch_images
+from .ml_classifier import FeatureExtractor, MLClassifier
+from .stitching import compute_homography, extract_features, load_image, resize_max
 
 __all__ = [
-    "MatchResult",
-    "RecognitionDatabase",
-    "build_database",
-    "find_painting",
-    "stitch_images",
+    "FeatureExtractor",
+    "MLClassifier",
+    "compute_homography",
+    "extract_features",
+    "load_image",
+    "resize_max",
 ]
