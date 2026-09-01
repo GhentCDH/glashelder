@@ -13,7 +13,6 @@ import cv2
 import imagehash
 import numpy as np
 from numpy.typing import NDArray
-from PIL import Image
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -25,6 +24,8 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+
+from common.images import load as load_pil
 
 from .stitching import (
     compute_homography,
@@ -337,8 +338,8 @@ def _extract_hash_features_worker(
     All hashes work on grayscale internally, so color differences don't affect results.
     """
     try:
-        query_img = Image.open(query_path)
-        ref_img = Image.open(reference_path)
+        query_img = load_pil(query_path)
+        ref_img = load_pil(reference_path)
 
         # Perceptual hash (DCT-based, good for similar images)
         q_phash = imagehash.phash(query_img)
@@ -437,136 +438,23 @@ class FeatureExtractor:
         return self._bf
 
     def extract_orb_features(self, query_path: str, reference_path: str) -> ORBFeatures:
-        """Extract ORB geometric verification features between two images.
-
-        Args:
-            query_path: Path to the query image (e.g., glashelder photo)
-            reference_path: Path to the reference image (e.g., wikiart painting)
-
-        Returns:
-            ORBFeatures with geometric verification metrics
-        """
-        try:
-            # Load and extract features from both images
-            query_img = load_image(query_path)
-            ref_img = load_image(reference_path)
-
-            orb = self._get_orb()
-            bf = self._get_bf()
-
-            # Convert to grayscale for ORB
-            query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
-            ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
-
-            query_kp, query_des = orb.detectAndCompute(query_gray, None)
-            ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
-
-            if query_des is None or ref_des is None or len(query_kp) == 0:
-                return ORBFeatures.empty()
-
-            if len(query_des) < 2 or len(ref_des) < 2:
-                return ORBFeatures.empty()
-
-            # Use knnMatch with ratio test
-            matches = bf.knnMatch(query_des, ref_des, k=2)
-
-            good_matches = []
-            for match in matches:
-                if len(match) == 2:
-                    m, n = match
-                    if m.distance < 0.75 * n.distance:
-                        good_matches.append(m)
-
-            num_matches = len(good_matches)
-
-            if num_matches < 4:
-                return ORBFeatures(
-                    num_matches=num_matches,
-                    num_inliers=0,
-                    confidence=0.0,
-                    warp_stretch=1.0,
-                )
-
-            # Compute homography and count inliers
-            h = compute_homography(query_kp, ref_kp, good_matches)
-
-            if h is None:
-                return ORBFeatures(
-                    num_matches=num_matches,
-                    num_inliers=0,
-                    confidence=0.0,
-                    warp_stretch=1.0,
-                )
-
-            # Count inliers using RANSAC mask
-            src_pts = np.array(
-                [query_kp[m.queryIdx].pt for m in good_matches], dtype=np.float32
-            ).reshape(-1, 1, 2)
-            dst_pts = np.array(
-                [ref_kp[m.trainIdx].pt for m in good_matches], dtype=np.float32
-            ).reshape(-1, 1, 2)
-            _, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-            num_inliers = int(mask.ravel().sum()) if mask is not None else 0
-
-            # Compute confidence as ratio of inliers to query keypoints
-            confidence = num_inliers / len(query_kp) if len(query_kp) > 0 else 0.0
-
-            # Compute warp stretch from homography
-            warp_stretch = self._compute_warp_stretch(h, query_img.shape[:2])
-
-            return ORBFeatures(
-                num_matches=num_matches,
-                num_inliers=num_inliers,
-                confidence=confidence,
-                warp_stretch=warp_stretch,
-            )
-
-        except Exception as e:
-            logger.warning(f"ORB feature extraction failed: {e}")
-            return ORBFeatures.empty()
+        """Extract ORB geometric verification features between two images."""
+        found = _extract_orb_features_worker(
+            query_path, reference_path, self._get_orb(), self._get_bf()
+        )
+        # the worker speaks the flat float dict the feature vector wants
+        return ORBFeatures(
+            num_matches=int(found["num_matches"]),
+            num_inliers=int(found["num_inliers"]),
+            confidence=found["confidence"],
+            warp_stretch=found["warp_stretch"],
+        )
 
     def extract_hash_features(
         self, query_path: str, reference_path: str
     ) -> HashFeatures:
-        """Extract perceptual hash features between two images.
-
-        Args:
-            query_path: Path to the query image
-            reference_path: Path to the reference image
-
-        Returns:
-            HashFeatures with hash distance metrics
-        """
-        try:
-            query_img = Image.open(query_path)
-            ref_img = Image.open(reference_path)
-
-            # Perceptual hash (DCT-based)
-            q_phash = imagehash.phash(query_img)
-            r_phash = imagehash.phash(ref_img)
-
-            # Difference hash (gradient-based)
-            q_dhash = imagehash.dhash(query_img)
-            r_dhash = imagehash.dhash(ref_img)
-
-            # Wavelet hash (multi-resolution)
-            q_whash = imagehash.whash(query_img)
-            r_whash = imagehash.whash(ref_img)
-
-            # Average hash
-            q_ahash = imagehash.average_hash(query_img)
-            r_ahash = imagehash.average_hash(ref_img)
-
-            return HashFeatures(
-                phash_distance=float(q_phash - r_phash),
-                dhash_distance=float(q_dhash - r_dhash),
-                whash_distance=float(q_whash - r_whash),
-                ahash_distance=float(q_ahash - r_ahash),
-            )
-
-        except Exception as e:
-            logger.warning(f"Hash feature extraction failed: {e}")
-            return HashFeatures.empty()
+        """Extract perceptual hash features between two images."""
+        return HashFeatures(**_extract_hash_features_worker(query_path, reference_path))
 
     def _compute_warp_stretch(self, h: NDArray, img_shape: tuple[int, int]) -> float:
         """Compute how much a homography stretches/distorts an image.

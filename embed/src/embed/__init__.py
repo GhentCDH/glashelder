@@ -12,6 +12,7 @@ from .embed import (
     relativize_image_paths,
     save_embeddings,
 )
+from .stream import encode_refs, encode_stream
 
 __all__ = [
     "CLIP_MODEL_ID",
@@ -20,6 +21,8 @@ __all__ = [
     "EmbeddingModel",
     "OpenCLIPEmbedder",
     "Qwen3VLEmbedder",
+    "encode_refs",
+    "encode_stream",
     "get_device",
     "get_embedder",
     "load_embeddings",

@@ -27,6 +27,13 @@ def embed():
     "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
 )
 @click.option(
+    "--artworks",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Scraped artworks (JSON or JSONL) to embed straight from their image URLs, "
+    "instead of a local --image-dir",
+)
+@click.option(
     "--save-path", default=EMBEDDINGS_PATH, help="Embeddings pickle save path"
 )
 @click.option(
@@ -34,25 +41,45 @@ def embed():
 )
 @click.option("--batch-size", default=64, help="Batch size for embedding generation")
 @click.option(
+    "--concurrency",
+    default=None,
+    type=int,
+    help="Image fetches in flight when embedding from URLs",
+)
+@click.option(
     "--model",
     default="clip",
     type=click.Choice(["clip", "dinov2", "qwen3vl"]),
     help="Embedding model to use (clip, dinov2, or qwen3vl)",
 )
-def generate_embeddings(image_dir, save_path, count, batch_size, model):
-    """Generate image embeddings using the specified model."""
+def generate_embeddings(
+    image_dir, artworks, save_path, count, batch_size, concurrency, model
+):
+    """Generate image embeddings using the specified model.
+
+    Images come either from a local directory (--image-dir) or from a scrape
+    (--artworks), in which case they are fetched while the model works and never
+    stored on disk.
+    """
     from embed import (
         get_embedder,
         save_embeddings,
     )
 
-    assert image_dir is not None and Path(image_dir).is_dir(), (
-        "The image directory (`--image-dir`) needs to exist and needs to be a directory!"
-    )
+    if artworks is None:
+        assert image_dir is not None and Path(image_dir).is_dir(), (
+            "The image directory (`--image-dir`) needs to exist and needs to be a directory!"
+        )
+        refs = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[:count]
+        root = image_dir
+    else:
+        import artscraper
 
-    input_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[:count]
+        refs = [a.image_url for a in artscraper.read(artworks) if a.image_url][:count]
+        root = None
+
     logger.info(
-        f"Generating embeddings for {len(input_paths)} images with batch size {batch_size}"
+        f"Generating embeddings for {len(refs)} images, batch size {batch_size}"
     )
 
     device = get_device()
@@ -61,14 +88,25 @@ def generate_embeddings(image_dir, save_path, count, batch_size, model):
     embedder = get_embedder(model)
     embedder.load(device)
 
-    embeddings, processed_paths = embedder.encode_images(input_paths, batch_size)
+    if artworks is None:
+        embeddings, processed = embedder.encode_images(refs, batch_size)
+    else:
+        from embed.stream import encode_refs
 
-    if len(processed_paths) < len(input_paths):
-        logger.warning(
-            f"Skipped {len(input_paths) - len(processed_paths)} images due to load errors"
+        embeddings, processed = encode_refs(
+            embedder,
+            refs,
+            batch_size=batch_size,
+            concurrency=concurrency,
+            on_batch=lambda done: logger.info(f"embedded {done}/{len(refs)}"),
         )
 
-    save_embeddings(save_path, processed_paths, embeddings, embedder, root=image_dir)
+    if len(processed) < len(refs):
+        logger.warning(
+            f"Skipped {len(refs) - len(processed)} images due to load errors"
+        )
+
+    save_embeddings(save_path, processed, embeddings, embedder, root=root)
 
 
 def perform_search(top_k, text_embedding, image_embeddings, image_paths):

@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
+from common.images import is_url
+
 if TYPE_CHECKING:
     import torch
     from transformers import (
@@ -120,6 +122,17 @@ class EmbeddingModel(ABC):
         """
         _ = image
         raise NotImplementedError("Subclass must implement encode_pil_image")
+
+    def encode_pil_batch(self, images: list[Image.Image]) -> torch.Tensor:
+        """Generate embeddings for images already in memory.
+
+        This is the entry point for images that were streamed in rather than read
+        from disk. The default encodes them one by one; models whose processor
+        takes a list override it to use the GPU properly.
+        """
+        import torch
+
+        return torch.cat([self.encode_pil_image(image) for image in images])
 
 
 class CLIPEmbedder(EmbeddingModel):
@@ -243,13 +256,22 @@ class CLIPEmbedder(EmbeddingModel):
             return text_embedding / text_embedding.norm(dim=-1, keepdim=True)
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        return self._encode_pil(image)
+
+    def encode_pil_batch(self, images: list[Image.Image]) -> torch.Tensor:
+        # the CLIP processor takes a list, so a streamed batch is one forward pass
+        return self._encode_pil(images)
+
+    def _encode_pil(self, images: Image.Image | list[Image.Image]) -> torch.Tensor:
         import torch
 
         assert self._model is not None, "Model not loaded. Call load() first."
         assert self._processor is not None, "Processor not loaded. Call load() first."
 
         with torch.no_grad():
-            inputs = self._processor(images=image, return_tensors="pt").to(self._device)
+            inputs = self._processor(images=images, return_tensors="pt").to(
+                self._device
+            )
             output = self._model.get_image_features(**inputs)
             # Handle case where output might be a model output object instead of tensor
             if hasattr(output, "image_embeds"):
@@ -336,13 +358,21 @@ class DINOv2Embedder(EmbeddingModel):
         return torch.cat(all_embeddings), processed_paths
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
+        return self._encode_pil(image)
+
+    def encode_pil_batch(self, images: list[Image.Image]) -> torch.Tensor:
+        # the DINOv2 processor takes a list, so a streamed batch is one forward pass
+        return self._encode_pil(images)
+
+    def _encode_pil(self, images: Image.Image | list[Image.Image]) -> torch.Tensor:
         import torch
 
         assert self._model is not None, "Model not loaded. Call load() first."
         assert self._processor is not None, "Processor not loaded. Call load() first."
 
         with torch.no_grad():
-            inputs = self._processor(images=image, return_tensors="pt").to(self._device)  # ty:ignore[call-non-callable]
+            processed = self._processor(images=images, return_tensors="pt")  # ty:ignore[call-non-callable]
+            inputs = processed.to(self._device)
             outputs = self._model(**inputs)
             embedding = outputs.last_hidden_state[:, 0]
             return embedding / embedding.norm(dim=-1, keepdim=True)
@@ -721,7 +751,7 @@ def _common_root(image_paths: list[str]) -> str | None:
     """Infer the directory all image paths live under, or None if not derivable."""
     import os.path
 
-    absolute = [p for p in image_paths if p and os.path.isabs(p)]
+    absolute = [p for p in image_paths if p and os.path.isabs(p) and not is_url(p)]
     if not absolute:
         return None
     if len(absolute) == 1:
@@ -749,7 +779,8 @@ def relativize_image_paths(
     relative = []
     for p in image_paths:
         # "" is a placeholder for a missing image; Path("") would become "."
-        if p == "":
+        # a URL is already portable and must not be mangled into a path
+        if p == "" or is_url(p):
             relative.append(p)
             continue
         candidate = Path(p)
@@ -780,7 +811,7 @@ def rebase_paths(image_paths: list[str], root: str | Path | None) -> list[str]:
     if stored_root is not None and str(root_path) != stored_root:
         logger.info(f"Rebasing image paths from {stored_root} onto {root_path}")
 
-    return [str(root_path / p) if p else p for p in relative]
+    return [str(root_path / p) if p and not is_url(p) else p for p in relative]
 
 
 def load_embeddings(path: str, root: str | Path | None = None) -> dict:

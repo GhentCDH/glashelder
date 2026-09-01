@@ -150,18 +150,40 @@ name = "artmatcher"
 version = "0.1.0"
 source = { editable = "artmatcher" }
 dependencies = [
+    { name = "artscraper" },
     { name = "click" },
+    { name = "cluster" },
+    { name = "common" },
+    { name = "embed" },
     { name = "flask" },
     { name = "imagehash" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "opencv-python" },
+    { name = "pillow" },
+    { name = "rich" },
     { name = "scikit-learn" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.11.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "artscraper", editable = "artscraper" },
     { name = "click", specifier = ">=8.3.1" },
+    { name = "cluster", editable = "cluster" },
+    { name = "common", editable = "common" },
+    { name = "embed", editable = "embed" },
     { name = "flask", specifier = ">=3.1.2" },
     { name = "imagehash", specifier = ">=4.3.1" },
+    { name = "matplotlib", specifier = ">=3.10.7" },
+    { name = "numpy", specifier = ">=2.2.3" },
+    { name = "opencv-python", specifier = ">=4.11.0.86" },
+    { name = "pillow", specifier = ">=12.0.0" },
+    { name = "rich", specifier = ">=13.9.4" },
     { name = "scikit-learn", specifier = ">=1.4.0" },
+    { name = "torch", marker = "sys_platform != 'darwin'", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", marker = "sys_platform == 'darwin'", specifier = ">=2.6.0" },
 ]
 
 [[package]]
@@ -481,6 +503,7 @@ name = "common"
 version = "0.1.0"
 source = { editable = "common" }
 dependencies = [
+    { name = "httpx" },
     { name = "pillow" },
     { name = "python-dotenv" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
@@ -495,6 +518,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pillow", specifier = ">=12.0.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "torch", marker = "sys_platform != 'darwin'", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cpu" },
@@ -583,7 +607,9 @@ name = "embed"
 version = "0.1.0"
 source = { editable = "embed" }
 dependencies = [
+    { name = "artscraper" },
     { name = "click" },
+    { name = "common" },
 ]
 
 [package.optional-dependencies]
@@ -593,7 +619,9 @@ openclip = [
 
 [package.metadata]
 requires-dist = [
+    { name = "artscraper", editable = "artscraper" },
     { name = "click", specifier = ">=8.3.1" },
+    { name = "common", editable = "common" },
     { name = "open-clip-torch", marker = "extra == 'openclip'", specifier = ">=2.29.0" },
 ]
 provides-extras = ["openclip"]
