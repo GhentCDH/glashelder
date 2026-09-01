@@ -1,0 +1,25 @@
+# Project-wide artifact locations, read by `common.config`.
+# Every value can be overridden from the environment, e.g.
+#   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
+
+[paths]
+artworks = "artworks.jsonl" # artscraper output, doubles as the metadata index
+ml_model = "model.pkl"
+
+[paths.images]
+glashelder = "/mnt/ghentcdh/glashelder/assets-crop"
+# reference = "/mnt/ghentcdh/glashelder/wikiart"   # only when references are local files
+cache = ".image-cache" # only used when image caching is on
+
+[paths.embeddings]
+glashelder = "/mnt/ghentcdh/glashelder/embeddings/glashelder-clip.pkl"
+reference = "/mnt/ghentcdh/glashelder/embeddings/artworks-clip.pkl"
+
+[images]
+concurrency = 16 # image fetches in flight
+cache = false    # a full reference set on disk is tens of gigabytes
+
+[artmatcher]
+workers = 45
+threshold = 0.82
+top_k = 10
