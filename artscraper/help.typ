@@ -1,4 +1,5 @@
 #import "@local/templater:2.0.0": quick
+#import "@preview/cetz:0.5.2"
 #show: quick.with()
 #set document(title: "Artscraper Help", author: "Miel Peeters")
 
@@ -70,7 +71,7 @@ that ```py Context()``` object contains some things that your backend needs to u
 - the rest you don't need to worry about `:)`
 
 you can see that the `Backend` produces `Artwork`s, which bundle some information about an artwork that we found.
-it's important that each `Artwork` has a `source` (e.g. ```py "wikiart"```), a `url` (e.g. ```py "https://example.com/artworkX"```) and a `image_url` (e.g. #link("https://cataas.com/cat")[```py "https://cataas.com/cat"```]):
+it's important that each `Artwork` has a `source` (e.g. ```py "wikiart"```), a `url` (e.g. ```py "https://example.com/artworkX"```) and an `image_url` (e.g. #link("https://cataas.com/cat")[```py "https://cataas.com/cat"```]):
 
 ```py
 # ... hard work to get to a place where you found all of the necessary information
@@ -143,15 +144,56 @@ to test the new backend, we can run the `scrape` command with ```bash --backend 
 uv run glashelder artscraper scrape --backend cutecats --limit 10
 ```
 
-we also set ```zsh --limit 10``` because otherwise, this test run would potentially download multiple thousands of artworks, which is not needed for a simple test!.
+we also set ```zsh --limit 10``` because otherwise, this test run would potentially download multiple thousands of artworks, which is not needed for a simple test!
+
+== letting llms help you
+
+once you've found out which data source you want to scrape, you can write out a prompt for an llm, asking it to help you with the implementation.
+
+send this `.pdf` document along with it, and also add `./src/artscraper/backends/__init__.py` for `Backend` and `Context` and `./src/artscraper/backends/kikirpa.py` as an example.
 
 == fyi
 
 don't be alarmed when you see some new concepts like ```py await``` or ```py AsyncIterator```
 
-// claude: here i want a very short overview of why we add these things, and what async means.
-// it'd be nice if you could draw a diagram of some sort of waterfall like timing thing comparing async io request with sequential io bound things (like horizontal rectangles, stacked, representing requests. sequential puts them after each other, showing that it takes a long time, async below each other showing parallellism and)
-//
-// please give an overview of what 'io waiting' is, sort of. but please don't introduce new vocabulary that they don't need
-// this is intended for students that are working on this task, they don't need to get a complex description, just
-// a clearer understanding of what is happening and why!
+most of the work a scraper does is *waiting*. when you ask a website for a page, your program sends the request and then just sits there, doing nothing, until the answer comes back over the network. that waiting is the slow part, not the code.
+
+if we did this the normal way, one page after another (also called 'sequentially'), every request would have to finish before the next one starts. all that waiting stacks up:
+
+#let clr = rgb("#26657e")
+#let clr2 = rgb("#538E99")
+
+#{
+  set text(font: "Maple Mono")
+  align(center, cetz.canvas({
+    import cetz.draw: *
+
+    let bar(x, y, w, label) = {
+      rect((x, y), (x + w, y - 0.6), fill: clr, stroke: clr2)
+      content((x + w / 2, y - 0.3), text(size: 6pt, fill: white, label))
+    }
+
+    // sequential: each request waits for the previous one
+    content((-0.2, 0), text(size: 8pt, weight: "bold")[sequential], anchor: "east")
+    bar(0, 0, 2.2, "wait for page 1")
+    bar(2.2, 0, 2.2, "wait for page 2")
+    bar(4.4, 0, 2.2, "wait for page 3")
+
+    // async: all requests wait at the same time
+    content((-0.2, -1.4), text(size: 8pt, weight: "bold")[async], anchor: "east")
+    bar(0, -1.4, 2.2, "wait for page 1")
+    bar(0.1, -2.1, 2.2, "wait for page 2")
+    bar(0.2, -2.8, 2.2, "wait for page 3")
+
+    line((2.4, 0.6), (2.4, -3.55), stroke: (dash: "dotted", paint: gray))
+    line((6.6, 0.6), (6.6, -3.55), stroke: (dash: "dotted", paint: gray))
+    content((6.6, -3.7), text(size: 7pt, fill: gray)[sequential finishes here])
+    content((2.2, -3.7), text(size: 7pt, fill: gray)[async finishes here])
+  }))
+}
+
+that's the whole idea behind ```py async``` and ```py await```. while one request is waiting for its answer, python is free to fire off the next request instead of just waiting. the ```py await``` keyword marks the spots where waiting happens, so python knows it can go do other useful work there in the meantime.
+
+```py AsyncIterator``` is just the type of thing your ```py stream``` function produces: a sequence of artworks that arrives a bit at a time (as pages come back) rather than all at once. that's why you ```py yield``` each artwork instead of building one big list and returning it. ```py yield```#text(font: "Maple Mono", size: 9pt)[ing] means 'i have some more data for you!' but lets the function continue again afterwards.
+
+you don't need to fully understand the machinery. the takeaway: writing ```py async def``` and ```py await fetch_text(...)``` lets the scraper wait for many pages at the same time, which makes it dramatically faster than fetching them one by one.
