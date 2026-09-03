@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Context, sitemap_locs, stream_sitemaps
+from . import Backend, Context, sitemap_locs, stream_sitemaps
 
 BASE_URL = "https://balat.kikirpa.be"
 SITEMAP_INDEX = f"{BASE_URL}/sitemap.xml"
@@ -61,7 +61,7 @@ def parse_page(url: str, html: str) -> Artwork | None:
     )
 
 
-class Kikirpa:
+class Kikirpa(Backend):
     name = "kikirpa"
 
     async def stream(self, ctx: Context) -> AsyncIterator[Artwork]:

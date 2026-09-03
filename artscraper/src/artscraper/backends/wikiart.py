@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..client import RestrictedError, fetch_text
 from ..model import Artwork
-from . import Context, stream_sitemaps
+from . import Backend, Context, stream_sitemaps
 
 BASE_URL = "https://www.wikiart.org"
 PAINTING_SITEMAPS = [f"{BASE_URL}/sitemap/paintings-{n}.xml" for n in range(1, 7)]
@@ -96,7 +96,7 @@ def parse_page(url: str, html: str) -> Artwork | None:
     return artwork
 
 
-class WikiArt:
+class WikiArt(Backend):
     name = "wikiart"
 
     async def stream(self, ctx: Context) -> AsyncIterator[Artwork]:
