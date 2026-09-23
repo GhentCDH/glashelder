@@ -218,5 +218,5 @@ def write_combined_csv(
         for row in combined.values():
             writer.writerow(row)
 
-    print(f"\nCombined results saved to {output_csv}")
+    print(f"\nCombined results saved to {Path(output_csv).resolve()}")
     print(f"Total images processed: {len(combined)}")

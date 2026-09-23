@@ -1,4 +1,5 @@
 import logging
+from typing import ClassVar
 
 import torch
 from PIL import Image
@@ -17,13 +18,29 @@ logger = logging.getLogger(__name__)
 class Qwen3(TransformersSafetyModel):
     name = "qwen3"
     PARSE_MODEL_TYPE = "qwen"
+    MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
+    QUANTIZATION = "nf4-4bit"
+
+    # Qwen3's generation_config.json ships do_sample=True with temperature/top_p/top_k,
+    # so leaving the decode implicit made its ratings irreproducible. None rather than
+    # neutral values: a leftover temperature with do_sample=False makes
+    # `GenerationConfig.validate()` warn on every call.
+    GENERATE_KWARGS: ClassVar[dict] = {
+        "max_new_tokens": 512,
+        "do_sample": False,
+        "num_beams": 1,
+        "temperature": None,
+        "top_p": None,
+        "top_k": None,
+    }
 
     def __init__(self):
         super().__init__()
         self.prompt = None
 
     def load_model(self):
-        logger.info("Downloading/loading Qwen3 model: Qwen/Qwen3-VL-8B-Instruct")
+        self._require_cuda()
+        logger.info("Downloading/loading Qwen3 model: %s", self.MODEL_ID)
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.bfloat16,
@@ -32,19 +49,19 @@ class Qwen3(TransformersSafetyModel):
         )
 
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            "Qwen/Qwen3-VL-8B-Instruct",
+            self.MODEL_ID,
             dtype="auto",
-            device_map="auto",
+            device_map="cuda",
             quantization_config=bnb_config,
         )
         self.model.eval()
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+        self.processor = AutoProcessor.from_pretrained(self.MODEL_ID)
         logger.info("Qwen3 model loaded successfully")
 
     def message_constructor(self):
         self.prompt = get_prompt()
 
-    def _run_inference(self, image: Image.Image) -> str:
+    def _build_inputs(self, image: Image.Image) -> dict:
         if self.prompt is None:
             self.message_constructor()
 
@@ -66,21 +83,4 @@ class Qwen3(TransformersSafetyModel):
             return_dict=True,
             return_tensors="pt",
         )
-        inputs = inputs.to(self.model.device)
-
-        hyperparameters = {"max_new_tokens": 512}
-
-        with torch.inference_mode():
-            generated_ids = self.model.generate(**inputs, **hyperparameters)
-
-        generated_ids_trimmed = [
-            out_ids[len(in_ids) :]
-            for in_ids, out_ids in zip(inputs.input_ids, generated_ids, strict=False)
-        ]
-        output_text = self.processor.batch_decode(
-            generated_ids_trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
-        )
-
-        return self.JSON_PREFILL + output_text[0]
+        return inputs.to(self.model.device)

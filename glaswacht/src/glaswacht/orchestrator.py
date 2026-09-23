@@ -5,6 +5,7 @@ import traceback
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 from PIL import Image as PILImage
 
@@ -32,6 +33,9 @@ class ModelState:
     current_task: str = ""
     latest_rating: str = ""
     latest_image: str = ""
+    phase: str = ""
+    progress_done: int = 0
+    progress_total: int = 0
 
 
 class Orchestrator:
@@ -140,6 +144,111 @@ class Orchestrator:
                     name, status=ModelStatus.DONE, current_task="Done"
                 )
 
+    def run_diagnostics(
+        self,
+        image_path: str,
+        out_dir: str,
+        top_k: int = 5,
+        max_new_tokens: int | None = None,
+    ) -> list[Path]:
+        """Write one generation diagnostics trace per model for a single image.
+
+        Mirrors `_run_model`'s load → run → unload shape and drives the same
+        model-state updates, so the TUI panels report progress unchanged.
+        """
+        import json
+        import time
+
+        out_path = Path(out_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        stem = Path(image_path).stem
+        image_name = os.path.basename(image_path)
+        written: list[Path] = []
+
+        for model_class in self.model_classes:
+            name = model_class.name
+            self.update_model_state(
+                name,
+                status=ModelStatus.LOADING,
+                current_task=f"Loading {name} model...",
+                latest_image=image_name,
+                phase="loading",
+                progress_done=0,
+                progress_total=0,
+            )
+
+            model = model_class()
+            started = time.perf_counter()
+            try:
+                model.load_model()
+            except Exception as exc:
+                logger.error("%s load error:\n%s", name, traceback.format_exc())
+                self.update_model_state(
+                    name,
+                    status=ModelStatus.ERROR,
+                    current_task=f"Model load failed: {exc}",
+                )
+                continue
+            load_s = time.perf_counter() - started
+
+            run_success = False
+            try:
+                self.update_model_state(
+                    name,
+                    status=ModelStatus.RUNNING,
+                    current_task=f"Diagnosing {image_name}...",
+                )
+                image = PILImage.open(image_path).convert("RGB")
+
+                def _progress(phase: str, done: int, total: int, _name=name) -> None:
+                    self.update_model_state(
+                        _name, phase=phase, progress_done=done, progress_total=total
+                    )
+
+                trace = model.diagnose(
+                    image,
+                    image_path,
+                    top_k=top_k,
+                    max_new_tokens=max_new_tokens,
+                    progress=_progress,
+                )
+                trace.timings_s["load"] = load_s
+
+                trace_path = out_path / f"{stem}.{name}.json"
+                trace_path.write_text(
+                    json.dumps(trace.to_dict(), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                written.append(trace_path)
+
+                rating = trace.parsed.get("rating", "Unknown")
+                logger.info("%s diagnostics for %s → %s", name, image_name, rating)
+                self.update_model_state(name, latest_rating=rating)
+                run_success = True
+            except Exception as exc:
+                logger.error("%s diagnostics error:\n%s", name, traceback.format_exc())
+                self.update_model_state(
+                    name, status=ModelStatus.ERROR, current_task=f"Failed: {exc}"
+                )
+            finally:
+                self.update_model_state(
+                    name,
+                    current_task=f"Unloading {name} model...",
+                    phase="unloading",
+                )
+                model.unload_model()
+                if run_success:
+                    self.update_model_state(
+                        name,
+                        status=ModelStatus.DONE,
+                        current_task="Done",
+                        phase="",
+                        progress_done=0,
+                        progress_total=0,
+                    )
+
+        return written
+
     def run_all(self, path: str) -> None:
         from glaswacht.models.utils import write_combined_csv
 
@@ -178,7 +287,6 @@ class Orchestrator:
 
     def run_test(self, image_path: str | None = None) -> None:
         import tempfile
-        from pathlib import Path
 
         if image_path is None:
             tmp = tempfile.mkdtemp()

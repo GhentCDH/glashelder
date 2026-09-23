@@ -1,0 +1,891 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Generation Diagnostics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: 'JetBrains Mono', monospace;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1600px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        overflow: hidden;
+      }
+
+      .header {
+        background: #333;
+        color: white;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+
+      .header h1 {
+        font-size: 24px;
+        font-weight: 500;
+      }
+
+      .header-sub {
+        font-size: 12px;
+        opacity: 0.7;
+        margin-top: 4px;
+      }
+
+      .header-right {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+      }
+
+      .btn-reload {
+        background: #555;
+        color: white;
+        padding: 8px 16px;
+        font-size: 14px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.2s;
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      .btn-reload:hover { background: #777; }
+
+      .image-switch {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        font-size: 12px;
+      }
+
+      .image-switch a {
+        color: #ddd;
+        background: #444;
+        padding: 5px 10px;
+        border-radius: 4px;
+        text-decoration: none;
+      }
+
+      .image-switch a.active { background: #22c55e; color: #10301c; font-weight: 700; }
+
+      .content {
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
+        padding: 30px;
+      }
+
+      /* ---------------- shared bits ---------------- */
+
+      .info-label {
+        font-weight: 600;
+        color: #666;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+      }
+
+      .info-value {
+        font-size: 15px;
+        color: #333;
+        line-height: 1.5;
+      }
+
+      .rating-safe { color: #22c55e; font-weight: 600; }
+      .rating-unsafe { color: #ef4444; font-weight: 600; }
+      .rating-potentially-problematic { color: #f97316; font-weight: 600; }
+      .rating-unknown { color: #777; font-weight: 600; }
+
+      .bar-safe { background: #22c55e; }
+      .bar-unsafe { background: #ef4444; }
+      .bar-potentially-problematic { background: #f97316; }
+      .bar-unknown { background: #999; }
+
+      .rationale-text { white-space: pre-wrap; word-wrap: break-word; }
+
+      .note {
+        background: #fff7ed;
+        border: 1px solid #fed7aa;
+        border-left: 4px solid #f97316;
+        border-radius: 4px;
+        padding: 12px 16px;
+        font-size: 13px;
+        color: #7c2d12;
+        line-height: 1.6;
+      }
+
+      .note code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px; }
+
+      .note-error {
+        background: #fef2f2;
+        border-color: #fecaca;
+        border-left-color: #ef4444;
+        color: #7f1d1d;
+      }
+
+      .lede {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-left: 4px solid #22c55e;
+        border-radius: 4px;
+        padding: 14px 18px;
+        font-size: 13px;
+        color: #14532d;
+        line-height: 1.7;
+      }
+
+      .lede strong { font-weight: 700; }
+      .lede code { background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 3px; }
+
+      /* ---------------- image ---------------- */
+
+      .image-section {
+        display: flex;
+        gap: 24px;
+        align-items: center;
+        padding: 20px;
+        background: #f9f9f9;
+        border-radius: 8px;
+      }
+
+      .image-section img {
+        max-width: 320px;
+        max-height: 260px;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      }
+
+      .image-missing {
+        width: 200px;
+        height: 150px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-size: 12px;
+        color: #999;
+        background: #ececec;
+        border: 2px dashed #ccc;
+        border-radius: 4px;
+        padding: 10px;
+      }
+
+      .image-meta { font-size: 13px; color: #555; line-height: 1.8; }
+      .image-meta .name { font-size: 18px; font-weight: 600; color: #333; }
+      .image-meta .path { font-size: 11px; color: #999; word-break: break-all; }
+
+      /* ---------------- model columns ---------------- */
+
+      .models-comparison {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        gap: 24px;
+        align-items: start;
+      }
+
+      .model-section {
+        border: 2px solid #e5e5e5;
+        border-radius: 8px;
+        padding: 20px;
+        background: #fafafa;
+        min-width: 0;
+      }
+
+      .model-header {
+        font-size: 18px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 4px;
+      }
+
+      .model-subheader {
+        font-size: 11px;
+        color: #888;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #ddd;
+        word-break: break-all;
+      }
+
+      .block { margin-bottom: 22px; }
+      .block:last-child { margin-bottom: 0; }
+
+      .block-title {
+        font-weight: 700;
+        color: #333;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #e5e5e5;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+      }
+
+      .block-title .hint {
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: #999;
+      }
+
+      /* ---------------- distribution bars ---------------- */
+
+      .dist-row { margin-bottom: 12px; }
+
+      .dist-head {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        margin-bottom: 4px;
+        gap: 10px;
+      }
+
+      .dist-head .tokid { color: #aaa; font-size: 10px; align-self: center; }
+
+      .bar-track {
+        position: relative;
+        height: 12px;
+        background: #ececec;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-bottom: 3px;
+      }
+
+      .bar-fill { height: 100%; border-radius: 3px; }
+      .bar-track.normalized { height: 6px; opacity: 0.45; }
+
+      .bar-legend { font-size: 10px; color: #999; display: flex; gap: 10px; }
+
+      .residual {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px dashed #ddd;
+      }
+
+      .residual-note { font-size: 11px; color: #777; margin-top: 4px; line-height: 1.5; }
+
+      /* ---------------- heatmap ---------------- */
+
+      .heatmap {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 13px;
+        line-height: 2;
+        background: white;
+        border: 1px solid #e5e5e5;
+        border-radius: 4px;
+        padding: 12px;
+        max-height: 420px;
+        overflow-y: auto;
+      }
+
+      .tok {
+        border-radius: 2px;
+        padding: 1px 0;
+        cursor: pointer;
+        color: #222;
+        border-bottom: 2px solid transparent;
+      }
+
+      .tok:hover { outline: 1px solid #333; }
+      .tok.ws { color: #9a9a9a; }
+      .tok.decision { border-bottom: 2px solid #333; font-weight: 700; }
+      .tok.selected { outline: 2px solid #333; }
+
+      .scale {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 10px;
+        color: #888;
+        margin-top: 8px;
+      }
+
+      .scale-ramp {
+        flex: 1;
+        height: 8px;
+        border-radius: 3px;
+        background: linear-gradient(to right,
+          hsl(4,72%,91%), hsl(40,72%,86%), hsl(90,72%,78%), hsl(142,72%,73%));
+      }
+
+      /* ---------------- counterfactuals ---------------- */
+
+      .cf {
+        border: 1px solid #e5e5e5;
+        border-radius: 4px;
+        background: white;
+        padding: 12px;
+        margin-bottom: 10px;
+      }
+
+      .cf-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+
+      .cf-meta { font-size: 10px; color: #aaa; }
+      .cf-field { font-size: 12px; color: #444; margin-top: 6px; line-height: 1.5; }
+      .cf-field span.k { color: #888; }
+
+      /* ---------------- decoding table ---------------- */
+
+      table.decoding { width: 100%; border-collapse: collapse; font-size: 12px; }
+      table.decoding th, table.decoding td {
+        text-align: left;
+        padding: 5px 8px;
+        border-bottom: 1px solid #eee;
+        word-break: break-all;
+      }
+      table.decoding th { color: #888; font-weight: 600; font-size: 10px; text-transform: uppercase; }
+      table.decoding tr.mismatch td { background: #fff7ed; color: #7c2d12; font-weight: 600; }
+
+      .kv { font-size: 12px; color: #666; line-height: 1.8; }
+      .kv b { color: #333; font-weight: 600; }
+
+      details.raw summary {
+        cursor: pointer;
+        font-size: 11px;
+        color: #777;
+        margin-top: 8px;
+      }
+
+      details.raw pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 11px;
+        background: white;
+        border: 1px solid #e5e5e5;
+        border-radius: 4px;
+        padding: 10px;
+        margin-top: 6px;
+        max-height: 240px;
+        overflow-y: auto;
+        line-height: 1.5;
+      }
+
+      /* ---------------- tooltip + detail panel ---------------- */
+
+      #tooltip {
+        position: fixed;
+        z-index: 50;
+        display: none;
+        max-width: 320px;
+        background: #222;
+        color: #eee;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-size: 11px;
+        line-height: 1.6;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        pointer-events: none;
+      }
+
+      #tooltip .tt-head { border-bottom: 1px solid #444; padding-bottom: 5px; margin-bottom: 6px; }
+      #tooltip .tt-row { display: flex; justify-content: space-between; gap: 10px; }
+      #tooltip .tt-row.chosen { color: #86efac; font-weight: 700; }
+      #tooltip .tt-tok { white-space: pre-wrap; word-break: break-all; }
+
+      #panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 420px;
+        max-width: 92vw;
+        height: 100vh;
+        background: white;
+        box-shadow: -4px 0 20px rgba(0,0,0,0.2);
+        padding: 20px;
+        overflow-y: auto;
+        display: none;
+        z-index: 60;
+      }
+
+      #panel.open { display: block; }
+
+      #panel h2 { font-size: 16px; margin-bottom: 4px; color: #333; }
+      #panel .panel-sub { font-size: 11px; color: #888; margin-bottom: 16px; }
+
+      #panel-close {
+        position: absolute;
+        top: 14px;
+        right: 16px;
+        background: #eee;
+        border: none;
+        border-radius: 4px;
+        width: 28px;
+        height: 28px;
+        cursor: pointer;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 14px;
+      }
+
+      .alt-row { margin-bottom: 10px; }
+
+      .alt-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+        margin-bottom: 3px;
+      }
+
+      .alt-head .alt-tok { white-space: pre-wrap; word-break: break-all; }
+      .alt-row.chosen .alt-head { font-weight: 700; color: #15803d; }
+      .alt-fill { background: #64748b; }
+      .alt-row.chosen .alt-fill { background: #22c55e; }
+      .alt-id { font-size: 10px; color: #aaa; }
+
+      /* Future "regenerate from here" hook - only rendered with GW_DIAG_LIVE=1. */
+      .btn-regen {
+        margin-top: 3px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        padding: 3px 8px;
+        border: 1px dashed #bbb;
+        border-radius: 3px;
+        background: #f5f5f5;
+        color: #999;
+        cursor: not-allowed;
+      }
+
+      @media (max-width: 900px) {
+        .models-comparison { grid-template-columns: 1fr; }
+        .image-section { flex-direction: column; align-items: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div>
+          <h1>Generation Diagnostics</h1>
+          <div class="header-sub">
+            {% if current_stem %}{{ current_stem }} &middot; {% endif %}traces: {{ directory }}
+          </div>
+        </div>
+        <div class="header-right">
+          {% if stems|length > 1 %}
+            <div class="image-switch">
+              {% for stem in stems[:8] %}
+                <a href="/traces/{{ stem }}" class="{{ 'active' if stem == current_stem else '' }}">{{ stem }}</a>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <a href="/reload" class="btn-reload">&#8635; Reload</a>
+        </div>
+      </div>
+
+      <div class="content">
+        {% if empty %}
+          <div class="note{{ ' note-error' if not directory_exists else '' }}">
+            {% if directory_exists %}
+              No diagnostics traces found in <code>{{ directory }}</code>.
+              Run <code>glaswacht diagnose --image PATH</code> to produce them, then hit Reload.
+            {% else %}
+              The trace directory <code>{{ directory }}</code> does not exist.
+              Set <code>GW_DIAG_DIR</code> to the directory holding
+              <code>&lt;image-stem&gt;.&lt;model&gt;.json</code> traces, or run
+              <code>glaswacht diagnose --image PATH</code> first.
+            {% endif %}
+          </div>
+        {% else %}
+
+          <div class="lede">
+            The assistant turn is pre-filled with <code>{"rating": "</code>, so
+            <strong>generation step 0 is the first token of the rating value</strong> &mdash;
+            step 0's probability distribution <em>is</em> the model's safety decision.
+            That is the <strong>rating decision distribution</strong> below; everything after it
+            is the model explaining a choice it had already made.
+            <strong>Residual</strong> is the probability mass that went to neither Safe, Unsafe nor
+            Potentially Problematic.
+          </div>
+
+          <div class="image-section">
+            {% if image and image.available %}
+              <img src="{{ image.url }}" alt="{{ image.name }}">
+            {% else %}
+              <div class="image-missing">image file not available on this machine</div>
+            {% endif %}
+            <div class="image-meta">
+              <div class="name">{{ image.name or current_stem }}</div>
+              <div class="path">{{ image.path or "no path recorded in trace" }}</div>
+              <div>{{ image.models }} model trace{{ '' if image.models == 1 else 's' }}</div>
+            </div>
+          </div>
+
+          <div class="models-comparison">
+            {% for m in models %}
+              <div class="model-section">
+                <div class="model-header">{{ m.name }}</div>
+                <div class="model-subheader">
+                  {% if m.error %}{{ m.file }}{% else %}{{ m.model_id }} &middot; {{ m.quantization }} &middot; {{ m.generated_at }}{% endif %}
+                </div>
+
+                {% if m.error %}
+                  <div class="note note-error">Could not read this trace &mdash; {{ m.error }}</div>
+                {% else %}
+
+                  {% for w in m.warnings %}
+                    <div class="note" style="margin-bottom:14px">{{ w }}</div>
+                  {% endfor %}
+
+                  <!-- Rating decision distribution: the headline -->
+                  <div class="block">
+                    <div class="block-title">
+                      <span>Rating decision (step 0)</span>
+                      <span class="hint">{{ 'exact multi-token' if m.distribution and m.distribution.exact else 'first-token' }}</span>
+                    </div>
+                    {% if m.distribution %}
+                      {% for row in m.distribution.rows %}
+                        <div class="dist-row">
+                          <div class="dist-head">
+                            <span class="{{ row.css }}">{{ row.label }}</span>
+                            <span class="tokid">id {{ row.token_id if row.token_id is not none else '?' }}</span>
+                            <span><b>{{ row.raw_pct }}</b></span>
+                          </div>
+                          <div class="bar-track">
+                            <div class="bar-fill bar-{{ row.css[7:] }}" style="width: {{ row.raw_width }}%"></div>
+                          </div>
+                          <div class="bar-track normalized">
+                            <div class="bar-fill bar-{{ row.css[7:] }}" style="width: {{ row.norm_width }}%"></div>
+                          </div>
+                          <div class="bar-legend">
+                            <span>raw {{ row.raw_pct }}</span>
+                            <span>normalized {{ row.norm_pct }}</span>
+                          </div>
+                        </div>
+                      {% endfor %}
+                      <div class="residual">
+                        <div class="dist-head">
+                          <span style="color:#777">Residual (off-script mass)</span>
+                          <span><b>{{ m.distribution.residual_pct }}</b></span>
+                        </div>
+                        <div class="bar-track">
+                          <div class="bar-fill" style="width: {{ m.distribution.residual_width }}%; background:#94a3b8"></div>
+                        </div>
+                        <div class="residual-note">
+                          Probability that step 0 was neither of the three valid ratings.
+                          High residual means the rating vocabulary does not cover what the model wanted to say.
+                        </div>
+                      </div>
+                    {% else %}
+                      <div class="info-value" style="color:#999">No rating distribution in this trace.</div>
+                    {% endif %}
+                  </div>
+
+                  <!-- Verdict -->
+                  <div class="block">
+                    <div class="block-title"><span>Verdict</span></div>
+                    <div class="info-label">Rating</div>
+                    <div class="info-value" style="margin-bottom:12px">
+                      <span class="{{ m.rating_css }}" style="font-size:18px">{{ m.rating }}</span>
+                    </div>
+                    <div class="info-label">Category</div>
+                    <div class="info-value" style="margin-bottom:12px">{{ m.category }}</div>
+                    <div class="info-label">Rationale</div>
+                    <div class="info-value rationale-text">{{ m.rationale }}</div>
+                  </div>
+
+                  <!-- Token heatmap -->
+                  <div class="block">
+                    <div class="block-title">
+                      <span>Token heatmap</span>
+                      <span class="hint">{{ m.step_count }} steps &middot; {{ m.low_confidence }} below 50%</span>
+                    </div>
+                    <div class="heatmap" data-model="{{ m.name }}">{% for s in m.steps %}<span
+                      class="tok{{ ' ws' if s.is_ws else '' }}{{ ' decision' if s.is_decision else '' }}"
+                      style="background: {{ s.color }}"
+                      data-model="{{ m.name }}"
+                      data-i="{{ s.i }}">{{ s.display }}</span>{% endfor %}</div>
+                    <div class="scale">
+                      <span>p=0</span><div class="scale-ramp"></div><span>p=1</span>
+                    </div>
+                    <div class="residual-note">
+                      Hover a token for its top-{{ m.top_k }} alternatives; click for the full detail panel.
+                      Whitespace is shown as <code>&middot;</code> (space) and <code>&crarr;</code> (newline);
+                      the underlined token is the rating decision.
+                    </div>
+                  </div>
+
+                  <!-- Counterfactuals -->
+                  <div class="block">
+                    <div class="block-title">
+                      <span>Counterfactuals</span>
+                      <span class="hint">forced rating, regenerated</span>
+                    </div>
+                    {% if m.counterfactuals %}
+                      {% for cf in m.counterfactuals %}
+                        <div class="cf">
+                          <div class="cf-head">
+                            <span>forced <span class="{{ cf.forced_css }}">{{ cf.forced_text }}</span></span>
+                            <span class="cf-meta">{{ cf.kind }} @ {{ cf.position }} &middot; ids {{ cf.forced_token_ids|join(', ') }}</span>
+                          </div>
+                          <div class="cf-field"><span class="k">rating:</span>
+                            <span class="{{ cf.rating_css }}">{{ cf.rating }}</span></div>
+                          <div class="cf-field"><span class="k">category:</span> {{ cf.category }}</div>
+                          <div class="cf-field rationale-text"><span class="k">rationale:</span> {{ cf.rationale }}</div>
+                          {% if cf.generated_text %}
+                            <details class="raw">
+                              <summary>raw generation</summary>
+                              <pre>{{ cf.generated_text }}</pre>
+                            </details>
+                          {% endif %}
+                        </div>
+                      {% endfor %}
+                    {% else %}
+                      <div class="info-value" style="color:#999">No counterfactuals in this trace.</div>
+                    {% endif %}
+                  </div>
+
+                  <!-- Decoding -->
+                  <div class="block">
+                    <div class="block-title"><span>Decoding</span></div>
+                    {% if m.decoding.mismatch %}
+                      <div class="note" style="margin-bottom:10px">
+                        Diagnostics ran with different decoding than production
+                        ({{ m.decoding.mismatch_keys }}), so this trace does
+                        <strong>not</strong> reflect how {{ m.name }} decides in production.
+                      </div>
+                    {% elif m.decoding.have_production %}
+                      <div class="residual-note" style="margin-bottom:10px">
+                        Diagnostic decoding matches production &mdash; this trace reflects production exactly.
+                      </div>
+                    {% endif %}
+                    <table class="decoding">
+                      <tr><th>param</th><th>diagnostic</th><th>production</th></tr>
+                      {% for row in m.decoding.rows %}
+                        <tr class="{{ 'mismatch' if row.mismatch else '' }}">
+                          <td>{{ row.key }}</td>
+                          <td>{{ row.diagnostic }}</td>
+                          <td>{{ row.production }}</td>
+                        </tr>
+                      {% endfor %}
+                    </table>
+                    <div class="kv" style="margin-top:10px">
+                      <div>top_k <b>{{ m.top_k }}</b> &middot; prompt tokens <b>{{ m.prompt_token_count }}</b> &middot; parser <b>{{ m.parse_model_type }}</b></div>
+                      {% if m.timings %}
+                        <div>{% for k, v in m.timings %}{{ k }} <b>{{ v }}s</b>{{ ' &middot; ' | safe if not loop.last }}{% endfor %}</div>
+                      {% endif %}
+                      <div>prefill <b>{{ m.prefill|replace('\n', '\\n') }}</b></div>
+                    </div>
+                    <details class="raw">
+                      <summary>raw generated text</summary>
+                      <pre>{{ m.generated_text }}</pre>
+                    </details>
+                  </div>
+
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div id="tooltip"></div>
+
+    <div id="panel">
+      <button id="panel-close" aria-label="Close">&times;</button>
+      <h2 id="panel-title">&nbsp;</h2>
+      <div class="panel-sub" id="panel-sub"></div>
+      <div id="panel-body"></div>
+    </div>
+
+    {% if not empty %}
+      <script type="application/json" id="trace-data">
+        {{ models | map(attribute='step_data') | list | tojson }}
+      </script>
+      <script type="application/json" id="trace-names">
+        {{ models | map(attribute='name') | list | tojson }}
+      </script>
+      <script>
+        (function () {
+          "use strict";
+
+          // GW_DIAG_LIVE gates the future "regenerate from here" endpoint.
+          // With the env var unset the button is never rendered at all.
+          var LIVE = {{ 'true' if live else 'false' }};
+
+          var names = JSON.parse(document.getElementById('trace-names').textContent);
+          var payloads = JSON.parse(document.getElementById('trace-data').textContent);
+          var byModel = {};
+          names.forEach(function (name, idx) {
+            var map = {};
+            (payloads[idx] || []).forEach(function (step) { map[step.i] = step; });
+            byModel[name] = map;
+          });
+
+          function stepFor(el) {
+            var model = byModel[el.dataset.model];
+            return model ? model[el.dataset.i] : null;
+          }
+
+          function label(text) {
+            if (text === undefined || text === null || text === '') { return '(empty)'; }
+            return text;
+          }
+
+          /* ---------------- hover tooltip ---------------- */
+
+          var tooltip = document.getElementById('tooltip');
+
+          function showTooltip(evt, el) {
+            var step = stepFor(el);
+            if (!step) { return; }
+            var html = '<div class="tt-head">step ' + step.i +
+              ' &middot; <span class="tt-tok">' + escapeHtml(label(step.display)) + '</span>' +
+              ' &middot; ' + step.pct + '</div>';
+            (step.alternatives || []).forEach(function (alt) {
+              html += '<div class="tt-row' + (alt.chosen ? ' chosen' : '') + '">' +
+                '<span class="tt-tok">' + escapeHtml(label(alt.display)) + '</span>' +
+                '<span>' + alt.pct + '</span></div>';
+            });
+            if (!(step.alternatives || []).length) {
+              html += '<div class="tt-row">no alternatives recorded</div>';
+            }
+            html += '<div class="tt-row" style="margin-top:6px;color:#999">click for detail</div>';
+            tooltip.innerHTML = html;
+            tooltip.style.display = 'block';
+            moveTooltip(evt);
+          }
+
+          function moveTooltip(evt) {
+            var pad = 14;
+            var rect = tooltip.getBoundingClientRect();
+            var x = evt.clientX + pad;
+            var y = evt.clientY + pad;
+            if (x + rect.width > window.innerWidth - 8) { x = evt.clientX - rect.width - pad; }
+            if (y + rect.height > window.innerHeight - 8) { y = evt.clientY - rect.height - pad; }
+            tooltip.style.left = Math.max(4, x) + 'px';
+            tooltip.style.top = Math.max(4, y) + 'px';
+          }
+
+          function escapeHtml(text) {
+            return String(text)
+              .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          }
+
+          /* ---------------- click detail panel ---------------- */
+
+          var panel = document.getElementById('panel');
+          var panelTitle = document.getElementById('panel-title');
+          var panelSub = document.getElementById('panel-sub');
+          var panelBody = document.getElementById('panel-body');
+          var selected = null;
+
+          function closePanel() {
+            panel.classList.remove('open');
+            if (selected) { selected.classList.remove('selected'); selected = null; }
+          }
+
+          function openPanel(el) {
+            var step = stepFor(el);
+            if (!step) { return; }
+            if (selected) { selected.classList.remove('selected'); }
+            selected = el;
+            el.classList.add('selected');
+
+            panelTitle.textContent = el.dataset.model + ' · step ' + step.i +
+              (step.i === 0 ? ' (rating decision)' : '');
+            panelSub.innerHTML =
+              'token <b>' + escapeHtml(label(step.display)) + '</b> &middot; ' +
+              'id ' + step.token_id + ' &middot; raw <code>' +
+              escapeHtml(label(step.raw_token)) + '</code><br>' +
+              'p = ' + step.pct + ' &middot; logprob = ' +
+              (step.logprob === undefined || step.logprob === null
+                ? 'n/a' : Number(step.logprob).toFixed(4));
+
+            var html = '<div class="info-label">Alternatives at this position</div>';
+            (step.alternatives || []).forEach(function (alt) {
+              html += '<div class="alt-row' + (alt.chosen ? ' chosen' : '') + '">' +
+                '<div class="alt-head">' +
+                  '<span class="alt-tok">' + escapeHtml(label(alt.display)) + '</span>' +
+                  '<span>' + alt.pct + '</span>' +
+                '</div>' +
+                '<div class="bar-track"><div class="bar-fill alt-fill" style="width:' +
+                  alt.width + '%"></div></div>' +
+                '<div class="alt-id">id ' + alt.token_id +
+                  ' &middot; raw ' + escapeHtml(label(alt.raw_token)) + '</div>';
+              if (LIVE) {
+                // Phase 2 hook: posts to a live endpoint gated behind GW_DIAG_LIVE=1.
+                // Disabled here on purpose - this viewer never loads a model.
+                html += '<button class="btn-regen" disabled ' +
+                  'data-token-id="' + alt.token_id + '" data-position="' + step.i + '" ' +
+                  'title="Regenerate from here - added in a later phase">' +
+                  '↻ regenerate from here</button>';
+              }
+              html += '</div>';
+            });
+            if (!(step.alternatives || []).length) {
+              html += '<div class="info-value" style="color:#999">No alternatives recorded.</div>';
+            }
+            panelBody.innerHTML = html;
+            panel.classList.add('open');
+          }
+
+          /* ---------------- wiring ---------------- */
+
+          document.querySelectorAll('.heatmap').forEach(function (map) {
+            map.addEventListener('mouseover', function (evt) {
+              var el = evt.target.closest('.tok');
+              if (el) { showTooltip(evt, el); }
+            });
+            map.addEventListener('mousemove', function (evt) {
+              if (tooltip.style.display === 'block') { moveTooltip(evt); }
+            });
+            map.addEventListener('mouseout', function (evt) {
+              if (!evt.relatedTarget || !evt.relatedTarget.closest('.tok')) {
+                tooltip.style.display = 'none';
+              }
+            });
+            map.addEventListener('click', function (evt) {
+              var el = evt.target.closest('.tok');
+              if (el) { openPanel(el); }
+            });
+          });
+
+          document.getElementById('panel-close').addEventListener('click', closePanel);
+          document.addEventListener('keydown', function (evt) {
+            if (evt.key === 'Escape') { closePanel(); tooltip.style.display = 'none'; }
+            if (evt.key === 'r' && !evt.metaKey && !evt.ctrlKey) {
+              window.location.href = '/reload';
+            }
+          });
+        })();
+      </script>
+    {% endif %}
+  </body>
+</html>

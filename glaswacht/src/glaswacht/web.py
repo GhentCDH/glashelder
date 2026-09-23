@@ -15,12 +15,10 @@ from flask import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration — set RA_CSV_PATH / RA_IMAGES_DIR env vars to override
-CSV_PATH = Path(
-    os.environ.get(
-        "RA_CSV_PATH", Path(__file__).parent / "combined_risk_assessment_results.csv"
-    )
-)
+# Configuration — set RA_CSV_PATH / RA_IMAGES_DIR env vars to override.
+# The default is relative to the working directory, matching where
+# `write_combined_csv` puts it, so run-then-serve from one directory works.
+CSV_PATH = Path(os.environ.get("RA_CSV_PATH", "combined_risk_assessment_results.csv"))
 IMAGES_DIR = Path(
     os.environ.get(
         "RA_IMAGES_DIR",
@@ -36,23 +34,41 @@ results = []
 
 
 def load_results():
-    """Load results from the combined CSV file."""
+    """Load results from the combined CSV file.
+
+    Never raises: a missing CSV must not take the server down, since it is
+    commonly started before the pipeline has written any results.
+    """
     global results
-    with open(CSV_PATH) as f:
-        reader = csv.DictReader(f)
-        results = list(reader)
-    logger.info(f"Loaded {len(results)} results from {CSV_PATH}")
+    try:
+        with open(CSV_PATH) as f:
+            results = list(csv.DictReader(f))
+    except OSError as exc:
+        results = []
+        logger.warning("Could not read %s: %s", CSV_PATH.resolve(), exc)
+        return
+    logger.info("Loaded %d results from %s", len(results), CSV_PATH.resolve())
 
 
-# Load results at startup
-load_results()
+def _no_results_page() -> tuple[str, int]:
+    return (
+        "<h1>No results loaded</h1>"
+        f"<p>Looked for <code>{CSV_PATH.resolve()}</code>.</p>"
+        "<p>Point the server at the right file with "
+        "<code>glaswacht serve --csv-path &lt;file&gt;</code> "
+        "(or the <code>RA_CSV_PATH</code> environment variable), then "
+        '<a href="/reload">reload</a>.</p>',
+        404,
+    )
 
 
 @app.route("/")
 def index():
     """Show the first result."""
     if not results:
-        return "No results found", 404
+        load_results()
+    if not results:
+        return _no_results_page()
 
     return render_template(
         "validate.html",
@@ -65,6 +81,10 @@ def index():
 @app.route("/result/<int:index>")
 def show_result(index):
     """Show a specific result by index."""
+    if not results:
+        load_results()
+    if not results:
+        return _no_results_page()
     if index < 0 or index >= len(results):
         return "Result not found", 404
 

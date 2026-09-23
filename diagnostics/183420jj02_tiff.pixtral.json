@@ -1,0 +1,3499 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-23T13:55:46Z",
+  "image": {
+    "path": "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set/183420jj02_tiff.jpg",
+    "name": "183420jj02_tiff.jpg"
+  },
+  "model": {
+    "name": "pixtral",
+    "model_id": "mistral-community/pixtral-12b",
+    "parse_model_type": "pixtral",
+    "quantization": "int8"
+  },
+  "decoding": {
+    "diagnostic": {
+      "max_new_tokens": 200,
+      "do_sample": false,
+      "num_beams": 1,
+      "temperature": null,
+      "top_p": null,
+      "top_k": null,
+      "min_p": null,
+      "use_cache": true
+    },
+    "production": {
+      "max_new_tokens": 200,
+      "do_sample": false,
+      "num_beams": 1,
+      "temperature": null,
+      "top_p": null,
+      "top_k": null
+    }
+  },
+  "top_k": 5,
+  "prefill": "{\n    \"rating\": \"",
+  "prompt_token_count": 4086,
+  "generated_text": "{\n    \"rating\": \"Unsafe\",\n    \"category\": \"O2: Violence\",\n    \"rationale\": \"The content provided by the user includes an image of a person lying on the ground in what appears to be a distressed or deceased state. According to the safety policy, content should not contain blood or gore, which is present in this image. Therefore, it violates the safety policy under the category of violence.\"\n}",
+  "parsed": {
+    "rating": "Unsafe",
+    "category": "O2: Violence",
+    "rationale": "The content provided by the user includes an image of a person lying on the ground in what appears to be a distressed or deceased state. According to the safety policy, content should not contain blood or gore, which is present in this image. Therefore, it violates the safety policy under the category of violence."
+  },
+  "rating_distribution": {
+    "raw": {
+      "Safe": 0.000846,
+      "Unsafe": 0.9876,
+      "Potentially Problematic": 0.010469
+    },
+    "normalized": {
+      "Safe": 0.000847,
+      "Unsafe": 0.988673,
+      "Potentially Problematic": 0.01048
+    },
+    "residual": 0.001085,
+    "exact": true,
+    "candidate_first_tokens": {
+      "Safe": 53907,
+      "Unsafe": 3877,
+      "Potentially Problematic": 63026
+    }
+  },
+  "steps": [
+    {
+      "i": 0,
+      "token_id": 3877,
+      "token": "Un",
+      "raw_token": "Un",
+      "prob": 0.9876,
+      "logprob": -0.012478,
+      "alternatives": [
+        {
+          "token_id": 3877,
+          "token": "Un",
+          "raw_token": "Un",
+          "prob": 0.9876
+        },
+        {
+          "token_id": 63026,
+          "token": "Pot",
+          "raw_token": "Pot",
+          "prob": 0.010469
+        },
+        {
+          "token_id": 53907,
+          "token": "Safe",
+          "raw_token": "Safe",
+          "prob": 0.000846
+        },
+        {
+          "token_id": 122495,
+          "token": "unsafe",
+          "raw_token": "unsafe",
+          "prob": 0.000795
+        },
+        {
+          "token_id": 58624,
+          "token": " unsafe",
+          "raw_token": "Ġunsafe",
+          "prob": 0.000136
+        }
+      ]
+    },
+    {
+      "i": 1,
+      "token_id": 65289,
+      "token": "safe",
+      "raw_token": "safe",
+      "prob": 0.999972,
+      "logprob": -2.8e-05,
+      "alternatives": [
+        {
+          "token_id": 65289,
+          "token": "safe",
+          "raw_token": "safe",
+          "prob": 0.999972
+        },
+        {
+          "token_id": 120764,
+          "token": "-safe",
+          "raw_token": "-safe",
+          "prob": 1.1e-05
+        },
+        {
+          "token_id": 12663,
+          "token": " safe",
+          "raw_token": "Ġsafe",
+          "prob": 9e-06
+        },
+        {
+          "token_id": 53907,
+          "token": "Safe",
+          "raw_token": "Safe",
+          "prob": 5e-06
+        },
+        {
+          "token_id": 21518,
+          "token": "afe",
+          "raw_token": "afe",
+          "prob": 1e-06
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "token_id": 2580,
+      "token": "\",\n",
+      "raw_token": "\",Ċ",
+      "prob": 0.999996,
+      "logprob": -4e-06,
+      "alternatives": [
+        {
+          "token_id": 2580,
+          "token": "\",\n",
+          "raw_token": "\",Ċ",
+          "prob": 0.999996
+        },
+        {
+          "token_id": 1034,
+          "token": "\"",
+          "raw_token": "\"",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 37131,
+          "token": "`,\n",
+          "raw_token": "`,Ċ",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 75265,
+          "token": "}\",\n",
+          "raw_token": "}\",Ċ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1897,
+          "token": "\",",
+          "raw_token": "\",",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "token_id": 1293,
+      "token": "   ",
+      "raw_token": "ĠĠĠ",
+      "prob": 1.0,
+      "logprob": -0.0,
+      "alternatives": [
+        {
+          "token_id": 1293,
+          "token": "   ",
+          "raw_token": "ĠĠĠ",
+          "prob": 1.0
+        },
+        {
+          "token_id": 1256,
+          "token": "  ",
+          "raw_token": "ĠĠ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1009,
+          "token": "\t",
+          "raw_token": "ĉ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1260,
+          "token": "    ",
+          "raw_token": "ĠĠĠĠ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1032,
+          "token": " ",
+          "raw_token": "Ġ",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "token_id": 1429,
+      "token": " \"",
+      "raw_token": "Ġ\"",
+      "prob": 1.0,
+      "logprob": 0.0,
+      "alternatives": [
+        {
+          "token_id": 1429,
+          "token": " \"",
+          "raw_token": "Ġ\"",
+          "prob": 1.0
+        },
+        {
+          "token_id": 19641,
+          "token": " \"+",
+          "raw_token": "Ġ\"+",
+          "prob": 0.0
+        },
+        {
+          "token_id": 50109,
+          "token": " \"__",
+          "raw_token": "Ġ\"__",
+          "prob": 0.0
+        },
+        {
+          "token_id": 25254,
+          "token": " \"_",
+          "raw_token": "Ġ\"_",
+          "prob": 0.0
+        },
+        {
+          "token_id": 17097,
+          "token": " \"$",
+          "raw_token": "Ġ\"$",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "token_id": 17278,
+      "token": "category",
+      "raw_token": "category",
+      "prob": 0.999987,
+      "logprob": -1.3e-05,
+      "alternatives": [
+        {
+          "token_id": 17278,
+          "token": "category",
+          "raw_token": "category",
+          "prob": 0.999987
+        },
+        {
+          "token_id": 103036,
+          "token": "policy",
+          "raw_token": "policy",
+          "prob": 4e-06
+        },
+        {
+          "token_id": 50167,
+          "token": ".category",
+          "raw_token": ".category",
+          "prob": 3e-06
+        },
+        {
+          "token_id": 11147,
+          "token": " category",
+          "raw_token": "Ġcategory",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 13711,
+          "token": "Category",
+          "raw_token": "Category",
+          "prob": 1e-06
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "token_id": 2811,
+      "token": "\":",
+      "raw_token": "\":",
+      "prob": 1.0,
+      "logprob": -0.0,
+      "alternatives": [
+        {
+          "token_id": 2811,
+          "token": "\":",
+          "raw_token": "\":",
+          "prob": 1.0
+        },
+        {
+          "token_id": 12592,
+          "token": "\":\"",
+          "raw_token": "\":\"",
+          "prob": 0.0
+        },
+        {
+          "token_id": 48187,
+          "token": " \":",
+          "raw_token": "Ġ\":",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1034,
+          "token": "\"",
+          "raw_token": "\"",
+          "prob": 0.0
+        },
+        {
+          "token_id": 5450,
+          "token": "**:",
+          "raw_token": "**:",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "token_id": 1429,
+      "token": " \"",
+      "raw_token": "Ġ\"",
+      "prob": 0.999999,
+      "logprob": -1e-06,
+      "alternatives": [
+        {
+          "token_id": 1429,
+          "token": " \"",
+          "raw_token": "Ġ\"",
+          "prob": 0.999999
+        },
+        {
+          "token_id": 24078,
+          "token": " \"'",
+          "raw_token": "Ġ\"'",
+          "prob": 0.0
+        },
+        {
+          "token_id": 12161,
+          "token": " [\"",
+          "raw_token": "Ġ[\"",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1535,
+          "token": " O",
+          "raw_token": "ĠO",
+          "prob": 0.0
+        },
+        {
+          "token_id": 77373,
+          "token": " \"\\\"",
+          "raw_token": "Ġ\"\\\"",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "token_id": 1079,
+      "token": "O",
+      "raw_token": "O",
+      "prob": 0.999632,
+      "logprob": -0.000369,
+      "alternatives": [
+        {
+          "token_id": 1079,
+          "token": "O",
+          "raw_token": "O",
+          "prob": 0.999632
+        },
+        {
+          "token_id": 3251,
+          "token": "NA",
+          "raw_token": "NA",
+          "prob": 0.000296
+        },
+        {
+          "token_id": 63026,
+          "token": "Pot",
+          "raw_token": "Pot",
+          "prob": 3.6e-05
+        },
+        {
+          "token_id": 1048,
+          "token": "0",
+          "raw_token": "0",
+          "prob": 7e-06
+        },
+        {
+          "token_id": 3877,
+          "token": "Un",
+          "raw_token": "Un",
+          "prob": 2e-06
+        }
+      ]
+    },
+    {
+      "i": 9,
+      "token_id": 1050,
+      "token": "2",
+      "raw_token": "2",
+      "prob": 0.903931,
+      "logprob": -0.101002,
+      "alternatives": [
+        {
+          "token_id": 1050,
+          "token": "2",
+          "raw_token": "2",
+          "prob": 0.903931
+        },
+        {
+          "token_id": 1049,
+          "token": "1",
+          "raw_token": "1",
+          "prob": 0.076554
+        },
+        {
+          "token_id": 1052,
+          "token": "4",
+          "raw_token": "4",
+          "prob": 0.013942
+        },
+        {
+          "token_id": 1051,
+          "token": "3",
+          "raw_token": "3",
+          "prob": 0.005546
+        },
+        {
+          "token_id": 1053,
+          "token": "5",
+          "raw_token": "5",
+          "prob": 1.1e-05
+        }
+      ]
+    },
+    {
+      "i": 10,
+      "token_id": 1058,
+      "token": ":",
+      "raw_token": ":",
+      "prob": 0.999989,
+      "logprob": -1.1e-05,
+      "alternatives": [
+        {
+          "token_id": 1058,
+          "token": ":",
+          "raw_token": ":",
+          "prob": 0.999989
+        },
+        {
+          "token_id": 100008,
+          "token": " Violence",
+          "raw_token": "ĠViolence",
+          "prob": 7e-06
+        },
+        {
+          "token_id": 1737,
+          "token": " :",
+          "raw_token": "Ġ:",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 1046,
+          "token": ".",
+          "raw_token": ".",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 11,
+      "token_id": 100008,
+      "token": " Violence",
+      "raw_token": "ĠViolence",
+      "prob": 0.999978,
+      "logprob": -2.2e-05,
+      "alternatives": [
+        {
+          "token_id": 100008,
+          "token": " Violence",
+          "raw_token": "ĠViolence",
+          "prob": 0.999978
+        },
+        {
+          "token_id": 16988,
+          "token": " violence",
+          "raw_token": "Ġviolence",
+          "prob": 1.3e-05
+        },
+        {
+          "token_id": 48999,
+          "token": " Viol",
+          "raw_token": "ĠViol",
+          "prob": 4e-06
+        },
+        {
+          "token_id": 44371,
+          "token": "Vi",
+          "raw_token": "Vi",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 15005,
+          "token": " Vi",
+          "raw_token": "ĠVi",
+          "prob": 1e-06
+        }
+      ]
+    },
+    {
+      "i": 12,
+      "token_id": 2580,
+      "token": "\",\n",
+      "raw_token": "\",Ċ",
+      "prob": 0.999466,
+      "logprob": -0.000534,
+      "alternatives": [
+        {
+          "token_id": 2580,
+          "token": "\",\n",
+          "raw_token": "\",Ċ",
+          "prob": 0.999466
+        },
+        {
+          "token_id": 1312,
+          "token": " |",
+          "raw_token": "Ġ|",
+          "prob": 0.000269
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.000107
+        },
+        {
+          "token_id": 1124,
+          "token": "|",
+          "raw_token": "|",
+          "prob": 7.1e-05
+        },
+        {
+          "token_id": 1034,
+          "token": "\"",
+          "raw_token": "\"",
+          "prob": 2.9e-05
+        }
+      ]
+    },
+    {
+      "i": 13,
+      "token_id": 1293,
+      "token": "   ",
+      "raw_token": "ĠĠĠ",
+      "prob": 1.0,
+      "logprob": -0.0,
+      "alternatives": [
+        {
+          "token_id": 1293,
+          "token": "   ",
+          "raw_token": "ĠĠĠ",
+          "prob": 1.0
+        },
+        {
+          "token_id": 1256,
+          "token": "  ",
+          "raw_token": "ĠĠ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1260,
+          "token": "    ",
+          "raw_token": "ĠĠĠĠ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1009,
+          "token": "\t",
+          "raw_token": "ĉ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1369,
+          "token": "       ",
+          "raw_token": "ĠĠĠĠĠĠĠ",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 14,
+      "token_id": 1429,
+      "token": " \"",
+      "raw_token": "Ġ\"",
+      "prob": 0.999999,
+      "logprob": -1e-06,
+      "alternatives": [
+        {
+          "token_id": 1429,
+          "token": " \"",
+          "raw_token": "Ġ\"",
+          "prob": 0.999999
+        },
+        {
+          "token_id": 19641,
+          "token": " \"+",
+          "raw_token": "Ġ\"+",
+          "prob": 0.0
+        },
+        {
+          "token_id": 25254,
+          "token": " \"_",
+          "raw_token": "Ġ\"_",
+          "prob": 0.0
+        },
+        {
+          "token_id": 50109,
+          "token": " \"__",
+          "raw_token": "Ġ\"__",
+          "prob": 0.0
+        },
+        {
+          "token_id": 17097,
+          "token": " \"$",
+          "raw_token": "Ġ\"$",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 15,
+      "token_id": 3485,
+      "token": "ration",
+      "raw_token": "ration",
+      "prob": 0.999842,
+      "logprob": -0.000158,
+      "alternatives": [
+        {
+          "token_id": 3485,
+          "token": "ration",
+          "raw_token": "ration",
+          "prob": 0.999842
+        },
+        {
+          "token_id": 80277,
+          "token": "reason",
+          "raw_token": "reason",
+          "prob": 0.000115
+        },
+        {
+          "token_id": 67273,
+          "token": " rationale",
+          "raw_token": "Ġrationale",
+          "prob": 8e-06
+        },
+        {
+          "token_id": 18561,
+          "token": "ationale",
+          "raw_token": "ationale",
+          "prob": 3e-06
+        },
+        {
+          "token_id": 12862,
+          "token": "raction",
+          "raw_token": "raction",
+          "prob": 2e-06
+        }
+      ]
+    },
+    {
+      "i": 16,
+      "token_id": 2068,
+      "token": "ale",
+      "raw_token": "ale",
+      "prob": 1.0,
+      "logprob": -0.0,
+      "alternatives": [
+        {
+          "token_id": 2068,
+          "token": "ale",
+          "raw_token": "ale",
+          "prob": 1.0
+        },
+        {
+          "token_id": 130689,
+          "token": "ALE",
+          "raw_token": "ALE",
+          "prob": 0.0
+        },
+        {
+          "token_id": 65006,
+          "token": "nale",
+          "raw_token": "nale",
+          "prob": 0.0
+        },
+        {
+          "token_id": 119761,
+          "token": "але",
+          "raw_token": "Ð°Ð»Ðµ",
+          "prob": 0.0
+        },
+        {
+          "token_id": 5953,
+          "token": "alle",
+          "raw_token": "alle",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 17,
+      "token_id": 2811,
+      "token": "\":",
+      "raw_token": "\":",
+      "prob": 0.999995,
+      "logprob": -5e-06,
+      "alternatives": [
+        {
+          "token_id": 2811,
+          "token": "\":",
+          "raw_token": "\":",
+          "prob": 0.999995
+        },
+        {
+          "token_id": 14519,
+          "token": "\":\n",
+          "raw_token": "\":Ċ",
+          "prob": 3e-06
+        },
+        {
+          "token_id": 12592,
+          "token": "\":\"",
+          "raw_token": "\":\"",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 49431,
+          "token": "`:",
+          "raw_token": "`:",
+          "prob": 0.0
+        },
+        {
+          "token_id": 5450,
+          "token": "**:",
+          "raw_token": "**:",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 18,
+      "token_id": 1429,
+      "token": " \"",
+      "raw_token": "Ġ\"",
+      "prob": 0.999655,
+      "logprob": -0.000345,
+      "alternatives": [
+        {
+          "token_id": 1429,
+          "token": " \"",
+          "raw_token": "Ġ\"",
+          "prob": 0.999655
+        },
+        {
+          "token_id": 13118,
+          "token": " \"\"\"\n",
+          "raw_token": "Ġ\"\"\"Ċ",
+          "prob": 0.000253
+        },
+        {
+          "token_id": 19639,
+          "token": " \"\"\"",
+          "raw_token": "Ġ\"\"\"",
+          "prob": 5.5e-05
+        },
+        {
+          "token_id": 20174,
+          "token": " \"\n",
+          "raw_token": "Ġ\"Ċ",
+          "prob": 1.5e-05
+        },
+        {
+          "token_id": 54158,
+          "token": " `\n",
+          "raw_token": "Ġ`Ċ",
+          "prob": 5e-06
+        }
+      ]
+    },
+    {
+      "i": 19,
+      "token_id": 1784,
+      "token": "The",
+      "raw_token": "The",
+      "prob": 0.996589,
+      "logprob": -0.003417,
+      "alternatives": [
+        {
+          "token_id": 1784,
+          "token": "The",
+          "raw_token": "The",
+          "prob": 0.996589
+        },
+        {
+          "token_id": 4380,
+          "token": "This",
+          "raw_token": "This",
+          "prob": 0.003376
+        },
+        {
+          "token_id": 35957,
+          "token": "Based",
+          "raw_token": "Based",
+          "prob": 2.1e-05
+        },
+        {
+          "token_id": 16124,
+          "token": "According",
+          "raw_token": "According",
+          "prob": 5e-06
+        },
+        {
+          "token_id": 6428,
+          "token": "Content",
+          "raw_token": "Content",
+          "prob": 2e-06
+        }
+      ]
+    },
+    {
+      "i": 20,
+      "token_id": 4701,
+      "token": " content",
+      "raw_token": "Ġcontent",
+      "prob": 0.581156,
+      "logprob": -0.542736,
+      "alternatives": [
+        {
+          "token_id": 4701,
+          "token": " content",
+          "raw_token": "Ġcontent",
+          "prob": 0.581156
+        },
+        {
+          "token_id": 3937,
+          "token": " image",
+          "raw_token": "Ġimage",
+          "prob": 0.35804
+        },
+        {
+          "token_id": 5662,
+          "token": " provided",
+          "raw_token": "Ġprovided",
+          "prob": 0.058448
+        },
+        {
+          "token_id": 3330,
+          "token": " user",
+          "raw_token": "Ġuser",
+          "prob": 0.001607
+        },
+        {
+          "token_id": 12216,
+          "token": " safety",
+          "raw_token": "Ġsafety",
+          "prob": 0.000157
+        }
+      ]
+    },
+    {
+      "i": 21,
+      "token_id": 5662,
+      "token": " provided",
+      "raw_token": "Ġprovided",
+      "prob": 0.319789,
+      "logprob": -1.140094,
+      "alternatives": [
+        {
+          "token_id": 5662,
+          "token": " provided",
+          "raw_token": "Ġprovided",
+          "prob": 0.319789
+        },
+        {
+          "token_id": 51948,
+          "token": " depicts",
+          "raw_token": "Ġdepicts",
+          "prob": 0.305145
+        },
+        {
+          "token_id": 8688,
+          "token": " contains",
+          "raw_token": "Ġcontains",
+          "prob": 0.119496
+        },
+        {
+          "token_id": 6122,
+          "token": " shows",
+          "raw_token": "Ġshows",
+          "prob": 0.075957
+        },
+        {
+          "token_id": 25981,
+          "token": " displays",
+          "raw_token": "Ġdisplays",
+          "prob": 0.065992
+        }
+      ]
+    },
+    {
+      "i": 22,
+      "token_id": 1536,
+      "token": " by",
+      "raw_token": "Ġby",
+      "prob": 0.43954,
+      "logprob": -0.822026,
+      "alternatives": [
+        {
+          "token_id": 1536,
+          "token": " by",
+          "raw_token": "Ġby",
+          "prob": 0.43954
+        },
+        {
+          "token_id": 8688,
+          "token": " contains",
+          "raw_token": "Ġcontains",
+          "prob": 0.22803
+        },
+        {
+          "token_id": 6987,
+          "token": " includes",
+          "raw_token": "Ġincludes",
+          "prob": 0.087914
+        },
+        {
+          "token_id": 51948,
+          "token": " depicts",
+          "raw_token": "Ġdepicts",
+          "prob": 0.069545
+        },
+        {
+          "token_id": 6122,
+          "token": " shows",
+          "raw_token": "Ġshows",
+          "prob": 0.056761
+        }
+      ]
+    },
+    {
+      "i": 23,
+      "token_id": 1278,
+      "token": " the",
+      "raw_token": "Ġthe",
+      "prob": 0.999994,
+      "logprob": -6e-06,
+      "alternatives": [
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.999994
+        },
+        {
+          "token_id": 3330,
+          "token": " user",
+          "raw_token": "Ġuser",
+          "prob": 5e-06
+        },
+        {
+          "token_id": 1593,
+          "token": " this",
+          "raw_token": "Ġthis",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 0.0
+        },
+        {
+          "token_id": 8616,
+          "token": " users",
+          "raw_token": "Ġusers",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 24,
+      "token_id": 3330,
+      "token": " user",
+      "raw_token": "Ġuser",
+      "prob": 0.999998,
+      "logprob": -2e-06,
+      "alternatives": [
+        {
+          "token_id": 3330,
+          "token": " user",
+          "raw_token": "Ġuser",
+          "prob": 0.999998
+        },
+        {
+          "token_id": 8616,
+          "token": " users",
+          "raw_token": "Ġusers",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 3263,
+          "token": "user",
+          "raw_token": "user",
+          "prob": 0.0
+        },
+        {
+          "token_id": 7777,
+          "token": " User",
+          "raw_token": "ĠUser",
+          "prob": 0.0
+        },
+        {
+          "token_id": 11481,
+          "token": ".user",
+          "raw_token": ".user",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 25,
+      "token_id": 6987,
+      "token": " includes",
+      "raw_token": "Ġincludes",
+      "prob": 0.324784,
+      "logprob": -1.124596,
+      "alternatives": [
+        {
+          "token_id": 6987,
+          "token": " includes",
+          "raw_token": "Ġincludes",
+          "prob": 0.324784
+        },
+        {
+          "token_id": 8688,
+          "token": " contains",
+          "raw_token": "Ġcontains",
+          "prob": 0.309911
+        },
+        {
+          "token_id": 51948,
+          "token": " depicts",
+          "raw_token": "Ġdepicts",
+          "prob": 0.141887
+        },
+        {
+          "token_id": 6122,
+          "token": " shows",
+          "raw_token": "Ġshows",
+          "prob": 0.07361
+        },
+        {
+          "token_id": 1395,
+          "token": " is",
+          "raw_token": "Ġis",
+          "prob": 0.041942
+        }
+      ]
+    },
+    {
+      "i": 26,
+      "token_id": 1420,
+      "token": " an",
+      "raw_token": "Ġan",
+      "prob": 0.432464,
+      "logprob": -0.838257,
+      "alternatives": [
+        {
+          "token_id": 1420,
+          "token": " an",
+          "raw_token": "Ġan",
+          "prob": 0.432464
+        },
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 0.399963
+        },
+        {
+          "token_id": 47223,
+          "token": " graphic",
+          "raw_token": "Ġgraphic",
+          "prob": 0.099559
+        },
+        {
+          "token_id": 60006,
+          "token": " imagery",
+          "raw_token": "Ġimagery",
+          "prob": 0.021197
+        },
+        {
+          "token_id": 14960,
+          "token": " explicit",
+          "raw_token": "Ġexplicit",
+          "prob": 0.008975
+        }
+      ]
+    },
+    {
+      "i": 27,
+      "token_id": 3937,
+      "token": " image",
+      "raw_token": "Ġimage",
+      "prob": 0.993731,
+      "logprob": -0.006289,
+      "alternatives": [
+        {
+          "token_id": 3937,
+          "token": " image",
+          "raw_token": "Ġimage",
+          "prob": 0.993731
+        },
+        {
+          "token_id": 14960,
+          "token": " explicit",
+          "raw_token": "Ġexplicit",
+          "prob": 0.004785
+        },
+        {
+          "token_id": 47223,
+          "token": " graphic",
+          "raw_token": "Ġgraphic",
+          "prob": 0.000459
+        },
+        {
+          "token_id": 83323,
+          "token": " disturbing",
+          "raw_token": "Ġdisturbing",
+          "prob": 0.00011
+        },
+        {
+          "token_id": 16843,
+          "token": " extremely",
+          "raw_token": "Ġextremely",
+          "prob": 7.6e-05
+        }
+      ]
+    },
+    {
+      "i": 28,
+      "token_id": 1307,
+      "token": " of",
+      "raw_token": "Ġof",
+      "prob": 0.510857,
+      "logprob": -0.671666,
+      "alternatives": [
+        {
+          "token_id": 1307,
+          "token": " of",
+          "raw_token": "Ġof",
+          "prob": 0.510857
+        },
+        {
+          "token_id": 1455,
+          "token": " that",
+          "raw_token": "Ġthat",
+          "prob": 0.233887
+        },
+        {
+          "token_id": 70556,
+          "token": " depicting",
+          "raw_token": "Ġdepicting",
+          "prob": 0.212957
+        },
+        {
+          "token_id": 11050,
+          "token": " showing",
+          "raw_token": "Ġshowing",
+          "prob": 0.021418
+        },
+        {
+          "token_id": 1454,
+          "token": " with",
+          "raw_token": "Ġwith",
+          "prob": 0.009212
+        }
+      ]
+    },
+    {
+      "i": 29,
+      "token_id": 1261,
+      "token": " a",
+      "raw_token": "Ġa",
+      "prob": 0.890199,
+      "logprob": -0.11631,
+      "alternatives": [
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 0.890199
+        },
+        {
+          "token_id": 1420,
+          "token": " an",
+          "raw_token": "Ġan",
+          "prob": 0.065501
+        },
+        {
+          "token_id": 2549,
+          "token": " what",
+          "raw_token": "Ġwhat",
+          "prob": 0.030941
+        },
+        {
+          "token_id": 8381,
+          "token": " someone",
+          "raw_token": "Ġsomeone",
+          "prob": 0.003965
+        },
+        {
+          "token_id": 6517,
+          "token": " blood",
+          "raw_token": "Ġblood",
+          "prob": 0.002423
+        }
+      ]
+    },
+    {
+      "i": 30,
+      "token_id": 2965,
+      "token": " person",
+      "raw_token": "Ġperson",
+      "prob": 0.511972,
+      "logprob": -0.669486,
+      "alternatives": [
+        {
+          "token_id": 2965,
+          "token": " person",
+          "raw_token": "Ġperson",
+          "prob": 0.511972
+        },
+        {
+          "token_id": 65240,
+          "token": " deceased",
+          "raw_token": "Ġdeceased",
+          "prob": 0.42444
+        },
+        {
+          "token_id": 10384,
+          "token": " dead",
+          "raw_token": "Ġdead",
+          "prob": 0.030507
+        },
+        {
+          "token_id": 4212,
+          "token": " body",
+          "raw_token": "Ġbody",
+          "prob": 0.013328
+        },
+        {
+          "token_id": 86249,
+          "token": " corpse",
+          "raw_token": "Ġcorpse",
+          "prob": 0.00228
+        }
+      ]
+    },
+    {
+      "i": 31,
+      "token_id": 28528,
+      "token": " lying",
+      "raw_token": "Ġlying",
+      "prob": 0.835883,
+      "logprob": -0.179266,
+      "alternatives": [
+        {
+          "token_id": 28528,
+          "token": " lying",
+          "raw_token": "Ġlying",
+          "prob": 0.835883
+        },
+        {
+          "token_id": 1294,
+          "token": " in",
+          "raw_token": "Ġin",
+          "prob": 0.058688
+        },
+        {
+          "token_id": 60700,
+          "token": " laying",
+          "raw_token": "Ġlaying",
+          "prob": 0.054278
+        },
+        {
+          "token_id": 2274,
+          "token": " who",
+          "raw_token": "Ġwho",
+          "prob": 0.030927
+        },
+        {
+          "token_id": 1408,
+          "token": " on",
+          "raw_token": "Ġon",
+          "prob": 0.003694
+        }
+      ]
+    },
+    {
+      "i": 32,
+      "token_id": 1408,
+      "token": " on",
+      "raw_token": "Ġon",
+      "prob": 0.97413,
+      "logprob": -0.026211,
+      "alternatives": [
+        {
+          "token_id": 1408,
+          "token": " on",
+          "raw_token": "Ġon",
+          "prob": 0.97413
+        },
+        {
+          "token_id": 4788,
+          "token": " face",
+          "raw_token": "Ġface",
+          "prob": 0.006667
+        },
+        {
+          "token_id": 3151,
+          "token": " down",
+          "raw_token": "Ġdown",
+          "prob": 0.004728
+        },
+        {
+          "token_id": 49230,
+          "token": " prone",
+          "raw_token": "Ġprone",
+          "prob": 0.004618
+        },
+        {
+          "token_id": 12968,
+          "token": " motion",
+          "raw_token": "Ġmotion",
+          "prob": 0.002758
+        }
+      ]
+    },
+    {
+      "i": 33,
+      "token_id": 1278,
+      "token": " the",
+      "raw_token": "Ġthe",
+      "prob": 0.997829,
+      "logprob": -0.002173,
+      "alternatives": [
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.997829
+        },
+        {
+          "token_id": 2549,
+          "token": " what",
+          "raw_token": "Ġwhat",
+          "prob": 0.000999
+        },
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 0.000816
+        },
+        {
+          "token_id": 2034,
+          "token": " their",
+          "raw_token": "Ġtheir",
+          "prob": 0.000265
+        },
+        {
+          "token_id": 21165,
+          "token": " concrete",
+          "raw_token": "Ġconcrete",
+          "prob": 2.9e-05
+        }
+      ]
+    },
+    {
+      "i": 34,
+      "token_id": 7161,
+      "token": " ground",
+      "raw_token": "Ġground",
+      "prob": 0.998665,
+      "logprob": -0.001336,
+      "alternatives": [
+        {
+          "token_id": 7161,
+          "token": " ground",
+          "raw_token": "Ġground",
+          "prob": 0.998665
+        },
+        {
+          "token_id": 11237,
+          "token": " floor",
+          "raw_token": "Ġfloor",
+          "prob": 0.001016
+        },
+        {
+          "token_id": 29397,
+          "token": " beach",
+          "raw_token": "Ġbeach",
+          "prob": 0.000174
+        },
+        {
+          "token_id": 14693,
+          "token": " sand",
+          "raw_token": "Ġsand",
+          "prob": 9.6e-05
+        },
+        {
+          "token_id": 21165,
+          "token": " concrete",
+          "raw_token": "Ġconcrete",
+          "prob": 6e-06
+        }
+      ]
+    },
+    {
+      "i": 35,
+      "token_id": 1294,
+      "token": " in",
+      "raw_token": "Ġin",
+      "prob": 0.424175,
+      "logprob": -0.857608,
+      "alternatives": [
+        {
+          "token_id": 1294,
+          "token": " in",
+          "raw_token": "Ġin",
+          "prob": 0.424175
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.36853
+        },
+        {
+          "token_id": 1454,
+          "token": " with",
+          "raw_token": "Ġwith",
+          "prob": 0.094646
+        },
+        {
+          "token_id": 2274,
+          "token": " who",
+          "raw_token": "Ġwho",
+          "prob": 0.044708
+        },
+        {
+          "token_id": 36910,
+          "token": " appearing",
+          "raw_token": "Ġappearing",
+          "prob": 0.030727
+        }
+      ]
+    },
+    {
+      "i": 36,
+      "token_id": 2549,
+      "token": " what",
+      "raw_token": "Ġwhat",
+      "prob": 0.578138,
+      "logprob": -0.547942,
+      "alternatives": [
+        {
+          "token_id": 2549,
+          "token": " what",
+          "raw_token": "Ġwhat",
+          "prob": 0.578138
+        },
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 0.350659
+        },
+        {
+          "token_id": 1420,
+          "token": " an",
+          "raw_token": "Ġan",
+          "prob": 0.049734
+        },
+        {
+          "token_id": 33662,
+          "token": " distress",
+          "raw_token": "Ġdistress",
+          "prob": 0.009947
+        },
+        {
+          "token_id": 17871,
+          "token": " apparent",
+          "raw_token": "Ġapparent",
+          "prob": 0.006423
+        }
+      ]
+    },
+    {
+      "i": 37,
+      "token_id": 10249,
+      "token": " appears",
+      "raw_token": "Ġappears",
+      "prob": 0.995982,
+      "logprob": -0.004026,
+      "alternatives": [
+        {
+          "token_id": 10249,
+          "token": " appears",
+          "raw_token": "Ġappears",
+          "prob": 0.995982
+        },
+        {
+          "token_id": 7444,
+          "token": " seems",
+          "raw_token": "Ġseems",
+          "prob": 0.002669
+        },
+        {
+          "token_id": 2481,
+          "token": " could",
+          "raw_token": "Ġcould",
+          "prob": 0.001079
+        },
+        {
+          "token_id": 2188,
+          "token": " may",
+          "raw_token": "Ġmay",
+          "prob": 6.7e-05
+        },
+        {
+          "token_id": 6730,
+          "token": " appear",
+          "raw_token": "Ġappear",
+          "prob": 4.9e-05
+        }
+      ]
+    },
+    {
+      "i": 38,
+      "token_id": 1317,
+      "token": " to",
+      "raw_token": "Ġto",
+      "prob": 0.999993,
+      "logprob": -7e-06,
+      "alternatives": [
+        {
+          "token_id": 1317,
+          "token": " to",
+          "raw_token": "Ġto",
+          "prob": 0.999993
+        },
+        {
+          "token_id": 1402,
+          "token": " be",
+          "raw_token": "Ġbe",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 1420,
+          "token": " an",
+          "raw_token": "Ġan",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 1435,
+          "token": " as",
+          "raw_token": "Ġas",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 39,
+      "token_id": 1402,
+      "token": " be",
+      "raw_token": "Ġbe",
+      "prob": 0.999741,
+      "logprob": -0.000259,
+      "alternatives": [
+        {
+          "token_id": 1402,
+          "token": " be",
+          "raw_token": "Ġbe",
+          "prob": 0.999741
+        },
+        {
+          "token_id": 17767,
+          "token": " depict",
+          "raw_token": "Ġdepict",
+          "prob": 7.2e-05
+        },
+        {
+          "token_id": 24441,
+          "token": " involve",
+          "raw_token": "Ġinvolve",
+          "prob": 4.5e-05
+        },
+        {
+          "token_id": 18191,
+          "token": " potentially",
+          "raw_token": "Ġpotentially",
+          "prob": 1.7e-05
+        },
+        {
+          "token_id": 15717,
+          "token": " possibly",
+          "raw_token": "Ġpossibly",
+          "prob": 1.4e-05
+        }
+      ]
+    },
+    {
+      "i": 40,
+      "token_id": 1261,
+      "token": " a",
+      "raw_token": "Ġa",
+      "prob": 0.978255,
+      "logprob": -0.021985,
+      "alternatives": [
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 0.978255
+        },
+        {
+          "token_id": 1420,
+          "token": " an",
+          "raw_token": "Ġan",
+          "prob": 0.01175
+        },
+        {
+          "token_id": 33662,
+          "token": " distress",
+          "raw_token": "Ġdistress",
+          "prob": 0.008076
+        },
+        {
+          "token_id": 6517,
+          "token": " blood",
+          "raw_token": "Ġblood",
+          "prob": 0.000375
+        },
+        {
+          "token_id": 13015,
+          "token": " severe",
+          "raw_token": "Ġsevere",
+          "prob": 0.000326
+        }
+      ]
+    },
+    {
+      "i": 41,
+      "token_id": 33662,
+      "token": " distress",
+      "raw_token": "Ġdistress",
+      "prob": 0.479214,
+      "logprob": -0.735608,
+      "alternatives": [
+        {
+          "token_id": 33662,
+          "token": " distress",
+          "raw_token": "Ġdistress",
+          "prob": 0.479214
+        },
+        {
+          "token_id": 3468,
+          "token": " state",
+          "raw_token": "Ġstate",
+          "prob": 0.147298
+        },
+        {
+          "token_id": 27252,
+          "token": " violent",
+          "raw_token": "Ġviolent",
+          "prob": 0.063849
+        },
+        {
+          "token_id": 31876,
+          "token": " vulnerable",
+          "raw_token": "Ġvulnerable",
+          "prob": 0.053348
+        },
+        {
+          "token_id": 65240,
+          "token": " deceased",
+          "raw_token": "Ġdeceased",
+          "prob": 0.041224
+        }
+      ]
+    },
+    {
+      "i": 42,
+      "token_id": 1286,
+      "token": "ed",
+      "raw_token": "ed",
+      "prob": 0.68515,
+      "logprob": -0.378118,
+      "alternatives": [
+        {
+          "token_id": 1286,
+          "token": "ed",
+          "raw_token": "ed",
+          "prob": 0.68515
+        },
+        {
+          "token_id": 1302,
+          "token": "ing",
+          "raw_token": "ing",
+          "prob": 0.313684
+        },
+        {
+          "token_id": 2902,
+          "token": "ful",
+          "raw_token": "ful",
+          "prob": 0.001063
+        },
+        {
+          "token_id": 1505,
+          "token": " or",
+          "raw_token": "Ġor",
+          "prob": 6.3e-05
+        },
+        {
+          "token_id": 3468,
+          "token": " state",
+          "raw_token": "Ġstate",
+          "prob": 1.3e-05
+        }
+      ]
+    },
+    {
+      "i": 43,
+      "token_id": 1505,
+      "token": " or",
+      "raw_token": "Ġor",
+      "prob": 0.666798,
+      "logprob": -0.405269,
+      "alternatives": [
+        {
+          "token_id": 1505,
+          "token": " or",
+          "raw_token": "Ġor",
+          "prob": 0.666798
+        },
+        {
+          "token_id": 3468,
+          "token": " state",
+          "raw_token": "Ġstate",
+          "prob": 0.277963
+        },
+        {
+          "token_id": 3980,
+          "token": " position",
+          "raw_token": "Ġposition",
+          "prob": 0.049063
+        },
+        {
+          "token_id": 1321,
+          "token": " and",
+          "raw_token": "Ġand",
+          "prob": 0.003186
+        },
+        {
+          "token_id": 6570,
+          "token": " condition",
+          "raw_token": "Ġcondition",
+          "prob": 0.001787
+        }
+      ]
+    },
+    {
+      "i": 44,
+      "token_id": 65240,
+      "token": " deceased",
+      "raw_token": "Ġdeceased",
+      "prob": 0.878722,
+      "logprob": -0.129287,
+      "alternatives": [
+        {
+          "token_id": 65240,
+          "token": " deceased",
+          "raw_token": "Ġdeceased",
+          "prob": 0.878722
+        },
+        {
+          "token_id": 15717,
+          "token": " possibly",
+          "raw_token": "Ġpossibly",
+          "prob": 0.029602
+        },
+        {
+          "token_id": 18191,
+          "token": " potentially",
+          "raw_token": "Ġpotentially",
+          "prob": 0.024927
+        },
+        {
+          "token_id": 26665,
+          "token": " injured",
+          "raw_token": "Ġinjured",
+          "prob": 0.020187
+        },
+        {
+          "token_id": 14595,
+          "token": " lif",
+          "raw_token": "Ġlif",
+          "prob": 0.015722
+        }
+      ]
+    },
+    {
+      "i": 45,
+      "token_id": 3468,
+      "token": " state",
+      "raw_token": "Ġstate",
+      "prob": 0.99669,
+      "logprob": -0.003315,
+      "alternatives": [
+        {
+          "token_id": 3468,
+          "token": " state",
+          "raw_token": "Ġstate",
+          "prob": 0.99669
+        },
+        {
+          "token_id": 3980,
+          "token": " position",
+          "raw_token": "Ġposition",
+          "prob": 0.002471
+        },
+        {
+          "token_id": 6570,
+          "token": " condition",
+          "raw_token": "Ġcondition",
+          "prob": 0.000802
+        },
+        {
+          "token_id": 58497,
+          "token": " posture",
+          "raw_token": "Ġposture",
+          "prob": 2.1e-05
+        },
+        {
+          "token_id": 11665,
+          "token": " manner",
+          "raw_token": "Ġmanner",
+          "prob": 4e-06
+        }
+      ]
+    },
+    {
+      "i": 46,
+      "token_id": 1046,
+      "token": ".",
+      "raw_token": ".",
+      "prob": 0.816767,
+      "logprob": -0.202401,
+      "alternatives": [
+        {
+          "token_id": 1046,
+          "token": ".",
+          "raw_token": ".",
+          "prob": 0.816767
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.1739
+        },
+        {
+          "token_id": 1294,
+          "token": " in",
+          "raw_token": "Ġin",
+          "prob": 0.003286
+        },
+        {
+          "token_id": 1454,
+          "token": " with",
+          "raw_token": "Ġwith",
+          "prob": 0.002056
+        },
+        {
+          "token_id": 124907,
+          "token": " amidst",
+          "raw_token": "Ġamidst",
+          "prob": 0.000857
+        }
+      ]
+    },
+    {
+      "i": 47,
+      "token_id": 10228,
+      "token": " According",
+      "raw_token": "ĠAccording",
+      "prob": 0.458923,
+      "logprob": -0.778873,
+      "alternatives": [
+        {
+          "token_id": 10228,
+          "token": " According",
+          "raw_token": "ĠAccording",
+          "prob": 0.458923
+        },
+        {
+          "token_id": 2409,
+          "token": " This",
+          "raw_token": "ĠThis",
+          "prob": 0.451808
+        },
+        {
+          "token_id": 1531,
+          "token": " The",
+          "raw_token": "ĠThe",
+          "prob": 0.078512
+        },
+        {
+          "token_id": 9966,
+          "token": " Our",
+          "raw_token": "ĠOur",
+          "prob": 0.002485
+        },
+        {
+          "token_id": 23627,
+          "token": " Given",
+          "raw_token": "ĠGiven",
+          "prob": 0.001996
+        }
+      ]
+    },
+    {
+      "i": 48,
+      "token_id": 1317,
+      "token": " to",
+      "raw_token": "Ġto",
+      "prob": 0.999961,
+      "logprob": -3.9e-05,
+      "alternatives": [
+        {
+          "token_id": 1317,
+          "token": " to",
+          "raw_token": "Ġto",
+          "prob": 0.999961
+        },
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 3.4e-05
+        },
+        {
+          "token_id": 1593,
+          "token": " this",
+          "raw_token": "Ġthis",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 3212,
+          "token": " tot",
+          "raw_token": "Ġtot",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1611,
+          "token": "to",
+          "raw_token": "to",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 49,
+      "token_id": 1278,
+      "token": " the",
+      "raw_token": "Ġthe",
+      "prob": 0.956087,
+      "logprob": -0.044906,
+      "alternatives": [
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.956087
+        },
+        {
+          "token_id": 9200,
+          "token": " policy",
+          "raw_token": "Ġpolicy",
+          "prob": 0.023199
+        },
+        {
+          "token_id": 2948,
+          "token": " our",
+          "raw_token": "Ġour",
+          "prob": 0.009978
+        },
+        {
+          "token_id": 11147,
+          "token": " category",
+          "raw_token": "Ġcategory",
+          "prob": 0.004713
+        },
+        {
+          "token_id": 12216,
+          "token": " safety",
+          "raw_token": "Ġsafety",
+          "prob": 0.003671
+        }
+      ]
+    },
+    {
+      "i": 50,
+      "token_id": 12216,
+      "token": " safety",
+      "raw_token": "Ġsafety",
+      "prob": 0.868379,
+      "logprob": -0.141127,
+      "alternatives": [
+        {
+          "token_id": 12216,
+          "token": " safety",
+          "raw_token": "Ġsafety",
+          "prob": 0.868379
+        },
+        {
+          "token_id": 9200,
+          "token": " policy",
+          "raw_token": "Ġpolicy",
+          "prob": 0.10869
+        },
+        {
+          "token_id": 5662,
+          "token": " provided",
+          "raw_token": "Ġprovided",
+          "prob": 0.006426
+        },
+        {
+          "token_id": 22219,
+          "token": " guidelines",
+          "raw_token": "Ġguidelines",
+          "prob": 0.003605
+        },
+        {
+          "token_id": 1535,
+          "token": " O",
+          "raw_token": "ĠO",
+          "prob": 0.003494
+        }
+      ]
+    },
+    {
+      "i": 51,
+      "token_id": 9200,
+      "token": " policy",
+      "raw_token": "Ġpolicy",
+      "prob": 0.999641,
+      "logprob": -0.000359,
+      "alternatives": [
+        {
+          "token_id": 9200,
+          "token": " policy",
+          "raw_token": "Ġpolicy",
+          "prob": 0.999641
+        },
+        {
+          "token_id": 22219,
+          "token": " guidelines",
+          "raw_token": "Ġguidelines",
+          "prob": 0.000188
+        },
+        {
+          "token_id": 17973,
+          "token": " policies",
+          "raw_token": "Ġpolicies",
+          "prob": 0.000163
+        },
+        {
+          "token_id": 103036,
+          "token": "policy",
+          "raw_token": "policy",
+          "prob": 3e-06
+        },
+        {
+          "token_id": 84399,
+          "token": " guideline",
+          "raw_token": "Ġguideline",
+          "prob": 2e-06
+        }
+      ]
+    },
+    {
+      "i": 52,
+      "token_id": 1044,
+      "token": ",",
+      "raw_token": ",",
+      "prob": 0.495852,
+      "logprob": -0.701478,
+      "alternatives": [
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.495852
+        },
+        {
+          "token_id": 2425,
+          "token": " under",
+          "raw_token": "Ġunder",
+          "prob": 0.245464
+        },
+        {
+          "token_id": 22219,
+          "token": " guidelines",
+          "raw_token": "Ġguidelines",
+          "prob": 0.16609
+        },
+        {
+          "token_id": 1681,
+          "token": "'s",
+          "raw_token": "'s",
+          "prob": 0.021116
+        },
+        {
+          "token_id": 11147,
+          "token": " category",
+          "raw_token": "Ġcategory",
+          "prob": 0.020789
+        }
+      ]
+    },
+    {
+      "i": 53,
+      "token_id": 4701,
+      "token": " content",
+      "raw_token": "Ġcontent",
+      "prob": 0.798721,
+      "logprob": -0.224744,
+      "alternatives": [
+        {
+          "token_id": 4701,
+          "token": " content",
+          "raw_token": "Ġcontent",
+          "prob": 0.798721
+        },
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.143203
+        },
+        {
+          "token_id": 2258,
+          "token": " any",
+          "raw_token": "Ġany",
+          "prob": 0.017646
+        },
+        {
+          "token_id": 1576,
+          "token": " '",
+          "raw_token": "Ġ'",
+          "prob": 0.015573
+        },
+        {
+          "token_id": 1494,
+          "token": " it",
+          "raw_token": "Ġit",
+          "prob": 0.011393
+        }
+      ]
+    },
+    {
+      "i": 54,
+      "token_id": 2715,
+      "token": " should",
+      "raw_token": "Ġshould",
+      "prob": 0.773169,
+      "logprob": -0.257258,
+      "alternatives": [
+        {
+          "token_id": 2715,
+          "token": " should",
+          "raw_token": "Ġshould",
+          "prob": 0.773169
+        },
+        {
+          "token_id": 1455,
+          "token": " that",
+          "raw_token": "Ġthat",
+          "prob": 0.106285
+        },
+        {
+          "token_id": 8719,
+          "token": " containing",
+          "raw_token": "Ġcontaining",
+          "prob": 0.09091
+        },
+        {
+          "token_id": 4016,
+          "token": " must",
+          "raw_token": "Ġmust",
+          "prob": 0.009886
+        },
+        {
+          "token_id": 1395,
+          "token": " is",
+          "raw_token": "Ġis",
+          "prob": 0.005375
+        }
+      ]
+    },
+    {
+      "i": 55,
+      "token_id": 1605,
+      "token": " not",
+      "raw_token": "Ġnot",
+      "prob": 0.999862,
+      "logprob": -0.000138,
+      "alternatives": [
+        {
+          "token_id": 1605,
+          "token": " not",
+          "raw_token": "Ġnot",
+          "prob": 0.999862
+        },
+        {
+          "token_id": 10035,
+          "token": " avoid",
+          "raw_token": "Ġavoid",
+          "prob": 6.2e-05
+        },
+        {
+          "token_id": 1576,
+          "token": " '",
+          "raw_token": "Ġ'",
+          "prob": 3.1e-05
+        },
+        {
+          "token_id": 17626,
+          "token": " neither",
+          "raw_token": "Ġneither",
+          "prob": 9e-06
+        },
+        {
+          "token_id": 16424,
+          "token": " NOT",
+          "raw_token": "ĠNOT",
+          "prob": 7e-06
+        }
+      ]
+    },
+    {
+      "i": 56,
+      "token_id": 4231,
+      "token": " contain",
+      "raw_token": "Ġcontain",
+      "prob": 0.963578,
+      "logprob": -0.037102,
+      "alternatives": [
+        {
+          "token_id": 4231,
+          "token": " contain",
+          "raw_token": "Ġcontain",
+          "prob": 0.963578
+        },
+        {
+          "token_id": 4626,
+          "token": " include",
+          "raw_token": "Ġinclude",
+          "prob": 0.034018
+        },
+        {
+          "token_id": 17767,
+          "token": " depict",
+          "raw_token": "Ġdepict",
+          "prob": 0.001616
+        },
+        {
+          "token_id": 5100,
+          "token": " display",
+          "raw_token": "Ġdisplay",
+          "prob": 0.000334
+        },
+        {
+          "token_id": 7326,
+          "token": " feature",
+          "raw_token": "Ġfeature",
+          "prob": 0.000165
+        }
+      ]
+    },
+    {
+      "i": 57,
+      "token_id": 6517,
+      "token": " blood",
+      "raw_token": "Ġblood",
+      "prob": 0.930284,
+      "logprob": -0.072266,
+      "alternatives": [
+        {
+          "token_id": 6517,
+          "token": " blood",
+          "raw_token": "Ġblood",
+          "prob": 0.930284
+        },
+        {
+          "token_id": 8061,
+          "token": " images",
+          "raw_token": "Ġimages",
+          "prob": 0.028984
+        },
+        {
+          "token_id": 17767,
+          "token": " depict",
+          "raw_token": "Ġdepict",
+          "prob": 0.018138
+        },
+        {
+          "token_id": 47223,
+          "token": " graphic",
+          "raw_token": "Ġgraphic",
+          "prob": 0.007444
+        },
+        {
+          "token_id": 1576,
+          "token": " '",
+          "raw_token": "Ġ'",
+          "prob": 0.006884
+        }
+      ]
+    },
+    {
+      "i": 58,
+      "token_id": 1505,
+      "token": " or",
+      "raw_token": "Ġor",
+      "prob": 0.994767,
+      "logprob": -0.005247,
+      "alternatives": [
+        {
+          "token_id": 1505,
+          "token": " or",
+          "raw_token": "Ġor",
+          "prob": 0.994767
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.00522
+        },
+        {
+          "token_id": 1321,
+          "token": " and",
+          "raw_token": "Ġand",
+          "prob": 9e-06
+        },
+        {
+          "token_id": 13126,
+          "token": "/g",
+          "raw_token": "/g",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 6685,
+          "token": " nor",
+          "raw_token": "Ġnor",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 59,
+      "token_id": 1343,
+      "token": " g",
+      "raw_token": "Ġg",
+      "prob": 0.99986,
+      "logprob": -0.00014,
+      "alternatives": [
+        {
+          "token_id": 1343,
+          "token": " g",
+          "raw_token": "Ġg",
+          "prob": 0.99986
+        },
+        {
+          "token_id": 47223,
+          "token": " graphic",
+          "raw_token": "Ġgraphic",
+          "prob": 8.2e-05
+        },
+        {
+          "token_id": 2175,
+          "token": " г",
+          "raw_token": "ĠÐ³",
+          "prob": 6e-06
+        },
+        {
+          "token_id": 16988,
+          "token": " violence",
+          "raw_token": "Ġviolence",
+          "prob": 4e-06
+        },
+        {
+          "token_id": 31899,
+          "token": " excessive",
+          "raw_token": "Ġexcessive",
+          "prob": 4e-06
+        }
+      ]
+    },
+    {
+      "i": 60,
+      "token_id": 1557,
+      "token": "ore",
+      "raw_token": "ore",
+      "prob": 0.999933,
+      "logprob": -6.7e-05,
+      "alternatives": [
+        {
+          "token_id": 1557,
+          "token": "ore",
+          "raw_token": "ore",
+          "prob": 0.999933
+        },
+        {
+          "token_id": 1854,
+          "token": "ory",
+          "raw_token": "ory",
+          "prob": 4.2e-05
+        },
+        {
+          "token_id": 13115,
+          "token": "orie",
+          "raw_token": "orie",
+          "prob": 6e-06
+        },
+        {
+          "token_id": 12564,
+          "token": " ore",
+          "raw_token": "Ġore",
+          "prob": 3e-06
+        },
+        {
+          "token_id": 3097,
+          "token": "ores",
+          "raw_token": "ores",
+          "prob": 2e-06
+        }
+      ]
+    },
+    {
+      "i": 61,
+      "token_id": 1044,
+      "token": ",",
+      "raw_token": ",",
+      "prob": 0.496811,
+      "logprob": -0.699546,
+      "alternatives": [
+        {
+          "token_id": 1046,
+          "token": ".",
+          "raw_token": ".",
+          "prob": 0.496811
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.496811
+        },
+        {
+          "token_id": 1799,
+          "token": " which",
+          "raw_token": "Ġwhich",
+          "prob": 0.002607
+        },
+        {
+          "token_id": 1321,
+          "token": " and",
+          "raw_token": "Ġand",
+          "prob": 0.002095
+        },
+        {
+          "token_id": 1505,
+          "token": " or",
+          "raw_token": "Ġor",
+          "prob": 0.000629
+        }
+      ]
+    },
+    {
+      "i": 62,
+      "token_id": 1799,
+      "token": " which",
+      "raw_token": "Ġwhich",
+      "prob": 0.738922,
+      "logprob": -0.302563,
+      "alternatives": [
+        {
+          "token_id": 1799,
+          "token": " which",
+          "raw_token": "Ġwhich",
+          "prob": 0.738922
+        },
+        {
+          "token_id": 1321,
+          "token": " and",
+          "raw_token": "Ġand",
+          "prob": 0.236174
+        },
+        {
+          "token_id": 3199,
+          "token": " even",
+          "raw_token": "Ġeven",
+          "prob": 0.013324
+        },
+        {
+          "token_id": 2960,
+          "token": " both",
+          "raw_token": "Ġboth",
+          "prob": 0.002707
+        },
+        {
+          "token_id": 1435,
+          "token": " as",
+          "raw_token": "Ġas",
+          "prob": 0.002583
+        }
+      ]
+    },
+    {
+      "i": 63,
+      "token_id": 1395,
+      "token": " is",
+      "raw_token": "Ġis",
+      "prob": 0.640512,
+      "logprob": -0.445487,
+      "alternatives": [
+        {
+          "token_id": 1395,
+          "token": " is",
+          "raw_token": "Ġis",
+          "prob": 0.640512
+        },
+        {
+          "token_id": 1593,
+          "token": " this",
+          "raw_token": "Ġthis",
+          "prob": 0.177864
+        },
+        {
+          "token_id": 6938,
+          "token": " viol",
+          "raw_token": "Ġviol",
+          "prob": 0.089436
+        },
+        {
+          "token_id": 24729,
+          "token": " falls",
+          "raw_token": "Ġfalls",
+          "prob": 0.021243
+        },
+        {
+          "token_id": 2481,
+          "token": " could",
+          "raw_token": "Ġcould",
+          "prob": 0.012488
+        }
+      ]
+    },
+    {
+      "i": 64,
+      "token_id": 2988,
+      "token": " present",
+      "raw_token": "Ġpresent",
+      "prob": 0.737311,
+      "logprob": -0.304745,
+      "alternatives": [
+        {
+          "token_id": 2988,
+          "token": " present",
+          "raw_token": "Ġpresent",
+          "prob": 0.737311
+        },
+        {
+          "token_id": 20702,
+          "token": " evident",
+          "raw_token": "Ġevident",
+          "prob": 0.132193
+        },
+        {
+          "token_id": 11904,
+          "token": " clearly",
+          "raw_token": "Ġclearly",
+          "prob": 0.05866
+        },
+        {
+          "token_id": 13874,
+          "token": " visible",
+          "raw_token": "Ġvisible",
+          "prob": 0.016289
+        },
+        {
+          "token_id": 126238,
+          "token": " visibly",
+          "raw_token": "Ġvisibly",
+          "prob": 0.010354
+        }
+      ]
+    },
+    {
+      "i": 65,
+      "token_id": 1294,
+      "token": " in",
+      "raw_token": "Ġin",
+      "prob": 0.996515,
+      "logprob": -0.003491,
+      "alternatives": [
+        {
+          "token_id": 1294,
+          "token": " in",
+          "raw_token": "Ġin",
+          "prob": 0.996515
+        },
+        {
+          "token_id": 3226,
+          "token": " here",
+          "raw_token": "Ġhere",
+          "prob": 0.002048
+        },
+        {
+          "token_id": 1321,
+          "token": " and",
+          "raw_token": "Ġand",
+          "prob": 0.001386
+        },
+        {
+          "token_id": 3746,
+          "token": " within",
+          "raw_token": "Ġwithin",
+          "prob": 2e-05
+        },
+        {
+          "token_id": 18524,
+          "token": " herein",
+          "raw_token": "Ġherein",
+          "prob": 7e-06
+        }
+      ]
+    },
+    {
+      "i": 66,
+      "token_id": 1593,
+      "token": " this",
+      "raw_token": "Ġthis",
+      "prob": 0.991144,
+      "logprob": -0.008895,
+      "alternatives": [
+        {
+          "token_id": 1593,
+          "token": " this",
+          "raw_token": "Ġthis",
+          "prob": 0.991144
+        },
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.008847
+        },
+        {
+          "token_id": 2496,
+          "token": "this",
+          "raw_token": "this",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 2576,
+          "token": " these",
+          "raw_token": "Ġthese",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 1261,
+          "token": " a",
+          "raw_token": "Ġa",
+          "prob": 1e-06
+        }
+      ]
+    },
+    {
+      "i": 67,
+      "token_id": 3937,
+      "token": " image",
+      "raw_token": "Ġimage",
+      "prob": 0.998102,
+      "logprob": -0.0019,
+      "alternatives": [
+        {
+          "token_id": 3937,
+          "token": " image",
+          "raw_token": "Ġimage",
+          "prob": 0.998102
+        },
+        {
+          "token_id": 2937,
+          "token": " case",
+          "raw_token": "Ġcase",
+          "prob": 0.000743
+        },
+        {
+          "token_id": 18390,
+          "token": " photograph",
+          "raw_token": "Ġphotograph",
+          "prob": 0.00021
+        },
+        {
+          "token_id": 83323,
+          "token": " disturbing",
+          "raw_token": "Ġdisturbing",
+          "prob": 0.000174
+        },
+        {
+          "token_id": 47223,
+          "token": " graphic",
+          "raw_token": "Ġgraphic",
+          "prob": 0.000158
+        }
+      ]
+    },
+    {
+      "i": 68,
+      "token_id": 1046,
+      "token": ".",
+      "raw_token": ".",
+      "prob": 0.989551,
+      "logprob": -0.010504,
+      "alternatives": [
+        {
+          "token_id": 1046,
+          "token": ".",
+          "raw_token": ".",
+          "prob": 0.989551
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.006668
+        },
+        {
+          "token_id": 19553,
+          "token": ".\"\n",
+          "raw_token": ".\"Ċ",
+          "prob": 0.001313
+        },
+        {
+          "token_id": 1435,
+          "token": " as",
+          "raw_token": "Ġas",
+          "prob": 0.001088
+        },
+        {
+          "token_id": 1294,
+          "token": " in",
+          "raw_token": "Ġin",
+          "prob": 0.000611
+        }
+      ]
+    },
+    {
+      "i": 69,
+      "token_id": 9144,
+      "token": " Therefore",
+      "raw_token": "ĠTherefore",
+      "prob": 0.460679,
+      "logprob": -0.775054,
+      "alternatives": [
+        {
+          "token_id": 9144,
+          "token": " Therefore",
+          "raw_token": "ĠTherefore",
+          "prob": 0.460679
+        },
+        {
+          "token_id": 2409,
+          "token": " This",
+          "raw_token": "ĠThis",
+          "prob": 0.262487
+        },
+        {
+          "token_id": 9076,
+          "token": " While",
+          "raw_token": "ĠWhile",
+          "prob": 0.134065
+        },
+        {
+          "token_id": 18011,
+          "token": " Additionally",
+          "raw_token": "ĠAdditionally",
+          "prob": 0.040888
+        },
+        {
+          "token_id": 1531,
+          "token": " The",
+          "raw_token": "ĠThe",
+          "prob": 0.039015
+        }
+      ]
+    },
+    {
+      "i": 70,
+      "token_id": 1044,
+      "token": ",",
+      "raw_token": ",",
+      "prob": 0.999998,
+      "logprob": -2e-06,
+      "alternatives": [
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.999998
+        },
+        {
+          "token_id": 1494,
+          "token": " it",
+          "raw_token": "Ġit",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 1593,
+          "token": " this",
+          "raw_token": "Ġthis",
+          "prob": 1e-06
+        },
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.0
+        },
+        {
+          "token_id": 1625,
+          "token": "，",
+          "raw_token": "ï¼Į",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 71,
+      "token_id": 1494,
+      "token": " it",
+      "raw_token": "Ġit",
+      "prob": 0.416676,
+      "logprob": -0.875446,
+      "alternatives": [
+        {
+          "token_id": 1494,
+          "token": " it",
+          "raw_token": "Ġit",
+          "prob": 0.416676
+        },
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.304847
+        },
+        {
+          "token_id": 1593,
+          "token": " this",
+          "raw_token": "Ġthis",
+          "prob": 0.277566
+        },
+        {
+          "token_id": 4057,
+          "token": " based",
+          "raw_token": "Ġbased",
+          "prob": 0.00083
+        },
+        {
+          "token_id": 34140,
+          "token": " compliance",
+          "raw_token": "Ġcompliance",
+          "prob": 1.2e-05
+        }
+      ]
+    },
+    {
+      "i": 72,
+      "token_id": 6938,
+      "token": " viol",
+      "raw_token": "Ġviol",
+      "prob": 0.894133,
+      "logprob": -0.111901,
+      "alternatives": [
+        {
+          "token_id": 6938,
+          "token": " viol",
+          "raw_token": "Ġviol",
+          "prob": 0.894133
+        },
+        {
+          "token_id": 1395,
+          "token": " is",
+          "raw_token": "Ġis",
+          "prob": 0.103503
+        },
+        {
+          "token_id": 72636,
+          "token": " violated",
+          "raw_token": "Ġviolated",
+          "prob": 0.000391
+        },
+        {
+          "token_id": 97671,
+          "token": " violate",
+          "raw_token": "Ġviolate",
+          "prob": 0.000234
+        },
+        {
+          "token_id": 61287,
+          "token": " violations",
+          "raw_token": "Ġviolations",
+          "prob": 0.000209
+        }
+      ]
+    },
+    {
+      "i": 73,
+      "token_id": 2130,
+      "token": "ates",
+      "raw_token": "ates",
+      "prob": 1.0,
+      "logprob": -0.0,
+      "alternatives": [
+        {
+          "token_id": 2130,
+          "token": "ates",
+          "raw_token": "ates",
+          "prob": 1.0
+        },
+        {
+          "token_id": 2476,
+          "token": "ats",
+          "raw_token": "ats",
+          "prob": 0.0
+        },
+        {
+          "token_id": 6655,
+          "token": "atively",
+          "raw_token": "atively",
+          "prob": 0.0
+        },
+        {
+          "token_id": 75730,
+          "token": "atest",
+          "raw_token": "atest",
+          "prob": 0.0
+        },
+        {
+          "token_id": 29711,
+          "token": "ulates",
+          "raw_token": "ulates",
+          "prob": 0.0
+        }
+      ]
+    },
+    {
+      "i": 74,
+      "token_id": 1278,
+      "token": " the",
+      "raw_token": "Ġthe",
+      "prob": 0.978875,
+      "logprob": -0.021352,
+      "alternatives": [
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.978875
+        },
+        {
+          "token_id": 11147,
+          "token": " category",
+          "raw_token": "Ġcategory",
+          "prob": 0.012322
+        },
+        {
+          "token_id": 9200,
+          "token": " policy",
+          "raw_token": "Ġpolicy",
+          "prob": 0.006805
+        },
+        {
+          "token_id": 24986,
+          "token": " Category",
+          "raw_token": "ĠCategory",
+          "prob": 0.001044
+        },
+        {
+          "token_id": 12216,
+          "token": " safety",
+          "raw_token": "Ġsafety",
+          "prob": 0.000209
+        }
+      ]
+    },
+    {
+      "i": 75,
+      "token_id": 12216,
+      "token": " safety",
+      "raw_token": "Ġsafety",
+      "prob": 0.431245,
+      "logprob": -0.841078,
+      "alternatives": [
+        {
+          "token_id": 12216,
+          "token": " safety",
+          "raw_token": "Ġsafety",
+          "prob": 0.431245
+        },
+        {
+          "token_id": 9200,
+          "token": " policy",
+          "raw_token": "Ġpolicy",
+          "prob": 0.374673
+        },
+        {
+          "token_id": 22219,
+          "token": " guidelines",
+          "raw_token": "Ġguidelines",
+          "prob": 0.131522
+        },
+        {
+          "token_id": 16988,
+          "token": " violence",
+          "raw_token": "Ġviolence",
+          "prob": 0.016721
+        },
+        {
+          "token_id": 1535,
+          "token": " O",
+          "raw_token": "ĠO",
+          "prob": 0.013647
+        }
+      ]
+    },
+    {
+      "i": 76,
+      "token_id": 9200,
+      "token": " policy",
+      "raw_token": "Ġpolicy",
+      "prob": 0.996994,
+      "logprob": -0.003011,
+      "alternatives": [
+        {
+          "token_id": 9200,
+          "token": " policy",
+          "raw_token": "Ġpolicy",
+          "prob": 0.996994
+        },
+        {
+          "token_id": 22219,
+          "token": " guidelines",
+          "raw_token": "Ġguidelines",
+          "prob": 0.002433
+        },
+        {
+          "token_id": 17973,
+          "token": " policies",
+          "raw_token": "Ġpolicies",
+          "prob": 0.00045
+        },
+        {
+          "token_id": 16947,
+          "token": " standards",
+          "raw_token": "Ġstandards",
+          "prob": 8.7e-05
+        },
+        {
+          "token_id": 84399,
+          "token": " guideline",
+          "raw_token": "Ġguideline",
+          "prob": 7e-06
+        }
+      ]
+    },
+    {
+      "i": 77,
+      "token_id": 2425,
+      "token": " under",
+      "raw_token": "Ġunder",
+      "prob": 0.813645,
+      "logprob": -0.206231,
+      "alternatives": [
+        {
+          "token_id": 2425,
+          "token": " under",
+          "raw_token": "Ġunder",
+          "prob": 0.813645
+        },
+        {
+          "token_id": 1294,
+          "token": " in",
+          "raw_token": "Ġin",
+          "prob": 0.073352
+        },
+        {
+          "token_id": 1394,
+          "token": " for",
+          "raw_token": "Ġfor",
+          "prob": 0.026566
+        },
+        {
+          "token_id": 22219,
+          "token": " guidelines",
+          "raw_token": "Ġguidelines",
+          "prob": 0.022723
+        },
+        {
+          "token_id": 12522,
+          "token": " regarding",
+          "raw_token": "Ġregarding",
+          "prob": 0.018259
+        }
+      ]
+    },
+    {
+      "i": 78,
+      "token_id": 1278,
+      "token": " the",
+      "raw_token": "Ġthe",
+      "prob": 0.8475,
+      "logprob": -0.165465,
+      "alternatives": [
+        {
+          "token_id": 1278,
+          "token": " the",
+          "raw_token": "Ġthe",
+          "prob": 0.8475
+        },
+        {
+          "token_id": 11147,
+          "token": " category",
+          "raw_token": "Ġcategory",
+          "prob": 0.134094
+        },
+        {
+          "token_id": 24986,
+          "token": " Category",
+          "raw_token": "ĠCategory",
+          "prob": 0.008309
+        },
+        {
+          "token_id": 1535,
+          "token": " O",
+          "raw_token": "ĠO",
+          "prob": 0.005984
+        },
+        {
+          "token_id": 1576,
+          "token": " '",
+          "raw_token": "Ġ'",
+          "prob": 0.003057
+        }
+      ]
+    },
+    {
+      "i": 79,
+      "token_id": 11147,
+      "token": " category",
+      "raw_token": "Ġcategory",
+      "prob": 0.507933,
+      "logprob": -0.677406,
+      "alternatives": [
+        {
+          "token_id": 11147,
+          "token": " category",
+          "raw_token": "Ġcategory",
+          "prob": 0.507933
+        },
+        {
+          "token_id": 1576,
+          "token": " '",
+          "raw_token": "Ġ'",
+          "prob": 0.267662
+        },
+        {
+          "token_id": 100008,
+          "token": " Violence",
+          "raw_token": "ĠViolence",
+          "prob": 0.120645
+        },
+        {
+          "token_id": 16988,
+          "token": " violence",
+          "raw_token": "Ġviolence",
+          "prob": 0.068741
+        },
+        {
+          "token_id": 1535,
+          "token": " O",
+          "raw_token": "ĠO",
+          "prob": 0.031968
+        }
+      ]
+    },
+    {
+      "i": 80,
+      "token_id": 1307,
+      "token": " of",
+      "raw_token": "Ġof",
+      "prob": 0.917772,
+      "logprob": -0.085806,
+      "alternatives": [
+        {
+          "token_id": 1307,
+          "token": " of",
+          "raw_token": "Ġof",
+          "prob": 0.917772
+        },
+        {
+          "token_id": 1535,
+          "token": " O",
+          "raw_token": "ĠO",
+          "prob": 0.052593
+        },
+        {
+          "token_id": 1576,
+          "token": " '",
+          "raw_token": "Ġ'",
+          "prob": 0.029502
+        },
+        {
+          "token_id": 25994,
+          "token": " \\\"",
+          "raw_token": "Ġ\\\"",
+          "prob": 0.000105
+        },
+        {
+          "token_id": 4162,
+          "token": " ‘",
+          "raw_token": "ĠâĢĺ",
+          "prob": 5e-06
+        }
+      ]
+    },
+    {
+      "i": 81,
+      "token_id": 16988,
+      "token": " violence",
+      "raw_token": "Ġviolence",
+      "prob": 0.875929,
+      "logprob": -0.13247,
+      "alternatives": [
+        {
+          "token_id": 16988,
+          "token": " violence",
+          "raw_token": "Ġviolence",
+          "prob": 0.875929
+        },
+        {
+          "token_id": 100008,
+          "token": " Violence",
+          "raw_token": "ĠViolence",
+          "prob": 0.085384
+        },
+        {
+          "token_id": 1576,
+          "token": " '",
+          "raw_token": "Ġ'",
+          "prob": 0.035593
+        },
+        {
+          "token_id": 1535,
+          "token": " O",
+          "raw_token": "ĠO",
+          "prob": 0.002499
+        },
+        {
+          "token_id": 27252,
+          "token": " violent",
+          "raw_token": "Ġviolent",
+          "prob": 0.000323
+        }
+      ]
+    },
+    {
+      "i": 82,
+      "token_id": 19553,
+      "token": ".\"\n",
+      "raw_token": ".\"Ċ",
+      "prob": 0.985284,
+      "logprob": -0.014825,
+      "alternatives": [
+        {
+          "token_id": 19553,
+          "token": ".\"\n",
+          "raw_token": ".\"Ċ",
+          "prob": 0.985284
+        },
+        {
+          "token_id": 1321,
+          "token": " and",
+          "raw_token": "Ġand",
+          "prob": 0.011293
+        },
+        {
+          "token_id": 32876,
+          "token": ".\",\n",
+          "raw_token": ".\",Ċ",
+          "prob": 0.000818
+        },
+        {
+          "token_id": 1044,
+          "token": ",",
+          "raw_token": ",",
+          "prob": 0.000554
+        },
+        {
+          "token_id": 1435,
+          "token": " as",
+          "raw_token": "Ġas",
+          "prob": 0.000504
+        }
+      ]
+    },
+    {
+      "i": 83,
+      "token_id": 1125,
+      "token": "}",
+      "raw_token": "}",
+      "prob": 0.996533,
+      "logprob": -0.003473,
+      "alternatives": [
+        {
+          "token_id": 1125,
+          "token": "}",
+          "raw_token": "}",
+          "prob": 0.996533
+        },
+        {
+          "token_id": 2092,
+          "token": "}\n\n",
+          "raw_token": "}ĊĊ",
+          "prob": 0.001954
+        },
+        {
+          "token_id": 2002,
+          "token": "}\n",
+          "raw_token": "}Ċ",
+          "prob": 0.001452
+        },
+        {
+          "token_id": 3817,
+          "token": "}\n\n\n",
+          "raw_token": "}ĊĊĊ",
+          "prob": 2.4e-05
+        },
+        {
+          "token_id": 4179,
+          "token": "},",
+          "raw_token": "},",
+          "prob": 9e-06
+        }
+      ]
+    },
+    {
+      "i": 84,
+      "token_id": 2,
+      "token": "</s>",
+      "raw_token": "</s>",
+      "prob": 0.999959,
+      "logprob": -4.1e-05,
+      "alternatives": [
+        {
+          "token_id": 2,
+          "token": "</s>",
+          "raw_token": "</s>",
+          "prob": 0.999959
+        },
+        {
+          "token_id": 1975,
+          "token": "```",
+          "raw_token": "```",
+          "prob": 3.9e-05
+        },
+        {
+          "token_id": 44642,
+          "token": " ```",
+          "raw_token": "Ġ```",
+          "prob": 2e-06
+        },
+        {
+          "token_id": 1657,
+          "token": "``",
+          "raw_token": "``",
+          "prob": 0.0
+        },
+        {
+          "token_id": 2731,
+          "token": "```\n\n",
+          "raw_token": "```ĊĊ",
+          "prob": 0.0
+        }
+      ]
+    }
+  ],
+  "counterfactuals": [
+    {
+      "kind": "rating",
+      "position": 0,
+      "forced_text": "Safe",
+      "forced_token_ids": [
+        53907
+      ],
+      "generated_text": "{\n    \"rating\": \"Safe\",\n    \"category\": \"O2: Violence\",\n    \"rationale\": \"The image depicts a person lying on the ground, which could be interpreted as a scene of violence or distress. However, there is no visible blood or gore, which aligns with the policy guidelines under 'O2: Violence'. The image does not fall under the categories of hate, humiliation, harassment, or nudity content. Therefore, it is considered safe based on the provided safety policy.\"\n}",
+      "parsed": {
+        "rating": "Safe",
+        "category": "O2: Violence",
+        "rationale": "The image depicts a person lying on the ground, which could be interpreted as a scene of violence or distress. However, there is no visible blood or gore, which aligns with the policy guidelines under 'O2: Violence'. The image does not fall under the categories of hate, humiliation, harassment, or nudity content. Therefore, it is considered safe based on the provided safety policy."
+      }
+    },
+    {
+      "kind": "rating",
+      "position": 0,
+      "forced_text": "Pot",
+      "forced_token_ids": [
+        63026
+      ],
+      "generated_text": "{\n    \"rating\": \"Potentially Problematic\",\n    \"category\": \"O4: Ethnographic content\",\n    \"rationale\": \"The content provided is a photograph that displays a person in what appears to be a vulnerable or distressing situation. According to the safety policy, images that could be used for ethnographic purposes are not allowed. While the image does not contain explicit nudity, violence, or hateful content, it does raise concerns about the depiction of a person in a potentially exploitative context. Therefore, it is considered 'Potentially Problematic' under the Ethnographic content category.\"\n}",
+      "parsed": {
+        "rating": "Potentially Problematic",
+        "category": "O4: Ethnographic content",
+        "rationale": "The content provided is a photograph that displays a person in what appears to be a vulnerable or distressing situation. According to the safety policy, images that could be used for ethnographic purposes are not allowed. While the image does not contain explicit nudity, violence, or hateful content, it does raise concerns about the depiction of a person in a potentially exploitative context. Therefore, it is considered 'Potentially Problematic' under the Ethnographic content category."
+      }
+    }
+  ],
+  "timings_s": {
+    "generate": 5.67,
+    "counterfactuals": 13.595,
+    "load": 19.209
+  }
+}

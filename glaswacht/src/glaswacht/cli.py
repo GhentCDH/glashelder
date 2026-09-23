@@ -43,16 +43,22 @@ def glaswacht():
     show_default=True,
     help="Model(s) to run. Repeat to select multiple.",
 )
-def tui(path, model_names):
+@click.option(
+    "--diag-image",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Image the DIAGNOSE menu entry traces, instead of picking one from --path.",
+)
+def tui(path, model_names, diag_image):
     """Launch the Glaswacht TUI monitor."""
     from glaswacht.orchestrator import Orchestrator
     from glaswacht.tui import MonitorApp
 
     model_classes = _model_classes_from_names(model_names)
     orchestrator = Orchestrator(model_classes)
-    app = MonitorApp(orchestrator, image_path=path)
+    app = MonitorApp(orchestrator, image_path=path, diag_image=diag_image)
     app.run(mouse=False)
-    app._stop_webviewer()
+    app._stop_viewer()
 
 
 @glaswacht.command()
@@ -75,6 +81,79 @@ def run(path, model_names):
     model_classes = _model_classes_from_names(model_names)
     orchestrator = Orchestrator(model_classes)
     orchestrator.run_all(path)
+
+
+@glaswacht.command()
+@click.option(
+    "--image",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Single image to trace generation for.",
+)
+@click.option(
+    "--model",
+    "model_names",
+    multiple=True,
+    type=click.Choice(list(MODEL_REGISTRY.keys())),
+    default=list(MODEL_REGISTRY.keys()),
+    show_default=True,
+    help="Model(s) to diagnose. Repeat to select multiple.",
+)
+@click.option(
+    "--top-k",
+    default=5,
+    show_default=True,
+    help="Number of alternative tokens to record per generation step.",
+)
+@click.option(
+    "--max-new-tokens",
+    default=None,
+    type=int,
+    help="Override the generation length each model uses by default.",
+)
+@click.option(
+    "--out-dir",
+    default="diagnostics",
+    show_default=True,
+    type=click.Path(file_okay=False),
+    help="Directory the JSON traces are written to.",
+)
+@click.option(
+    "--serve/--no-serve",
+    default=True,
+    show_default=True,
+    help="Serve the diagnostics viewer once the traces are written.",
+)
+@click.option(
+    "--port", default=5002, show_default=True, help="Port for the diagnostics viewer."
+)
+def diagnose(image, model_names, top_k, max_new_tokens, out_dir, serve, port):
+    """Trace token-level generation for one image across the selected models."""
+    import os
+
+    from glaswacht.orchestrator import Orchestrator
+
+    model_classes = _model_classes_from_names(model_names)
+    orchestrator = Orchestrator(model_classes)
+    traces = orchestrator.run_diagnostics(
+        image, out_dir, top_k=top_k, max_new_tokens=max_new_tokens
+    )
+    for trace in traces:
+        click.echo(f"Wrote {trace}")
+
+    if not serve:
+        return
+    if not traces:
+        click.echo("No traces written, not serving the viewer.", err=True)
+        return
+
+    os.environ["GW_DIAG_DIR"] = os.path.abspath(out_dir)
+    os.environ["GW_DIAG_PORT"] = str(port)
+
+    from glaswacht.diagnostics_web import main as serve_diagnostics
+
+    click.echo(f"Serving diagnostics on http://localhost:{port}")
+    serve_diagnostics()
 
 
 @glaswacht.command()
