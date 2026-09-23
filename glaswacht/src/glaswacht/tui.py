@@ -2,6 +2,7 @@ import logging
 import subprocess
 import sys
 import threading
+from io import TextIOWrapper
 from pathlib import Path
 
 from textual.app import App
@@ -266,6 +267,7 @@ class MonitorApp(App):
         self._is_running = False
         self._content_mode = "votes"  # "votes" | "taxonomy" | "webviewer"
         self._web_process: subprocess.Popen | None = None
+        self._web_log_fh: TextIOWrapper | None = None
 
     def compose(self):
         yield GlaswachtHeader(id="header")

@@ -1,4 +1,3 @@
-import gc
 import logging
 
 import torch
@@ -9,18 +8,18 @@ from transformers import (
     Qwen3VLForConditionalGeneration,
 )
 
-from glaswacht.models.safety_model import Rating, SafetyModel
-from glaswacht.models.utils import get_prompt, parse_output
+from glaswacht.models.base import TransformersSafetyModel
+from glaswacht.models.utils import get_prompt
 
 logger = logging.getLogger(__name__)
 
 
-class Qwen3(SafetyModel):
+class Qwen3(TransformersSafetyModel):
     name = "qwen3"
+    PARSE_MODEL_TYPE = "qwen"
 
     def __init__(self):
-        self.model = None
-        self.processor = None
+        super().__init__()
         self.prompt = None
 
     def load_model(self):
@@ -45,23 +44,7 @@ class Qwen3(SafetyModel):
     def message_constructor(self):
         self.prompt = get_prompt()
 
-    def unload_model(self):
-        logger.info("Unloading Qwen3 model")
-        self.model = None
-        self.processor = None
-        self.prompt = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            try:
-                torch.cuda.ipc_collect()
-            except RuntimeError:
-                pass
-
-    def process_image(self, image: Image.Image, image_name: str = "") -> Rating:
-        if self.model is None or self.processor is None:
-            self.load_model()
-
+    def _run_inference(self, image: Image.Image) -> str:
         if self.prompt is None:
             self.message_constructor()
 
@@ -72,13 +55,14 @@ class Qwen3(SafetyModel):
                     {"type": "image", "image": image},
                     {"type": "text", "text": self.prompt},
                 ],
-            }
+            },
+            self._prefill_message(),
         ]
 
         inputs = self.processor.apply_chat_template(
             messages,
             tokenize=True,
-            add_generation_prompt=True,
+            continue_final_message=True,
             return_dict=True,
             return_tensors="pt",
         )
@@ -99,10 +83,4 @@ class Qwen3(SafetyModel):
             clean_up_tokenization_spaces=False,
         )
 
-        result = parse_output(output_text[0], model_type="qwen")
-        return Rating(
-            rating=result.get("rating", "Unknown"),
-            category=result.get("category", "NA: None applying"),
-            rationale=result.get("rationale", ""),
-            image=image_name,
-        )
+        return self.JSON_PREFILL + output_text[0]

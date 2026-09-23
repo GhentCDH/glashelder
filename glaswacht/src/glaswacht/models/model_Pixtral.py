@@ -1,4 +1,3 @@
-import gc
 import logging
 
 import torch
@@ -9,18 +8,18 @@ from transformers import (
     LlavaForConditionalGeneration,
 )
 
-from glaswacht.models.safety_model import Rating, SafetyModel
-from glaswacht.models.utils import get_prompt, parse_output
+from glaswacht.models.base import TransformersSafetyModel
+from glaswacht.models.utils import get_prompt
 
 logger = logging.getLogger(__name__)
 
 
-class Pixtral(SafetyModel):
+class Pixtral(TransformersSafetyModel):
     name = "pixtral"
+    PARSE_MODEL_TYPE = "pixtral"
 
     def __init__(self):
-        self.model = None
-        self.processor = None
+        super().__init__()
         self.prompt = None
 
     def load_model(self) -> None:
@@ -41,60 +40,25 @@ class Pixtral(SafetyModel):
 
     def message_constructor(self):
         taxonomy = get_prompt()
-        self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]"
+        self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]{self.JSON_PREFILL}"
 
-    def unload_model(self) -> None:
-        logger.info("Unloading Pixtral model")
-        loaded_model = self.model
-        loaded_processor = self.processor
-
-        self.model = None
-        self.processor = None
-        self.prompt = None
-
-        if loaded_model is not None:
-            del loaded_model
-        if loaded_processor is not None:
-            del loaded_processor
-
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            try:
-                torch.cuda.ipc_collect()
-            except RuntimeError:
-                pass
-
-    def process_image(self, image: Image.Image, image_name: str = "") -> Rating:
-        if self.model is None or self.processor is None:
-            self.load_model()
-
-        model = self.model
-        processor = self.processor
-        if model is None or processor is None:
-            raise RuntimeError("Pixtral model or processor failed to initialize")
-
+    def _run_inference(self, image: Image.Image) -> str:
         if self.prompt is None:
             self.message_constructor()
 
-        inputs = processor(images=[image], text=self.prompt, return_tensors="pt").to(
-            "cuda"
-        )
+        inputs = self.processor(
+            images=[image], text=self.prompt, return_tensors="pt"
+        ).to("cuda")
 
         hyperparameters = {"max_new_tokens": 200}
 
         with torch.inference_mode():
-            generate_ids = model.generate(**inputs, **hyperparameters)
+            generate_ids = self.model.generate(**inputs, **hyperparameters)
 
-        output_text = processor.batch_decode(
-            generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        input_len = inputs["input_ids"].shape[-1]
+        continuation = self.processor.batch_decode(
+            generate_ids[:, input_len:],
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
         )[0]
-
-        result = parse_output(output_text, model_type="pixtral")
-        return Rating(
-            rating=result.get("rating", "Unknown"),
-            category=result.get("category", "NA: None applying"),
-            rationale=result.get("rationale", ""),
-            image=image_name,
-        )
+        return self.JSON_PREFILL + continuation
