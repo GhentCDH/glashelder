@@ -35,7 +35,7 @@ class Qwen3(SafetyModel):
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
             "Qwen/Qwen3-VL-8B-Instruct",
             dtype="auto",
-            device_map="auto",
+            device_map="cuda:0",
             quantization_config=bnb_config,
         )
         self.model.eval()

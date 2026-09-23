@@ -34,7 +34,7 @@ class LavaGuard(SafetyModel):
         self.model = LlavaOnevisionForConditionalGeneration.from_pretrained(
             model_id,
             quantization_config=quantization_config,
-            device_map="auto",
+            device_map="cuda:0",
         ).eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
         logger.info("LavaGuard model loaded successfully")

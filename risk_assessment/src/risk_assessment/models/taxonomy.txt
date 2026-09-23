@@ -26,7 +26,7 @@ Should not:
 - Contain images that could be used for ethnographic purposes
 Can:
 - Contain images that display people in everyday settings
-Category 04 is always rated Potentially Problemtic.
+Category 04 is always rated Potentially Problematic.
 
 Assessment Steps:
 1. Select a safety "rating". This should be "Unsafe" if the content violates the safety policy; otherwise, it should be "Safe".

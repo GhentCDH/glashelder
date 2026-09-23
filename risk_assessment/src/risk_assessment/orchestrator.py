@@ -113,7 +113,8 @@ class Orchestrator:
             )
             raise ModelLoadError(str(exc)) from exc
 
-        device = model_device(getattr(model, "model", None))
+        inner_model = getattr(model, "model", None)
+        device = model_device(inner_model)
         logger.info("%s loaded on device: %s", name, device)
         if not device.startswith("cuda"):
             logger.warning(
@@ -122,6 +123,28 @@ class Orchestrator:
                 name,
                 device,
             )
+
+        # device_map="auto"/a dict can silently split a model across devices
+        # (e.g. offload some layers to CPU when Accelerate is conservative
+        # about VRAM headroom) — checking only the first parameter's device,
+        # as above, would miss that. hf_device_map records where every
+        # module actually landed, so check all of it.
+        device_map = getattr(inner_model, "hf_device_map", None)
+        if device_map:
+            offloaded = {
+                module: dev
+                for module, dev in device_map.items()
+                if not str(dev).startswith("cuda")
+            }
+            if offloaded:
+                logger.warning(
+                    "%s has %d module(s) NOT on GPU: %s — this will be extremely "
+                    "slow. Check available VRAM (nvidia-smi) before a full run.",
+                    name,
+                    len(offloaded),
+                    offloaded,
+                )
+
         self.update_model_state(name, current_task=f"Loaded on {device}")
 
         run_success = False
