@@ -9,8 +9,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Static
 
-from risk_assessment.models.utils import get_prompt
-from risk_assessment.orchestrator import ModelStatus, Orchestrator
+from glaswacht.models.utils import get_prompt
+from glaswacht.orchestrator import ModelStatus, Orchestrator
 
 _LOG_PATH = Path(__file__).parent / "glaswacht.log"
 logger = logging.getLogger("glaswacht")
@@ -18,10 +18,6 @@ logger.setLevel(logging.DEBUG)
 _fh = logging.FileHandler(_LOG_PATH)
 _fh.setFormatter(logging.Formatter("%(asctime)s  %(levelname)s  %(name)s  %(message)s"))
 logger.addHandler(_fh)
-# Also capture logs from the risk_assessment package (orchestrator, models, etc.)
-_ra_logger = logging.getLogger("risk_assessment")
-_ra_logger.setLevel(logging.DEBUG)
-_ra_logger.addHandler(_fh)
 
 LOGO = """\
 ░██████╗░██╗░░░░░░█████╗░░██████╗░██╗░░░░░░░██╗░█████╗░░█████╗░██╗░░██╗████████╗
@@ -361,7 +357,7 @@ class MonitorApp(App):
         def _run():
             if self._image_path is None:
                 self.notify(
-                    "No --path provided. Use: risk-assessment glaswacht --path <dir>",
+                    "No --path provided. Use: glaswacht tui --path <dir>",
                     severity="error",
                 )
                 self.call_from_thread(self._on_run_complete)

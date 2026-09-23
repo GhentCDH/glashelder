@@ -1,5 +1,5 @@
 [project]
-name = "risk-assessment"
+name = "glaswacht"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-risk-assessment = "risk_assessment.cli:risk_assessment"
+glaswacht = "glaswacht.cli:glaswacht"
 
 [project.optional-dependencies]
 gpu = [

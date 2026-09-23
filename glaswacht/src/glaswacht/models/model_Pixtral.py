@@ -9,8 +9,8 @@ from transformers import (
     LlavaForConditionalGeneration,
 )
 
-from risk_assessment.models.safety_model import Rating, SafetyModel
-from risk_assessment.models.utils import get_prompt, parse_output
+from glaswacht.models.safety_model import Rating, SafetyModel
+from glaswacht.models.utils import get_prompt, parse_output
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ from enum import Enum
 
 from PIL import Image as PILImage
 
-from risk_assessment.models.safety_model import Rating, SafetyModel
+from glaswacht.models.safety_model import Rating, SafetyModel
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ class ModelState:
 class Orchestrator:
     def __init__(self, model_classes: list[type[SafetyModel]] | None = None):
         if model_classes is None:
-            from risk_assessment.models.model_LLavaguard import LavaGuard
-            from risk_assessment.models.model_Pixtral import Pixtral
-            from risk_assessment.models.model_Qwen3 import Qwen3
+            from glaswacht.models.model_LLavaguard import LavaGuard
+            from glaswacht.models.model_Pixtral import Pixtral
+            from glaswacht.models.model_Qwen3 import Qwen3
 
             model_classes = [LavaGuard, Qwen3, Pixtral]
         self.model_classes = model_classes
@@ -60,7 +60,7 @@ class Orchestrator:
             setattr(self.models[model_name], key, value)
 
     def update_majority_votes_live(self) -> None:
-        from risk_assessment.models.utils import calculate_majority_vote
+        from glaswacht.models.utils import calculate_majority_vote
 
         with self._lock:
             model_dicts = {
@@ -83,7 +83,7 @@ class Orchestrator:
     def _run_model(
         self, model_class: type[SafetyModel], image_path: str
     ) -> list[Rating]:
-        from risk_assessment.models.utils import get_images
+        from glaswacht.models.utils import get_images
 
         name = model_class.name
         self.update_model_state(
@@ -149,7 +149,7 @@ class Orchestrator:
                 )
 
     def run_all(self, path: str) -> None:
-        from risk_assessment.models.utils import write_combined_csv
+        from glaswacht.models.utils import write_combined_csv
 
         def handle_fatal_load_error(exc: Exception) -> None:
             for model_name in self.models:

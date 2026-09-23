@@ -11,10 +11,9 @@ authors = [
 dependencies = [
     "common",
     "cluster",
-    "risk-assessment",
+    "glaswacht",
     "classification",
     "preprocessing",
-    "qwenvlm",
     "embed",
     "artmatcher",
     "artscraper",
@@ -45,8 +44,7 @@ common = { workspace = true }
 cluster = { workspace = true }
 classification = { workspace = true }
 preprocessing = { workspace = true }
-risk-assessment = { workspace = true }
-qwenvlm = { workspace = true }
+glaswacht = { workspace = true }
 artmatcher = { workspace = true }
 embed = { workspace = true }
 torch = { index = "pytorch", marker = "sys_platform != 'darwin'" }
@@ -65,8 +63,7 @@ members = [
     "common",
     "classification",
     "preprocessing",
-    "qwenvlm",
-    "risk_assessment",
+    "glaswacht",
     "artmatcher",
     "embed",
     "ocr",
@@ -104,10 +101,9 @@ known-first-party = [
     "cluster",
     "classification",
     "preprocessing",
-    "qwenvlm",
     "artmatcher",
     "embed",
-    "risk_assessment",
+    "glaswacht",
     "ocr",
 ]
 
@@ -117,8 +113,7 @@ root = [
     "cluster",
     "classification",
     "preprocessing",
-    "qwenvlm",
-    "risk_assessment",
+    "glaswacht",
     "artmatcher",
     "embed",
     "ocr",
