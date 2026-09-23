@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import traceback
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 
@@ -50,6 +51,7 @@ class Orchestrator:
             cls.name: [] for cls in model_classes
         }
         self.majority_votes: dict[str, str] = {}
+        self._ratings_by_image: dict[str, dict[str, str]] = defaultdict(dict)
         self._lock = threading.Lock()
 
     def get_state(self) -> dict[str, ModelState]:
@@ -59,26 +61,16 @@ class Orchestrator:
         for key, value in kwargs.items():
             setattr(self.models[model_name], key, value)
 
-    def update_majority_votes_live(self) -> None:
+    def _record_rating(self, model_name: str, image_name: str, rating: str) -> None:
         from glaswacht.models.utils import calculate_majority_vote
 
         with self._lock:
-            model_dicts = {
-                name: {a.image: a.rating for a in lst}
-                for name, lst in self.assessments.items()
-            }
-            all_images: set[str] = set()
-            for d in model_dicts.values():
-                all_images |= set(d.keys())
-
-            for image_name in all_images:
-                ratings = [
-                    model_dicts[name][image_name]
-                    for name in model_dicts
-                    if image_name in model_dicts[name]
-                ]
-                if len(ratings) == len(self.model_classes):
-                    self.majority_votes[image_name] = calculate_majority_vote(ratings)
+            per_image = self._ratings_by_image[image_name]
+            per_image[model_name] = rating
+            if len(per_image) == len(self.model_classes):
+                self.majority_votes[image_name] = calculate_majority_vote(
+                    list(per_image.values())
+                )
 
     def _run_model(
         self, model_class: type[SafetyModel], image_path: str
@@ -136,7 +128,7 @@ class Orchestrator:
                     assessment.rating,
                 )
                 self.update_model_state(name, latest_rating=assessment.rating)
-                self.update_majority_votes_live()
+                self._record_rating(name, image_name, assessment.rating)
 
             run_success = True
             return self.assessments[name]

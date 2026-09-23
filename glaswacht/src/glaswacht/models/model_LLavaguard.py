@@ -1,25 +1,25 @@
-import gc
 import logging
 
 import torch
+from PIL import Image
 from transformers import (
     AutoProcessor,
     BitsAndBytesConfig,
     LlavaOnevisionForConditionalGeneration,
 )
 
-from glaswacht.models.safety_model import Rating, SafetyModel
-from glaswacht.models.utils import get_prompt, parse_output
+from glaswacht.models.base import TransformersSafetyModel
+from glaswacht.models.utils import get_prompt
 
 logger = logging.getLogger(__name__)
 
 
-class LavaGuard(SafetyModel):
+class LavaGuard(TransformersSafetyModel):
     name = "lavaguard"
+    PARSE_MODEL_TYPE = "lava"
 
     def __init__(self):
-        self.model = None
-        self.processor = None
+        super().__init__()
         self.message = None
 
     def load_model(self):
@@ -52,36 +52,16 @@ class LavaGuard(SafetyModel):
             },
         ]
 
-    def unload_model(self):
-        logger.info("Unloading LavaGuard model")
-        self.model = None
-        self.processor = None
-        self.message = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            try:
-                torch.cuda.ipc_collect()
-            except RuntimeError:
-                pass
-
-    def process_image(self, image, image_name=""):
-        if self.model is None or self.processor is None:
-            self.load_model()
-
-        model = self.model
-        processor = self.processor
-        if model is None or processor is None:
-            raise RuntimeError("LavaGuard model or processor failed to initialize")
-
+    def _run_inference(self, image: Image.Image) -> str:
         if self.message is None:
             self.message_constructor()
 
-        text_prompt = processor.apply_chat_template(
-            self.message, add_generation_prompt=True
+        messages = [*self.message, self._prefill_message()]
+        text_prompt = self.processor.apply_chat_template(
+            messages, continue_final_message=True
         )
-        inputs = processor(text=text_prompt, images=image, return_tensors="pt")
-        model_device = next(model.parameters()).device
+        inputs = self.processor(text=text_prompt, images=image, return_tensors="pt")
+        model_device = next(self.model.parameters()).device
         inputs = {k: v.to(model_device) for k, v in inputs.items()}
 
         # Generation hyperparameters
@@ -96,14 +76,10 @@ class LavaGuard(SafetyModel):
         }
 
         with torch.inference_mode():
-            output = model.generate(**inputs, **hyperparameters)
+            output = self.model.generate(**inputs, **hyperparameters)
 
-        output_text = processor.decode(output[0], skip_special_tokens=True)
-
-        result = parse_output(output_text)
-        return Rating(
-            rating=result.get("rating", "Unknown"),
-            category=result.get("category", "NA: None applying"),
-            rationale=result.get("rationale", ""),
-            image=image_name,
+        input_len = inputs["input_ids"].shape[-1]
+        continuation = self.processor.decode(
+            output[0][input_len:], skip_special_tokens=True
         )
+        return self.JSON_PREFILL + continuation
