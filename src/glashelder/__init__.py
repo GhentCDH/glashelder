@@ -59,12 +59,8 @@ COMMANDS: dict[str, tuple[str, str]] = {
         "preprocessing.cli:preprocessing",
         "Prepare datasets and train YOLO models for object detection.",
     ),
-    "qwenvlm": (
-        "qwenvlm.cli:qwenvlm",
-        "Generate image descriptions using Qwen Vision-Language models.",
-    ),
-    "risk_assessment": (
-        "risk_assessment.cli:risk_assessment",
+    "glaswacht": (
+        "glaswacht.cli:glaswacht",
         "Assess image content risk using vision-language models.",
     ),
 }

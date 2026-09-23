@@ -19,8 +19,7 @@ COPY embed ./embed
 COPY classification ./classification
 COPY cluster ./cluster
 COPY preprocessing ./preprocessing
-COPY qwenvlm ./qwenvlm
-COPY risk_assessment ./risk_assessment
+COPY glaswacht ./glaswacht
 COPY artmatcher ./artmatcher
 
 RUN --mount=type=cache,target=/root/.cache/uv \

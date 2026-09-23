@@ -1,14 +1,14 @@
 import click
 
-from risk_assessment.models.safety_model import SafetyModel
+from glaswacht.models.safety_model import SafetyModel
 
 MODEL_REGISTRY: dict[str, type[SafetyModel]] = {}
 
 
 def _register_defaults() -> None:
-    from risk_assessment.models.model_LLavaguard import LavaGuard
-    from risk_assessment.models.model_Pixtral import Pixtral
-    from risk_assessment.models.model_Qwen3 import Qwen3
+    from glaswacht.models.model_LLavaguard import LavaGuard
+    from glaswacht.models.model_Pixtral import Pixtral
+    from glaswacht.models.model_Qwen3 import Qwen3
 
     for cls in [LavaGuard, Qwen3, Pixtral]:
         MODEL_REGISTRY[cls.name] = cls
@@ -22,12 +22,12 @@ def _model_classes_from_names(model_names: tuple[str, ...]) -> list[type[SafetyM
 
 
 @click.group()
-def risk_assessment():
+def glaswacht():
     """Assess image content risk using multiple vision-language models."""
     pass
 
 
-@risk_assessment.command()
+@glaswacht.command()
 @click.option(
     "--path",
     default=None,
@@ -43,10 +43,10 @@ def risk_assessment():
     show_default=True,
     help="Model(s) to run. Repeat to select multiple.",
 )
-def glaswacht(path, model_names):
+def tui(path, model_names):
     """Launch the Glaswacht TUI monitor."""
-    from risk_assessment.glaswacht import MonitorApp
-    from risk_assessment.orchestrator import Orchestrator
+    from glaswacht.orchestrator import Orchestrator
+    from glaswacht.tui import MonitorApp
 
     model_classes = _model_classes_from_names(model_names)
     orchestrator = Orchestrator(model_classes)
@@ -55,7 +55,7 @@ def glaswacht(path, model_names):
     app._stop_webviewer()
 
 
-@risk_assessment.command()
+@glaswacht.command()
 @click.option(
     "--path", required=True, help="Path to image folder or single image file."
 )
@@ -70,14 +70,14 @@ def glaswacht(path, model_names):
 )
 def run(path, model_names):
     """Run selected vision-language models on images."""
-    from risk_assessment.orchestrator import Orchestrator
+    from glaswacht.orchestrator import Orchestrator
 
     model_classes = _model_classes_from_names(model_names)
     orchestrator = Orchestrator(model_classes)
     orchestrator.run_all(path)
 
 
-@risk_assessment.command()
+@glaswacht.command()
 @click.option("--host", default="0.0.0.0", show_default=True, help="Host to bind to.")
 @click.option("--port", default=5001, show_default=True, help="Port to listen on.")
 @click.option(
@@ -99,7 +99,7 @@ def serve(host, port, debug, csv_path, images_dir):
             "Warning: no --images-dir set, using default path from web.py.", err=True
         )
 
-    from risk_assessment.web import app
+    from glaswacht.web import app
 
     logging.basicConfig(level=logging.INFO)
     logging.getLogger(__name__).info(

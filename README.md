@@ -24,7 +24,7 @@ It contains the following functionality:
   - [rerun](https://rerun.io) 3d visualization of clustered point cloud
   - hierarchical re-clustering of large clusters
 
-- [risk assessment](risk_assessment/)
+- [risk assessment](glaswacht/)
   - running multiple VLM Guard models with majority voting to assess the 'safety' of images
 
 - [artwork matching](artmatcher/)
