@@ -140,7 +140,7 @@ class DiagnosticsTrace:
     prompt_token_count: int
     generated_text: str
     parsed: dict
-    rating_distribution: RatingDistribution
+    rating_distribution: RatingDistribution | None
     steps: list[TokenStep] = field(default_factory=list)
     counterfactuals: list[Counterfactual] = field(default_factory=list)
     timings_s: dict[str, float] = field(default_factory=dict)
@@ -158,7 +158,9 @@ class DiagnosticsTrace:
             "prompt_token_count": self.prompt_token_count,
             "generated_text": self.generated_text,
             "parsed": self.parsed,
-            "rating_distribution": self.rating_distribution.to_dict(),
+            "rating_distribution": (
+                self.rating_distribution.to_dict() if self.rating_distribution else None
+            ),
             "steps": [s.to_dict() for s in self.steps],
             "counterfactuals": [c.to_dict() for c in self.counterfactuals],
             "timings_s": {k: round(v, 3) for k, v in self.timings_s.items()},

@@ -20,7 +20,7 @@ from glaswacht.models.diagnostics import (
     utc_now,
 )
 from glaswacht.models.safety_model import Rating, SafetyModel
-from glaswacht.models.utils import parse_output
+from glaswacht.models.utils import get_prompt, parse_output
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,14 @@ class TransformersSafetyModel(SafetyModel):
     def __init__(self):
         self.model = None
         self.processor = None
+        # Set (e.g. by `diagnose(taxonomy_override=...)`) to swap in an
+        # edited taxonomy for this instance's prompt only, without ever
+        # touching taxonomy.txt on disk. A fresh model instance is created
+        # per diagnostics run, so this never leaks across runs.
+        self.taxonomy_override: str | None = None
+        # False lets the model respond freely, with no JSON scaffold prefilled
+        # into its turn — see `diagnose(enable_json_schema=...)`.
+        self.enable_json_schema: bool = True
 
     @staticmethod
     def _require_cuda() -> None:
@@ -115,10 +123,28 @@ class TransformersSafetyModel(SafetyModel):
     def tokenizer(self):
         return self.processor.tokenizer
 
-    def _prefill_message(self) -> dict:
+    def _taxonomy_text(self) -> str:
+        """The taxonomy text this instance builds its prompt from: the
+        session-only override if one was set, else taxonomy.txt."""
+        return (
+            self.taxonomy_override
+            if self.taxonomy_override is not None
+            else get_prompt()
+        )
+
+    def _active_prefill(self) -> str:
+        """The JSON scaffold prefilled into the assistant's turn, or "" when
+        `enable_json_schema` is off and the model is left to respond freely."""
+        return self.JSON_PREFILL if self.enable_json_schema else ""
+
+    def _prefill_message(self) -> dict | None:
         """An assistant turn pre-filled with the JSON scaffold, for models
         that build a chat message list (see `apply_chat_template(...,
-        continue_final_message=True)` in subclasses using this)."""
+        continue_final_message=True)` in subclasses using this). `None` when
+        `enable_json_schema` is off — there is nothing to continue, the model
+        gets a fresh assistant turn instead (`add_generation_prompt=True`)."""
+        if not self.enable_json_schema:
+            return None
         return {
             "role": "assistant",
             "content": [{"type": "text", "text": self.JSON_PREFILL}],
@@ -243,6 +269,9 @@ class TransformersSafetyModel(SafetyModel):
         max_new_tokens: int | None = None,
         progress: ProgressCallback | None = None,
         custom_counterfactual: tuple[int, str] | None = None,
+        taxonomy_override: str | None = None,
+        enable_json_schema: bool = True,
+        enable_rating_counterfactuals: bool = True,
     ) -> DiagnosticsTrace:
         """Greedy generation with per-step logits captured, plus the tier-1
         rating counterfactuals. Assumes the model is already loaded.
@@ -255,10 +284,25 @@ class TransformersSafetyModel(SafetyModel):
         extra ad-hoc counterfactual that forces arbitrary user-supplied text
         into the generation starting at token index `position` of *this
         model's own* real continuation, on top of the automatic rating
-        counterfactuals.
+        counterfactuals. Works with or without the JSON schema.
+
+        `taxonomy_override`, if given, replaces taxonomy.txt's contents for
+        this instance's prompt only — never written to disk, and discarded
+        with the instance once this run finishes.
+
+        `enable_json_schema=False` skips prefilling the assistant's turn with
+        the `{"rating": "` scaffold, letting the model respond freely. Since
+        the rating decision distribution and the automatic rating
+        counterfactuals both rest on that scaffold's token boundary, neither
+        is computed in this mode (`rating_distribution` comes back `None`,
+        `counterfactuals` holds only the custom one, if any) regardless of
+        `enable_rating_counterfactuals`.
         """
         if self.model is None or self.processor is None:
             raise RuntimeError(f"{self.name} model or processor failed to initialize")
+        if taxonomy_override is not None:
+            self.taxonomy_override = taxonomy_override
+        self.enable_json_schema = enable_json_schema
 
         gen_kwargs = self._diagnostic_kwargs(max_new_tokens)
         inputs = self._build_inputs(image)
@@ -278,25 +322,38 @@ class TransformersSafetyModel(SafetyModel):
         continuation = out.sequences[0, prompt_token_count:]
         generated_ids = [int(t) for t in continuation]
         steps, step0_probs = self._capture_steps(out.logits, generated_ids, top_k)
-        distribution = rating_distribution(self.tokenizer, step0_probs)
+        distribution = (
+            rating_distribution(self.tokenizer, step0_probs)
+            if enable_json_schema
+            else None
+        )
         out["logits"] = None
 
-        generated_text = self.JSON_PREFILL + self._decode(continuation)
+        prefill_text = self._active_prefill()
+        generated_text = prefill_text + self._decode(continuation)
         parsed = parse_output(generated_text, model_type=self.PARSE_MODEL_TYPE)
 
         started = time.perf_counter()
-        counterfactuals = self._rating_counterfactuals(
-            image,
-            generated_ids,
-            distribution.candidate_first_tokens,
-            max_new_tokens,
-            top_k=top_k,
-            progress=progress,
-        )
+        counterfactuals: list[Counterfactual] = []
+        if distribution is not None and enable_rating_counterfactuals:
+            counterfactuals = self._rating_counterfactuals(
+                image,
+                generated_ids,
+                distribution.candidate_first_tokens,
+                max_new_tokens,
+                top_k=top_k,
+                progress=progress,
+            )
         if custom_counterfactual is not None:
             position, forced_text = custom_counterfactual
             extra = self._custom_counterfactual(
-                image, generated_ids, position, forced_text, max_new_tokens, top_k, progress
+                image,
+                generated_ids,
+                position,
+                forced_text,
+                max_new_tokens,
+                top_k,
+                progress,
             )
             if extra is not None:
                 counterfactuals.append(extra)
@@ -318,7 +375,7 @@ class TransformersSafetyModel(SafetyModel):
                 "production": dict(self.GENERATE_KWARGS),
             },
             top_k=top_k,
-            prefill=self.JSON_PREFILL,
+            prefill=prefill_text,
             prompt_token_count=prompt_token_count,
             generated_text=generated_text,
             parsed=parsed,
@@ -398,7 +455,9 @@ class TransformersSafetyModel(SafetyModel):
         """
         forced_prefix_ids = self.tokenizer.encode(forced_text, add_special_tokens=False)
         if not forced_prefix_ids:
-            logger.warning("%s: custom counterfactual text encoded to no tokens", self.name)
+            logger.warning(
+                "%s: custom counterfactual text encoded to no tokens", self.name
+            )
             return None
         clamped_position = max(0, min(position, len(generated_ids)))
 
@@ -484,7 +543,7 @@ class TransformersSafetyModel(SafetyModel):
         continuation_ids = [int(t) for t in output.sequences[0][forced_len:]]
         steps, _ = self._capture_steps(output.logits, continuation_ids, top_k)
 
-        text = self.JSON_PREFILL + self._decode(output.sequences[0][prompt_len:])
+        text = self._active_prefill() + self._decode(output.sequences[0][prompt_len:])
         return text, steps
 
     @abstractmethod

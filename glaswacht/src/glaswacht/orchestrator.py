@@ -151,6 +151,9 @@ class Orchestrator:
         top_k: int = 5,
         max_new_tokens: int | None = None,
         custom_counterfactual: tuple[int, str] | None = None,
+        taxonomy_override: str | None = None,
+        enable_json_schema: bool = True,
+        enable_rating_counterfactuals: bool = True,
     ) -> list[Path]:
         """Write one generation diagnostics trace per model for a single image.
 
@@ -160,6 +163,12 @@ class Orchestrator:
         `custom_counterfactual`, if given, is forwarded to each model's
         `diagnose()` as an extra ad-hoc counterfactual on top of the automatic
         rating ones (see `SafetyModel.diagnose`).
+
+        `taxonomy_override`, if given, is forwarded the same way to swap in
+        edited taxonomy text for this run only — nothing is written to disk.
+
+        `enable_json_schema` and `enable_rating_counterfactuals` are forwarded
+        unchanged too (see `SafetyModel.diagnose`).
         """
         import json
         import time
@@ -217,6 +226,9 @@ class Orchestrator:
                     max_new_tokens=max_new_tokens,
                     progress=_progress,
                     custom_counterfactual=custom_counterfactual,
+                    taxonomy_override=taxonomy_override,
+                    enable_json_schema=enable_json_schema,
+                    enable_rating_counterfactuals=enable_rating_counterfactuals,
                 )
                 trace.timings_s["load"] = load_s
 

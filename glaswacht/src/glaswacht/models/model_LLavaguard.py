@@ -10,7 +10,6 @@ from transformers import (
 )
 
 from glaswacht.models.base import TransformersSafetyModel
-from glaswacht.models.utils import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +53,7 @@ class LavaGuard(TransformersSafetyModel):
         logger.info("LavaGuard model loaded successfully")
 
     def message_constructor(self):
-        taxonomy = get_prompt()
+        taxonomy = self._taxonomy_text()
 
         self.message = [
             {
@@ -70,9 +69,12 @@ class LavaGuard(TransformersSafetyModel):
         if self.message is None:
             self.message_constructor()
 
-        messages = [*self.message, self._prefill_message()]
+        prefill = self._prefill_message()
+        messages = [*self.message, *([prefill] if prefill else [])]
         text_prompt = self.processor.apply_chat_template(
-            messages, continue_final_message=True
+            messages,
+            continue_final_message=prefill is not None,
+            add_generation_prompt=prefill is None,
         )
         inputs = self.processor(text=text_prompt, images=image, return_tensors="pt")
         model_device = next(self.model.parameters()).device

@@ -48,7 +48,9 @@ class ContentPanel(Static):
 
         summary_parts = []
         if vote_counts["Safe"] > 0:
-            summary_parts.append(f"[{SEPIA_SAFE}]{vote_counts['Safe']} Safe[/{SEPIA_SAFE}]")
+            summary_parts.append(
+                f"[{SEPIA_SAFE}]{vote_counts['Safe']} Safe[/{SEPIA_SAFE}]"
+            )
         if vote_counts["Potentially Problematic"] > 0:
             summary_parts.append(
                 f"[{SEPIA_WARN}]{vote_counts['Potentially Problematic']} Potentially Problematic[/{SEPIA_WARN}]"
@@ -58,7 +60,9 @@ class ContentPanel(Static):
                 f"[{SEPIA_DANGER}]{vote_counts['Unsafe']} Unsafe[/{SEPIA_DANGER}]"
             )
         if vote_counts["Other"] > 0:
-            summary_parts.append(f"[{SEPIA_MID}]{vote_counts['Other']} Other[/{SEPIA_MID}]")
+            summary_parts.append(
+                f"[{SEPIA_MID}]{vote_counts['Other']} Other[/{SEPIA_MID}]"
+            )
 
         header = (
             f"[bold {SEPIA_BRIGHT}][ MAJORITY VOTES ][/bold {SEPIA_BRIGHT}]"

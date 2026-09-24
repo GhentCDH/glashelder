@@ -374,7 +374,9 @@ def _mean_logprob_display(value: Any) -> str:
         return "n/a"
 
 
-def _build_counterfactuals(data: dict[str, Any], model_key: str) -> list[dict[str, Any]]:
+def _build_counterfactuals(
+    data: dict[str, Any], model_key: str
+) -> list[dict[str, Any]]:
     out = []
     for index, item in enumerate(data.get("counterfactuals") or []):
         if not isinstance(item, dict):
@@ -470,7 +472,10 @@ def build_model_view(entry: dict[str, Any]) -> dict[str, Any]:
         "timings": [(k, v) for k, v in timings.items()] if timings else [],
         "warnings": warnings,
         "heatmap_entries": [{"key": name, "steps": payload}]
-        + [{"key": cf["heatmap_key"], "steps": cf["step_data"]} for cf in counterfactuals],
+        + [
+            {"key": cf["heatmap_key"], "steps": cf["step_data"]}
+            for cf in counterfactuals
+        ],
     }
 
 

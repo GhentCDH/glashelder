@@ -10,7 +10,6 @@ from transformers import (
 )
 
 from glaswacht.models.base import TransformersSafetyModel
-from glaswacht.models.utils import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +58,13 @@ class Qwen3(TransformersSafetyModel):
         logger.info("Qwen3 model loaded successfully")
 
     def message_constructor(self):
-        self.prompt = get_prompt()
+        self.prompt = self._taxonomy_text()
 
     def _build_inputs(self, image: Image.Image) -> dict:
         if self.prompt is None:
             self.message_constructor()
 
+        prefill = self._prefill_message()
         messages = [
             {
                 "role": "user",
@@ -73,13 +73,14 @@ class Qwen3(TransformersSafetyModel):
                     {"type": "text", "text": self.prompt},
                 ],
             },
-            self._prefill_message(),
+            *([prefill] if prefill else []),
         ]
 
         inputs = self.processor.apply_chat_template(
             messages,
             tokenize=True,
-            continue_final_message=True,
+            continue_final_message=prefill is not None,
+            add_generation_prompt=prefill is None,
             return_dict=True,
             return_tensors="pt",
         )

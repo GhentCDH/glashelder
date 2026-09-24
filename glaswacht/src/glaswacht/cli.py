@@ -180,7 +180,10 @@ def diagnose(image, model_names, top_k, max_new_tokens, out_dir, serve, port):
     help="Initial directory the JSON traces are written to.",
 )
 @click.option(
-    "--port", default=5002, show_default=True, help="Initial port for the diagnostics viewer."
+    "--port",
+    default=5002,
+    show_default=True,
+    help="Initial port for the diagnostics viewer.",
 )
 def diagnose_tui(model_names, top_k, max_new_tokens, out_dir, port):
     """Launch the interactive diagnostics TUI (per-token generation traces)."""

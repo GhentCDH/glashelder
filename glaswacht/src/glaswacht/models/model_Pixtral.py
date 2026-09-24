@@ -10,7 +10,6 @@ from transformers import (
 )
 
 from glaswacht.models.base import TransformersSafetyModel
-from glaswacht.models.utils import get_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +81,8 @@ class Pixtral(TransformersSafetyModel):
         logger.info("Pixtral model loaded successfully")
 
     def message_constructor(self):
-        taxonomy = get_prompt()
-        self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]{self.JSON_PREFILL}"
+        taxonomy = self._taxonomy_text()
+        self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]{self._active_prefill()}"
 
     def _build_inputs(self, image: Image.Image) -> dict:
         if self.prompt is None:

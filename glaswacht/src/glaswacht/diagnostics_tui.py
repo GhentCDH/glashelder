@@ -5,6 +5,12 @@ Unlike the general monitor (`tui.py`), everything here — which image, which
 models, top_k, max_new_tokens, out_dir, port — is entered and can be changed
 interactively inside the tool instead of only at launch, since a diagnostics
 pass only ever concerns one image at a time.
+
+The settings screen is split into two columns: left holds toggles (which
+models run, the two counterfactual/schema on-off switches, the custom-taxonomy
+switch and its editor button), right holds free-text/numeric fields and the
+final action rows. Left/Right arrow keys switch columns, Up/Down move within
+whichever column is active.
 """
 
 import os
@@ -13,12 +19,15 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from textual.app import App
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Input, Static
+from textual.screen import ModalScreen
+from textual.widgets import Input, Static, TextArea
 
 from glaswacht.models.safety_model import SafetyModel
+from glaswacht.models.utils import get_prompt
 from glaswacht.orchestrator import ModelStatus, Orchestrator
 from glaswacht.tui_common import (
     DIAGNOSTICS as PALETTE,
@@ -46,6 +55,7 @@ class Row:
     key: str
     kind: str  # "action" | "toggle" | "edit"
     render: Callable[[], str]
+    column: str = "right"  # "left" (toggles) | "right" (fields + actions)
     on_activate: Callable[[], None] | None = None
     get_value: Callable[[], str] | None = None
     apply: Callable[[str], "str | None"] | None = None
@@ -75,7 +85,8 @@ class DiagContentPanel(Static):
     def show_result(self, image_name: str, status: str, url: str = ""):
         p = PALETTE
         url_block = (
-            f"\n\n[{p.mid}]Open in your browser:[/{p.mid}] " f"[bold {p.bright}]{url}[/bold {p.bright}]"
+            f"\n\n[{p.mid}]Open in your browser:[/{p.mid}] "
+            f"[bold {p.bright}]{url}[/bold {p.bright}]"
             if url
             else ""
         )
@@ -87,6 +98,83 @@ class DiagContentPanel(Static):
         )
 
 
+class TaxonomyScreen(ModalScreen[str | None]):
+    """A separate window for temporarily editing the taxonomy this session.
+
+    Never touches taxonomy.txt: Ctrl+S hands the edited text back to the
+    diagnostics app as an in-memory override for this session only, Escape
+    discards the edits.
+    """
+
+    BINDINGS: ClassVar[list] = [
+        ("ctrl+s", "apply", "Apply for this session"),
+        ("ctrl+r", "reset", "Reset to taxonomy.txt"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    CSS = f"""
+    TaxonomyScreen {{
+        align: center middle;
+    }}
+
+    #taxonomy-window {{
+        width: 90%;
+        height: 90%;
+        border: double {PALETTE.border};
+        background: {PALETTE.bg};
+        padding: 1 2;
+    }}
+
+    #taxonomy-title {{
+        color: {PALETTE.bright};
+        text-style: bold;
+        height: auto;
+        margin-bottom: 1;
+    }}
+
+    #taxonomy-text {{
+        height: 1fr;
+        border: solid {PALETTE.border};
+    }}
+
+    #taxonomy-help {{
+        color: {PALETTE.mid};
+        height: auto;
+        margin-top: 1;
+    }}
+    """
+
+    def __init__(self, initial_text: str):
+        super().__init__()
+        self._initial_text = initial_text
+
+    def compose(self):
+        yield Vertical(
+            Static(
+                "EDIT TAXONOMY — session only, never written to taxonomy.txt",
+                id="taxonomy-title",
+            ),
+            TextArea(self._initial_text, id="taxonomy-text"),
+            Static(
+                "ctrl+s apply for this session   ·   ctrl+r reset to taxonomy.txt   ·   esc cancel",
+                id="taxonomy-help",
+            ),
+            id="taxonomy-window",
+        )
+
+    def on_mount(self):
+        self.query_one("#taxonomy-text", TextArea).focus()
+
+    def action_apply(self):
+        self.dismiss(self.query_one("#taxonomy-text", TextArea).text)
+
+    def action_reset(self):
+        self.query_one("#taxonomy-text", TextArea).load_text(get_prompt())
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
 class DiagnosticsApp(App):
     # Textual auto-focuses the first focusable widget (the shared Input) on
     # mount unless this is disabled, which would silently start the app in
@@ -96,7 +184,17 @@ class DiagnosticsApp(App):
     CSS = base_css(
         palette=PALETTE,
         extra=f"""
-    #menu {{ height: 2fr; }}
+    #menu-container {{ height: 2fr; margin: 0 1 0 1; }}
+
+    #menu-left {{ width: 1fr; margin-right: 1; }}
+    #menu-right {{ width: 1fr; }}
+
+    .col-header {{
+        color: {PALETTE.mid};
+        text-style: bold;
+        height: 1;
+        padding: 0 2;
+    }}
 
     #edit-bar {{
         height: auto;
@@ -133,13 +231,25 @@ class DiagnosticsApp(App):
         self._port = initial_port
         self._custom_position = 0
         self._custom_text = ""
+        self._enable_rating_cf = True
+        self._enable_json_schema = True
+        # The taxonomy text you last applied in the editor, and whether it's
+        # currently switched on. Kept apart so flipping the toggle off and
+        # back on doesn't lose what you wrote.
+        self._taxonomy_override_text: str | None = None
+        self._taxonomy_enabled = False
 
         self.orchestrator: Orchestrator = self._build_orchestrator()
         self.panels: dict[str, ModelPanel] = {}
         self.content_panel: DiagContentPanel | None = None
         self._rows: list[Row] = self._build_rows()
-        self.menu_widgets: list[MenuItem] = []
-        self._selected_index = 0
+        self.rows_by_key: dict[str, Row] = {r.key: r for r in self._rows}
+        self.menu_widgets: dict[str, MenuItem] = {}
+        self._active_column = "right"
+        self._selected_key: dict[str, str] = {
+            "left": self._column_rows("left")[0].key,
+            "right": self._column_rows("right")[0].key,
+        }
 
         self._mode = "menu"  # "menu" | "editing"
         self._editing_key: str | None = None
@@ -156,25 +266,53 @@ class DiagnosticsApp(App):
     # ------------------------------------------------------------------ #
 
     def _build_rows(self) -> list[Row]:
-        rows = [
-            Row(
-                "image",
-                "edit",
-                self._row_image_label,
-                get_value=lambda: self._image_path,
-                apply=self._apply_image,
-            )
-        ]
+        rows = []
         for name in self._model_registry:
             rows.append(
                 Row(
                     f"model:{name}",
                     "toggle",
                     (lambda n=name: self._row_model_label(n)),
+                    column="left",
                     on_activate=(lambda n=name: self._toggle_model(n)),
                 )
             )
         rows += [
+            Row(
+                "enable_rating_cf",
+                "toggle",
+                self._row_rating_cf_label,
+                column="left",
+                on_activate=self._toggle_rating_cf,
+            ),
+            Row(
+                "enable_json_schema",
+                "toggle",
+                self._row_json_schema_label,
+                column="left",
+                on_activate=self._toggle_json_schema,
+            ),
+            Row(
+                "custom_taxonomy",
+                "toggle",
+                self._row_custom_taxonomy_label,
+                column="left",
+                on_activate=self._toggle_custom_taxonomy,
+            ),
+            Row(
+                "edit_taxonomy",
+                "action",
+                lambda: "EDIT TAXONOMY...",
+                column="left",
+                on_activate=self._open_taxonomy_editor,
+            ),
+            Row(
+                "image",
+                "edit",
+                self._row_image_label,
+                get_value=lambda: self._image_path,
+                apply=self._apply_image,
+            ),
             Row(
                 "top_k",
                 "edit",
@@ -217,10 +355,15 @@ class DiagnosticsApp(App):
                 get_value=lambda: self._custom_text,
                 apply=self._apply_custom_text,
             ),
-            Row("run", "action", lambda: "RUN DIAGNOSTICS", on_activate=self._start_run),
+            Row(
+                "run", "action", lambda: "RUN DIAGNOSTICS", on_activate=self._start_run
+            ),
             Row("quit", "action", lambda: "QUIT", on_activate=self.exit),
         ]
         return rows
+
+    def _column_rows(self, column: str) -> list[Row]:
+        return [r for r in self._rows if r.column == column]
 
     def _row_image_label(self) -> str:
         return f"IMAGE: {self._image_path or '(not set)'}"
@@ -229,6 +372,19 @@ class DiagnosticsApp(App):
         mark = "x" if self._selected_models[name] else " "
         return f"[{mark}] {name}"
 
+    def _row_rating_cf_label(self) -> str:
+        mark = "x" if self._enable_rating_cf else " "
+        return f"[{mark}] COUNTERFACTUAL_RATING"
+
+    def _row_json_schema_label(self) -> str:
+        mark = "x" if self._enable_json_schema else " "
+        suffix = "" if self._enable_json_schema else " (free generation)"
+        return f"[{mark}] JSON_SCHEMA{suffix}"
+
+    def _row_custom_taxonomy_label(self) -> str:
+        mark = "x" if self._taxonomy_enabled else " "
+        return f"[{mark}] CUSTOM_TAXONOMY"
+
     def _row_top_k_label(self) -> str:
         return f"TOP_K: {self._top_k}"
 
@@ -236,7 +392,11 @@ class DiagnosticsApp(App):
         return "" if self._max_new_tokens is None else str(self._max_new_tokens)
 
     def _row_max_new_tokens_label(self) -> str:
-        value = "(model default)" if self._max_new_tokens is None else str(self._max_new_tokens)
+        value = (
+            "(model default)"
+            if self._max_new_tokens is None
+            else str(self._max_new_tokens)
+        )
         return f"MAX_NEW_TOKENS: {value}"
 
     def _row_out_dir_label(self) -> str:
@@ -251,6 +411,42 @@ class DiagnosticsApp(App):
     def _row_custom_text_label(self) -> str:
         text = self._custom_text or "(none — no extra counterfactual)"
         return f"CUSTOM_TEXT: {text}"
+
+    def _toggle_rating_cf(self):
+        self._enable_rating_cf = not self._enable_rating_cf
+        self._refresh_row("enable_rating_cf")
+        self._refresh_idle_summary()
+
+    def _toggle_json_schema(self):
+        self._enable_json_schema = not self._enable_json_schema
+        self._refresh_row("enable_json_schema")
+        self._refresh_idle_summary()
+
+    def _toggle_custom_taxonomy(self):
+        if self._taxonomy_override_text is None:
+            # Nothing written yet -- open the editor to create it; applying
+            # there sets the text and switches this on in one step.
+            self._open_taxonomy_editor()
+            return
+        self._taxonomy_enabled = not self._taxonomy_enabled
+        self._refresh_row("custom_taxonomy")
+        self._refresh_idle_summary()
+
+    def _open_taxonomy_editor(self):
+        current = (
+            self._taxonomy_override_text
+            if self._taxonomy_override_text is not None
+            else get_prompt()
+        )
+
+        def _on_result(result: str | None):
+            if result is not None:
+                self._taxonomy_override_text = result
+                self._taxonomy_enabled = True
+                self._refresh_row("custom_taxonomy")
+                self._refresh_idle_summary()
+
+        self.push_screen(TaxonomyScreen(current), _on_result)
 
     def _apply_image(self, raw: str) -> str | None:
         path = raw.strip()
@@ -326,7 +522,9 @@ class DiagnosticsApp(App):
 
     def _build_orchestrator(self) -> Orchestrator:
         classes = [
-            cls for name, cls in self._model_registry.items() if self._selected_models[name]
+            cls
+            for name, cls in self._model_registry.items()
+            if self._selected_models[name]
         ]
         return Orchestrator(classes)
 
@@ -358,7 +556,11 @@ class DiagnosticsApp(App):
         yield GlaswachtHeader(id="header", palette=PALETTE, logo=LOGO_DIAG)
         yield Horizontal(id="models")
         yield VerticalScroll(id="content-scroll")
-        yield VerticalScroll(id="menu")
+        yield Horizontal(
+            VerticalScroll(id="menu-left"),
+            VerticalScroll(id="menu-right"),
+            id="menu-container",
+        )
         yield Vertical(
             Static("", id="edit-label"),
             Input(id="edit-input"),
@@ -369,7 +571,8 @@ class DiagnosticsApp(App):
     def on_mount(self):
         logger.info("Diagnostics TUI started")
         content_container = self.query_one("#content-scroll")
-        menu_container = self.query_one("#menu")
+        menu_left = self.query_one("#menu-left")
+        menu_right = self.query_one("#menu-right")
 
         self._rebuild_model_panels()
 
@@ -377,11 +580,13 @@ class DiagnosticsApp(App):
         self.content_panel.show_idle(self._settings_summary())
         content_container.mount(self.content_panel)
 
-        for i, row in enumerate(self._rows):
+        menu_left.mount(Static("[ TOGGLES ]", classes="col-header"))
+        menu_right.mount(Static("[ SETTINGS ]", classes="col-header"))
+        for row in self._rows:
             item = MenuItem(row.render(), palette=PALETTE)
-            item.selected = i == 0
-            self.menu_widgets.append(item)
-            menu_container.mount(item)
+            item.selected = row.key == self._selected_key[self._active_column]
+            self.menu_widgets[row.key] = item
+            (menu_left if row.column == "left" else menu_right).mount(item)
 
         self.set_interval(0.1, self._update_display)
 
@@ -396,10 +601,16 @@ class DiagnosticsApp(App):
             if self._custom_text
             else ""
         )
+        taxonomy = "   TAXONOMY: custom" if self._taxonomy_enabled else ""
+        rating_cf = "" if self._enable_rating_cf else "   COUNTERFACTUAL_RATING: off"
+        schema = (
+            "" if self._enable_json_schema else "   JSON_SCHEMA: off (free generation)"
+        )
         return (
             f"MODELS: {models or '(none)'}   TOP_K: {self._top_k}   "
             f"MAX_NEW_TOKENS: {self._max_new_tokens or 'default'}   "
-            f"OUT_DIR: {self._out_dir}   PORT: {self._port}{custom}"
+            f"OUT_DIR: {self._out_dir}   PORT: {self._port}"
+            f"{custom}{taxonomy}{rating_cf}{schema}"
         )
 
     # ------------------------------------------------------------------ #
@@ -407,6 +618,12 @@ class DiagnosticsApp(App):
     # ------------------------------------------------------------------ #
 
     def on_key(self, event):
+        if isinstance(self.screen, TaxonomyScreen):
+            # That screen owns its own bindings (ctrl+s/ctrl+r/escape) and its
+            # TextArea consumes everything else; never let the main menu's
+            # key handling run underneath it.
+            return
+
         key = event.key
         if self._mode == "editing":
             if key == "escape":
@@ -423,6 +640,12 @@ class DiagnosticsApp(App):
         elif key == "down":
             event.stop()
             self._move_selection(1)
+        elif key == "left":
+            event.stop()
+            self._switch_column("left")
+        elif key == "right":
+            event.stop()
+            self._switch_column("right")
         elif key in ("enter", "return"):
             # Stop this event *before* possibly focusing the shared Input
             # inside _activate_selected_row (edit rows): if we don't, this
@@ -433,35 +656,65 @@ class DiagnosticsApp(App):
             self._activate_selected_row()
 
     def _move_selection(self, delta: int):
-        n = len(self._rows)
-        new = (self._selected_index + delta) % n
+        column = self._active_column
+        rows = self._column_rows(column)
+        keys = [r.key for r in rows]
+        idx = keys.index(self._selected_key[column])
+        n = len(keys)
+        new = (idx + delta) % n
         for _ in range(n):
-            if self.menu_widgets[new].enabled:
-                self.menu_widgets[self._selected_index].selected = False
-                self._selected_index = new
-                self.menu_widgets[new].selected = True
-                self.query_one("#menu").scroll_to_widget(self.menu_widgets[new], animate=False)
+            if self.menu_widgets[keys[new]].enabled:
+                self._set_selected(column, keys[new])
                 return
             new = (new + delta) % n
 
+    def _switch_column(self, column: str):
+        if column == self._active_column:
+            return
+        self.menu_widgets[self._selected_key[self._active_column]].selected = False
+        self._active_column = column
+        target = self._selected_key[column]
+        if not self.menu_widgets[target].enabled:
+            # Land on the nearest enabled row in the target column instead of
+            # a disabled one (e.g. mid-run, when only QUIT stays enabled).
+            for row in self._column_rows(column):
+                if self.menu_widgets[row.key].enabled:
+                    target = row.key
+                    self._selected_key[column] = target
+                    break
+        self.menu_widgets[target].selected = True
+        self._scroll_into_view(column, target)
+
+    def _set_selected(self, column: str, key: str):
+        self.menu_widgets[self._selected_key[column]].selected = False
+        self._selected_key[column] = key
+        self.menu_widgets[key].selected = True
+        self._scroll_into_view(column, key)
+
+    def _scroll_into_view(self, column: str, key: str):
+        container_id = "#menu-left" if column == "left" else "#menu-right"
+        self.query_one(container_id).scroll_to_widget(
+            self.menu_widgets[key], animate=False
+        )
+
     def _select_row(self, key: str):
-        idx = next(i for i, r in enumerate(self._rows) if r.key == key)
-        self.menu_widgets[self._selected_index].selected = False
-        self._selected_index = idx
-        self.menu_widgets[idx].selected = True
+        row = self.rows_by_key[key]
+        if row.column != self._active_column:
+            self.menu_widgets[self._selected_key[self._active_column]].selected = False
+            self._active_column = row.column
+        self._set_selected(row.column, key)
 
     def _refresh_row(self, key: str):
-        idx = next(i for i, r in enumerate(self._rows) if r.key == key)
-        self.menu_widgets[idx].set_label(self._rows[idx].render())
+        self.menu_widgets[key].set_label(self.rows_by_key[key].render())
 
     def _set_rows_enabled(self, enabled: bool):
         """Enable/disable every row except QUIT, which always stays usable."""
-        for item, row in zip(self.menu_widgets, self._rows, strict=True):
-            if row.key != "quit":
+        for key, item in self.menu_widgets.items():
+            if key != "quit":
                 item.enabled = enabled
 
     def _activate_selected_row(self):
-        row = self._rows[self._selected_index]
+        row = self.rows_by_key[self._selected_key[self._active_column]]
         if row.kind == "edit":
             self._start_edit(row)
         else:
@@ -501,10 +754,12 @@ class DiagnosticsApp(App):
     def on_input_submitted(self, event: Input.Submitted):
         if self._mode != "editing" or self._editing_key is None:
             return
-        row = next(r for r in self._rows if r.key == self._editing_key)
+        row = self.rows_by_key[self._editing_key]
         error = row.apply(event.value) if row.apply else None
         if error:
-            self.query_one("#edit-error", Static).update(f"[{PALETTE.danger}]{error}[/{PALETTE.danger}]")
+            self.query_one("#edit-error", Static).update(
+                f"[{PALETTE.danger}]{error}[/{PALETTE.danger}]"
+            )
             return
         self._exit_edit(refresh=True)
 
@@ -537,6 +792,11 @@ class DiagnosticsApp(App):
         custom_counterfactual = (
             (self._custom_position, self._custom_text) if self._custom_text else None
         )
+        taxonomy_override = (
+            self._taxonomy_override_text if self._taxonomy_enabled else None
+        )
+        enable_json_schema = self._enable_json_schema
+        enable_rating_counterfactuals = self._enable_rating_cf
 
         logger.info("Diagnostics RUN requested, image=%s", image)
         self._is_running = True
@@ -558,6 +818,9 @@ class DiagnosticsApp(App):
                     top_k=top_k,
                     max_new_tokens=max_new_tokens,
                     custom_counterfactual=custom_counterfactual,
+                    taxonomy_override=taxonomy_override,
+                    enable_json_schema=enable_json_schema,
+                    enable_rating_counterfactuals=enable_rating_counterfactuals,
                 )
             except Exception as exc:
                 logger.error("Diagnostics failed", exc_info=True)
@@ -565,7 +828,9 @@ class DiagnosticsApp(App):
                     self._on_run_complete, image, out_dir, port, [], f"Failed: {exc}"
                 )
                 return
-            self.call_from_thread(self._on_run_complete, image, out_dir, port, traces, "")
+            self.call_from_thread(
+                self._on_run_complete, image, out_dir, port, traces, ""
+            )
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -596,8 +861,12 @@ class DiagnosticsApp(App):
         self._content_mode = "result"
         self._run_summary = f"{len(traces)} trace(s) written to {out_dir}/"
         if self.content_panel:
-            self.content_panel.show_result(name, f"{self._run_summary} — starting viewer...")
-        self.set_timer(VIEWER_STARTUP_GRACE, lambda: self._check_diagnostics_viewer(name, port))
+            self.content_panel.show_result(
+                name, f"{self._run_summary} — starting viewer..."
+            )
+        self.set_timer(
+            VIEWER_STARTUP_GRACE, lambda: self._check_diagnostics_viewer(name, port)
+        )
 
     def _check_diagnostics_viewer(self, name: str, port: int):
         viewer = self._viewers.get("diagnostics")
@@ -640,10 +909,10 @@ class DiagnosticsApp(App):
             status = f"Writing traces... ({finished}/{len(state)} models)"
             bar, detail = progress_bar(0, 0, palette=PALETTE), elapsed_str
         else:
-            status = (
-                f"{current.name} — {current.phase or 'working'} ({finished + 1}/{len(state)})"
+            status = f"{current.name} — {current.phase or 'working'} ({finished + 1}/{len(state)})"
+            bar = progress_bar(
+                current.progress_done, current.progress_total, palette=PALETTE
             )
-            bar = progress_bar(current.progress_done, current.progress_total, palette=PALETTE)
             detail = (
                 f"{current.progress_done}/{current.progress_total} tokens   {elapsed_str}"
                 if current.progress_total
