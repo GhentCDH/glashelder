@@ -43,3 +43,6 @@ clipcluster/analysis_report/data
 
 # artmatcher plots
 plots/
+
+# diagnostics
+diagnostics/

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-23T14:03:20Z",
+  "generated_at": "2026-09-23T14:15:50Z",
   "image": {
     "path": "/mnt/UGent_Share/glashelder/Experimentele Dataset/contro-set/0c4sj58m3z_tiff.jpg",
     "name": "0c4sj58m3z_tiff.jpg"
@@ -4332,8 +4332,8 @@
     }
   ],
   "timings_s": {
-    "generate": 6.802,
-    "counterfactuals": 13.415,
-    "load": 20.447
+    "generate": 6.784,
+    "counterfactuals": 13.369,
+    "load": 19.546
   }
 }
