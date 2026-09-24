@@ -43,22 +43,16 @@ def glaswacht():
     show_default=True,
     help="Model(s) to run. Repeat to select multiple.",
 )
-@click.option(
-    "--diag-image",
-    default=None,
-    type=click.Path(exists=True, dir_okay=False),
-    help="Image the DIAGNOSE menu entry traces, instead of picking one from --path.",
-)
-def tui(path, model_names, diag_image):
+def tui(path, model_names):
     """Launch the Glaswacht TUI monitor."""
     from glaswacht.orchestrator import Orchestrator
     from glaswacht.tui import MonitorApp
 
     model_classes = _model_classes_from_names(model_names)
     orchestrator = Orchestrator(model_classes)
-    app = MonitorApp(orchestrator, image_path=path, diag_image=diag_image)
+    app = MonitorApp(orchestrator, image_path=path)
     app.run(mouse=False)
-    app._stop_viewer()
+    app.stop_viewers()
 
 
 @glaswacht.command()
@@ -154,6 +148,54 @@ def diagnose(image, model_names, top_k, max_new_tokens, out_dir, serve, port):
 
     click.echo(f"Serving diagnostics on http://localhost:{port}")
     serve_diagnostics()
+
+
+@glaswacht.command("diagnose-tui")
+@click.option(
+    "--model",
+    "model_names",
+    multiple=True,
+    type=click.Choice(list(MODEL_REGISTRY.keys())),
+    default=list(MODEL_REGISTRY.keys()),
+    show_default=True,
+    help="Model(s) preselected at launch. Toggle inside the TUI to change.",
+)
+@click.option(
+    "--top-k",
+    default=5,
+    show_default=True,
+    help="Initial number of alternative tokens to record per generation step.",
+)
+@click.option(
+    "--max-new-tokens",
+    default=None,
+    type=int,
+    help="Initial override of each model's default generation length.",
+)
+@click.option(
+    "--out-dir",
+    default="diagnostics",
+    show_default=True,
+    type=click.Path(file_okay=False),
+    help="Initial directory the JSON traces are written to.",
+)
+@click.option(
+    "--port", default=5002, show_default=True, help="Initial port for the diagnostics viewer."
+)
+def diagnose_tui(model_names, top_k, max_new_tokens, out_dir, port):
+    """Launch the interactive diagnostics TUI (per-token generation traces)."""
+    from glaswacht.diagnostics_tui import DiagnosticsApp
+
+    app = DiagnosticsApp(
+        model_registry=MODEL_REGISTRY,
+        initial_model_names=model_names,
+        initial_top_k=top_k,
+        initial_max_new_tokens=max_new_tokens,
+        initial_out_dir=out_dir,
+        initial_port=port,
+    )
+    app.run(mouse=False)
+    app.stop_viewers()
 
 
 @glaswacht.command()

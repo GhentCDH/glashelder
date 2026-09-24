@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 RATING_CANDIDATES: tuple[str, ...] = ("Safe", "Unsafe", "Potentially Problematic")
 
@@ -104,8 +104,20 @@ class Counterfactual:
     forced_token_ids: list[int]
     generated_text: str
     parsed: dict
+    steps: list[TokenStep] = field(default_factory=list)
+
+    @property
+    def mean_logprob(self) -> float | None:
+        """Mean per-token logprob of the continuation generated *after* the
+        forced prefix (the forced token itself has no logprob here: its
+        probability is already visible in the main trace's rating_distribution).
+        """
+        if not self.steps:
+            return None
+        return sum(s.logprob for s in self.steps) / len(self.steps)
 
     def to_dict(self) -> dict:
+        mean_logprob = self.mean_logprob
         return {
             "kind": self.kind,
             "position": self.position,
@@ -113,6 +125,8 @@ class Counterfactual:
             "forced_token_ids": list(self.forced_token_ids),
             "generated_text": self.generated_text,
             "parsed": self.parsed,
+            "steps": [s.to_dict() for s in self.steps],
+            "mean_logprob": _round(mean_logprob) if mean_logprob is not None else None,
         }
 
 

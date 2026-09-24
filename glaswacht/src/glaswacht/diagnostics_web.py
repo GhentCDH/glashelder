@@ -30,7 +30,7 @@ from flask import Flask, redirect, render_template, send_file, url_for
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_DIR = "diagnostics"
 DEFAULT_PORT = 5002
 
@@ -245,11 +245,10 @@ def _display_token(text: Any) -> tuple[str, bool]:
     return shown, raw.strip() == ""
 
 
-def _build_steps(data: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict]]:
+def _build_steps(steps: Any) -> tuple[list[dict[str, Any]], list[dict]]:
     """Spans for the heatmap plus the JSON payload the detail panel reads."""
     spans: list[dict[str, Any]] = []
     payload: list[dict] = []
-    steps = data.get("steps") or []
     if not isinstance(steps, list):
         return spans, payload
 
@@ -368,12 +367,21 @@ def _build_decoding(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_counterfactuals(data: dict[str, Any]) -> list[dict[str, Any]]:
+def _mean_logprob_display(value: Any) -> str:
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _build_counterfactuals(data: dict[str, Any], model_key: str) -> list[dict[str, Any]]:
     out = []
-    for item in data.get("counterfactuals") or []:
+    for index, item in enumerate(data.get("counterfactuals") or []):
         if not isinstance(item, dict):
             continue
         parsed = item.get("parsed") or {}
+        cf_spans, cf_payload = _build_steps(item.get("steps"))
+        mean_logprob = item.get("mean_logprob")
         out.append(
             {
                 "kind": item.get("kind", "?"),
@@ -386,6 +394,12 @@ def _build_counterfactuals(data: dict[str, Any]) -> list[dict[str, Any]]:
                 "category": parsed.get("category") or "—",
                 "rationale": parsed.get("rationale") or "",
                 "generated_text": item.get("generated_text") or "",
+                "heatmap_key": f"{model_key}::cf{index}",
+                "steps": cf_spans,
+                "step_data": cf_payload,
+                "step_count": len(cf_payload),
+                "mean_logprob": mean_logprob,
+                "mean_logprob_display": _mean_logprob_display(mean_logprob),
             }
         )
     return out
@@ -403,13 +417,16 @@ def build_model_view(entry: dict[str, Any]) -> dict[str, Any]:
             "step_data": [],
             "step_count": 0,
             "warnings": [],
+            "counterfactuals": [],
+            "heatmap_entries": [],
         }
 
     data: dict[str, Any] = entry["data"] or {}
     model = data.get("model") or {}
     parsed = data.get("parsed") or {}
-    spans, payload = _build_steps(data)
+    spans, payload = _build_steps(data.get("steps"))
     timings = data.get("timings_s") or {}
+    counterfactuals = _build_counterfactuals(data, name)
 
     warnings = []
     version = data.get("schema_version")
@@ -443,14 +460,17 @@ def build_model_view(entry: dict[str, Any]) -> dict[str, Any]:
         "category": parsed.get("category") or "—",
         "rationale": parsed.get("rationale") or "",
         "distribution": _build_distribution(data),
+        "heatmap_key": name,
         "steps": spans,
         "step_data": payload,
         "step_count": len(payload),
         "low_confidence": low_confidence,
-        "counterfactuals": _build_counterfactuals(data),
+        "counterfactuals": counterfactuals,
         "decoding": _build_decoding(data),
         "timings": [(k, v) for k, v in timings.items()] if timings else [],
         "warnings": warnings,
+        "heatmap_entries": [{"key": name, "steps": payload}]
+        + [{"key": cf["heatmap_key"], "steps": cf["step_data"]} for cf in counterfactuals],
     }
 
 
@@ -479,6 +499,13 @@ def _image_context(views: list[dict[str, Any]], entries: list[dict[str, Any]]) -
 # --------------------------------------------------------------------------- #
 
 
+def _flatten_heatmaps(views: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One entry per heatmap shown on the page: each model's main generation
+    plus each of its counterfactuals, keyed by the `data-model` id the
+    heatmap spans and the click/hover JS both use to look up token data."""
+    return [entry for view in views for entry in view.get("heatmap_entries") or []]
+
+
 @app.route("/")
 def index() -> Any:
     """Show the traces for the most recently written image."""
@@ -497,6 +524,7 @@ def index() -> Any:
                 current_stem=None,
                 image=None,
                 models=[],
+                heatmaps=[],
                 live=live_enabled(),
             ),
             200,
@@ -515,6 +543,7 @@ def index() -> Any:
         current_stem=current_stem,
         image=_image_context(views, entries),
         models=views,
+        heatmaps=_flatten_heatmaps(views),
         live=live_enabled(),
     )
 
@@ -538,6 +567,7 @@ def show_image(stem: str) -> Any:
         current_stem=stem,
         image=_image_context(views, entries),
         models=views,
+        heatmaps=_flatten_heatmaps(views),
         live=live_enabled(),
     )
 

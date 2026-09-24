@@ -150,11 +150,16 @@ class Orchestrator:
         out_dir: str,
         top_k: int = 5,
         max_new_tokens: int | None = None,
+        custom_counterfactual: tuple[int, str] | None = None,
     ) -> list[Path]:
         """Write one generation diagnostics trace per model for a single image.
 
         Mirrors `_run_model`'s load → run → unload shape and drives the same
         model-state updates, so the TUI panels report progress unchanged.
+
+        `custom_counterfactual`, if given, is forwarded to each model's
+        `diagnose()` as an extra ad-hoc counterfactual on top of the automatic
+        rating ones (see `SafetyModel.diagnose`).
         """
         import json
         import time
@@ -211,6 +216,7 @@ class Orchestrator:
                     top_k=top_k,
                     max_new_tokens=max_new_tokens,
                     progress=_progress,
+                    custom_counterfactual=custom_counterfactual,
                 )
                 trace.timings_s["load"] = load_s
 

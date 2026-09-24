@@ -359,6 +359,12 @@
       .cf-field { font-size: 12px; color: #444; margin-top: 6px; line-height: 1.5; }
       .cf-field span.k { color: #888; }
 
+      .cf-heatmap {
+        margin-top: 4px;
+        max-height: 200px;
+        font-size: 12px;
+      }
+
       /* ---------------- decoding table ---------------- */
 
       table.decoding { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -624,10 +630,10 @@
                       <span>Token heatmap</span>
                       <span class="hint">{{ m.step_count }} steps &middot; {{ m.low_confidence }} below 50%</span>
                     </div>
-                    <div class="heatmap" data-model="{{ m.name }}">{% for s in m.steps %}<span
+                    <div class="heatmap" data-model="{{ m.heatmap_key }}">{% for s in m.steps %}<span
                       class="tok{{ ' ws' if s.is_ws else '' }}{{ ' decision' if s.is_decision else '' }}"
                       style="background: {{ s.color }}"
-                      data-model="{{ m.name }}"
+                      data-model="{{ m.heatmap_key }}"
                       data-i="{{ s.i }}">{{ s.display }}</span>{% endfor %}</div>
                     <div class="scale">
                       <span>p=0</span><div class="scale-ramp"></div><span>p=1</span>
@@ -656,6 +662,20 @@
                             <span class="{{ cf.rating_css }}">{{ cf.rating }}</span></div>
                           <div class="cf-field"><span class="k">category:</span> {{ cf.category }}</div>
                           <div class="cf-field rationale-text"><span class="k">rationale:</span> {{ cf.rationale }}</div>
+                          <div class="cf-field">
+                            <span class="k">mean logprob (continuation):</span>
+                            {{ cf.mean_logprob_display }}{% if cf.step_count %} <span class="cf-meta">over {{ cf.step_count }} token{{ '' if cf.step_count == 1 else 's' }}</span>{% endif %}
+                          </div>
+                          {% if cf.steps %}
+                            <div class="cf-field">
+                              <span class="k">continuation heatmap:</span>
+                              <div class="heatmap cf-heatmap" data-model="{{ cf.heatmap_key }}">{% for s in cf.steps %}<span
+                                class="tok{{ ' ws' if s.is_ws else '' }}"
+                                style="background: {{ s.color }}"
+                                data-model="{{ cf.heatmap_key }}"
+                                data-i="{{ s.i }}">{{ s.display }}</span>{% endfor %}</div>
+                            </div>
+                          {% endif %}
                           {% if cf.generated_text %}
                             <details class="raw">
                               <summary>raw generation</summary>
@@ -725,10 +745,7 @@
 
     {% if not empty %}
       <script type="application/json" id="trace-data">
-        {{ models | map(attribute='step_data') | list | tojson }}
-      </script>
-      <script type="application/json" id="trace-names">
-        {{ models | map(attribute='name') | list | tojson }}
+        {{ heatmaps | tojson }}
       </script>
       <script>
         (function () {
@@ -738,13 +755,15 @@
           // With the env var unset the button is never rendered at all.
           var LIVE = {{ 'true' if live else 'false' }};
 
-          var names = JSON.parse(document.getElementById('trace-names').textContent);
-          var payloads = JSON.parse(document.getElementById('trace-data').textContent);
+          // One entry per heatmap on the page (each model's main generation
+          // plus each of its counterfactuals), keyed by the same id used in
+          // that heatmap's `data-model` attribute.
+          var heatmaps = JSON.parse(document.getElementById('trace-data').textContent);
           var byModel = {};
-          names.forEach(function (name, idx) {
+          heatmaps.forEach(function (h) {
             var map = {};
-            (payloads[idx] || []).forEach(function (step) { map[step.i] = step; });
-            byModel[name] = map;
+            (h.steps || []).forEach(function (step) { map[step.i] = step; });
+            byModel[h.key] = map;
           });
 
           function stepFor(el) {
@@ -818,8 +837,9 @@
             selected = el;
             el.classList.add('selected');
 
+            var isMainHeatmap = !el.closest('.cf-heatmap');
             panelTitle.textContent = el.dataset.model + ' · step ' + step.i +
-              (step.i === 0 ? ' (rating decision)' : '');
+              (isMainHeatmap && step.i === 0 ? ' (rating decision)' : '');
             panelSub.innerHTML =
               'token <b>' + escapeHtml(label(step.display)) + '</b> &middot; ' +
               'id ' + step.token_id + ' &middot; raw <code>' +

@@ -8,6 +8,7 @@ import json
 from glaswacht.models.diagnostics import (
     RATING_CANDIDATES,
     SCHEMA_VERSION,
+    Counterfactual,
     DiagnosticsTrace,
     RatingDistribution,
     TokenAlternative,
@@ -135,7 +136,7 @@ def test_trace_to_dict_is_json_serializable_and_complete():
         generated_at="2026-09-23T14:22:10Z",
     )
     doc = trace.to_dict()
-    assert doc["schema_version"] == SCHEMA_VERSION == 1
+    assert doc["schema_version"] == SCHEMA_VERSION == 2
     assert sorted(doc) == sorted(
         [
             "schema_version",
@@ -158,6 +159,39 @@ def test_trace_to_dict_is_json_serializable_and_complete():
     assert doc["timings_s"]["load"] == 41.235
     assert doc["counterfactuals"] == []
     json.dumps(doc, ensure_ascii=False)
+
+
+def test_counterfactual_mean_logprob_and_to_dict():
+    cf = Counterfactual(
+        kind="rating",
+        position=0,
+        forced_text="Unsafe",
+        forced_token_ids=[78770],
+        generated_text='{\n    "rating": "Unsafe"}',
+        parsed={"rating": "Unsafe"},
+        steps=[
+            TokenStep(0, 1, "a", "a", prob=0.9, logprob=-0.1, alternatives=[]),
+            TokenStep(1, 2, "b", "b", prob=0.5, logprob=-0.7, alternatives=[]),
+        ],
+    )
+    assert abs(cf.mean_logprob - (-0.4)) < 1e-9
+    doc = cf.to_dict()
+    assert doc["mean_logprob"] == -0.4
+    assert len(doc["steps"]) == 2
+    json.dumps(doc, ensure_ascii=False)
+
+
+def test_counterfactual_without_steps_has_no_mean_logprob():
+    cf = Counterfactual(
+        kind="rating",
+        position=0,
+        forced_text="Unsafe",
+        forced_token_ids=[78770],
+        generated_text="",
+        parsed={},
+    )
+    assert cf.mean_logprob is None
+    assert cf.to_dict()["mean_logprob"] is None
 
 
 def main() -> None:

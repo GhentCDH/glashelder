@@ -242,6 +242,7 @@ class TransformersSafetyModel(SafetyModel):
         top_k: int = 5,
         max_new_tokens: int | None = None,
         progress: ProgressCallback | None = None,
+        custom_counterfactual: tuple[int, str] | None = None,
     ) -> DiagnosticsTrace:
         """Greedy generation with per-step logits captured, plus the tier-1
         rating counterfactuals. Assumes the model is already loaded.
@@ -249,6 +250,12 @@ class TransformersSafetyModel(SafetyModel):
         `progress` is called as (phase, tokens_done, tokens_budgeted) on every
         generation step; the token budget is an upper bound, so a run that hits
         EOS early finishes before reaching it.
+
+        `custom_counterfactual`, if given, is `(position, forced_text)`: an
+        extra ad-hoc counterfactual that forces arbitrary user-supplied text
+        into the generation starting at token index `position` of *this
+        model's own* real continuation, on top of the automatic rating
+        counterfactuals.
         """
         if self.model is None or self.processor is None:
             raise RuntimeError(f"{self.name} model or processor failed to initialize")
@@ -283,8 +290,16 @@ class TransformersSafetyModel(SafetyModel):
             generated_ids,
             distribution.candidate_first_tokens,
             max_new_tokens,
+            top_k=top_k,
             progress=progress,
         )
+        if custom_counterfactual is not None:
+            position, forced_text = custom_counterfactual
+            extra = self._custom_counterfactual(
+                image, generated_ids, position, forced_text, max_new_tokens, top_k, progress
+            )
+            if extra is not None:
+                counterfactuals.append(extra)
         counterfactuals_s = time.perf_counter() - started
 
         return DiagnosticsTrace(
@@ -323,6 +338,7 @@ class TransformersSafetyModel(SafetyModel):
         generated_ids: list[int],
         first_tokens: dict[str, int],
         max_new_tokens: int | None = None,
+        top_k: int = 5,
         progress: ProgressCallback | None = None,
     ) -> list[Counterfactual]:
         """Re-generate with each rating the model did *not* pick forced at step 0."""
@@ -332,12 +348,13 @@ class TransformersSafetyModel(SafetyModel):
 
         for index, (candidate, token_id) in enumerate(pending, start=1):
             try:
-                text = self.counterfactual(
+                text, steps = self.counterfactual(
                     image,
                     generated_ids,
                     0,
                     [token_id],
                     max_new_tokens,
+                    top_k=top_k,
                     progress=progress,
                     phase=f"counterfactual {index}/{len(pending)}",
                 )
@@ -357,10 +374,58 @@ class TransformersSafetyModel(SafetyModel):
                     forced_token_ids=[token_id],
                     generated_text=text,
                     parsed=parse_output(text, model_type=self.PARSE_MODEL_TYPE),
+                    steps=steps,
                 )
             )
 
         return results
+
+    def _custom_counterfactual(
+        self,
+        image: Image.Image,
+        generated_ids: list[int],
+        position: int,
+        forced_text: str,
+        max_new_tokens: int | None,
+        top_k: int,
+        progress: ProgressCallback | None,
+    ) -> Counterfactual | None:
+        """Force arbitrary `forced_text` into the generation at `position` (a
+        token index into this model's own real continuation) and regenerate
+        from there. `position` is clamped to the real continuation's length,
+        since a diagnostics pass can cover several models whose real
+        continuations differ in length for the same requested position.
+        """
+        forced_prefix_ids = self.tokenizer.encode(forced_text, add_special_tokens=False)
+        if not forced_prefix_ids:
+            logger.warning("%s: custom counterfactual text encoded to no tokens", self.name)
+            return None
+        clamped_position = max(0, min(position, len(generated_ids)))
+
+        try:
+            text, steps = self.counterfactual(
+                image,
+                generated_ids,
+                clamped_position,
+                forced_prefix_ids,
+                max_new_tokens,
+                top_k=top_k,
+                progress=progress,
+                phase="custom counterfactual",
+            )
+        except Exception:
+            logger.warning("%s: custom counterfactual failed", self.name, exc_info=True)
+            return None
+
+        return Counterfactual(
+            kind="custom",
+            position=clamped_position,
+            forced_text=forced_text,
+            forced_token_ids=forced_prefix_ids,
+            generated_text=text,
+            parsed=parse_output(text, model_type=self.PARSE_MODEL_TYPE),
+            steps=steps,
+        )
 
     def counterfactual(
         self,
@@ -369,13 +434,18 @@ class TransformersSafetyModel(SafetyModel):
         position: int,
         forced_prefix_ids: list[int],
         max_new_tokens: int | None = None,
+        top_k: int = 5,
         progress: ProgressCallback | None = None,
         phase: str = "counterfactual",
-    ) -> str:
+    ) -> tuple[str, list[TokenStep]]:
         """Regenerate with `forced_prefix_ids` spliced in at `position` of the
         continuation. The forcing is done by appending to `input_ids` —
         `decoder_input_ids` is encoder-decoder only and
         `PrefixConstrainedLogitsProcessor` only forces one step at a time.
+
+        Returns the decoded text (forced prefix included) and the per-token
+        logprob trace of the tokens generated *after* the forced prefix — the
+        forced tokens themselves aren't generated, so they carry no logprob here.
         """
         image_token_ids = self._image_token_ids()
         clashing = image_token_ids.intersection(forced_prefix_ids)
@@ -399,16 +469,23 @@ class TransformersSafetyModel(SafetyModel):
             ],
             dim=-1,
         )
+        forced_len = int(inputs["input_ids"].shape[-1])
 
         gen_kwargs = self._diagnostic_kwargs(max_new_tokens)
         with torch.inference_mode():
             output = self.model.generate(
                 **inputs,
                 **gen_kwargs,
+                return_dict_in_generate=True,
+                output_logits=True,
                 **self._progress_kwargs(progress, phase, gen_kwargs),
             )
 
-        return self.JSON_PREFILL + self._decode(output[0][prompt_len:])
+        continuation_ids = [int(t) for t in output.sequences[0][forced_len:]]
+        steps, _ = self._capture_steps(output.logits, continuation_ids, top_k)
+
+        text = self.JSON_PREFILL + self._decode(output.sequences[0][prompt_len:])
+        return text, steps
 
     @abstractmethod
     def load_model(self) -> None:
