@@ -91,6 +91,13 @@ class Images:
 
 
 @dataclass(slots=True)
+class Embed:
+    model: str = "clip"
+    """Embedding model for `embed artworks` and `embed images`."""
+    batch_size: int = 64
+
+
+@dataclass(slots=True)
 class Artmatcher:
     workers: int = 8
     threshold: float = 0.5
@@ -101,6 +108,7 @@ class Artmatcher:
 class Config:
     paths: Paths = field(default_factory=Paths)
     images: Images = field(default_factory=Images)
+    embed: Embed = field(default_factory=Embed)
     artmatcher: Artmatcher = field(default_factory=Artmatcher)
 
     @classmethod

@@ -22,7 +22,7 @@ import json
 import logging
 import math
 import os
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -197,6 +197,16 @@ class Store:
                     vector_file.write(vectors[i].tobytes())
                     hash_file.seek(row * HASH_BYTES)
                     hash_file.write(_hash_bytes(hashes[i]))
+
+    def put_hashes(self, hashes: Mapping[str, str]) -> None:
+        """Record hashes for rows that already exist, leaving their vectors alone."""
+        if not hashes:
+            return
+        rows = self._index()
+        with (self.path / HASHES).open("r+b") as file:
+            for ref, digest in hashes.items():
+                file.seek(rows[ref] * HASH_BYTES)
+                file.write(_hash_bytes(digest))
 
     def prune(self, keep: Collection[str]) -> int:
         """Drop every row whose ref is not in `keep`. Shifts the rows after it."""

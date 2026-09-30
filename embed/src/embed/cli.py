@@ -1,4 +1,3 @@
-import glob
 import logging
 import pickle
 from pathlib import Path
@@ -8,11 +7,9 @@ import click
 from common import ASSETS_DIR, PROJECT_ROOT, require_auth
 from common.images import is_url
 
-from .embed import get_device
+from .embed import EMBEDDING_MODELS, get_device
 from .store import format_bytes
 
-DEFAULT_IMAGES = "images/"
-CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
 PACKAGE_ROOT = PROJECT_ROOT / "embed"
 EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 
@@ -25,91 +22,226 @@ def embed():
     pass
 
 
+def store_options(command):
+    """The options `embed artworks` and `embed images` share."""
+    options = [
+        click.option(
+            "--output",
+            type=click.Path(path_type=Path),
+            default=None,
+            help="Embedding store to create or extend",
+        ),
+        click.option(
+            "--model",
+            default="clip",
+            show_default=True,
+            type=click.Choice(sorted(EMBEDDING_MODELS)),
+            help="Embedding model, must match the one an existing store was made with",
+        ),
+        click.option("--batch-size", default=64, show_default=True),
+        click.option(
+            "--limit", default=0, help="Only look at the first N images, 0 for all"
+        ),
+        click.option(
+            "--verify",
+            is_flag=True,
+            help="Also read images that are already stored, embedding again the ones "
+            "whose bytes changed. Rows without a hash only get their hash recorded.",
+        ),
+        click.option(
+            "--prune",
+            is_flag=True,
+            help="Drop stored rows whose image is no longer in the input. "
+            "Shifts the indices of the rows after them.",
+        ),
+        click.option(
+            "--concurrency",
+            type=int,
+            default=None,
+            help="Fetches in flight over all hosts [default: images.concurrency]",
+        ),
+        click.option(
+            "--per-host",
+            type=int,
+            default=None,
+            help="Fetches in flight to one host [default: images.per_host]",
+        ),
+        click.option(
+            "--rate",
+            type=float,
+            default=None,
+            help="Requests per second to one host, 0 for no limit [default: images.rate]. "
+            "Hosts with their own [images.hosts] table keep that.",
+        ),
+    ]
+    for option in reversed(options):
+        command = option(command)
+    return command
+
+
 @embed.command()
-@click.option(
-    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
+@click.argument(
+    "artworks", type=click.Path(exists=True, dir_okay=False, path_type=Path)
 )
-@click.option(
-    "--artworks",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Scraped artworks (JSON or JSONL) to embed straight from their image URLs, "
-    "instead of a local --image-dir",
-)
-@click.option(
-    "--save-path", default=EMBEDDINGS_PATH, help="Embeddings pickle save path"
-)
-@click.option(
-    "--count", default=10000, help="Amount of images to generate embeddings for"
-)
-@click.option("--batch-size", default=64, help="Batch size for embedding generation")
-@click.option(
-    "--concurrency",
-    default=None,
-    type=int,
-    help="Image fetches in flight when embedding from URLs",
-)
-@click.option(
-    "--model",
-    default="clip",
-    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
-    help="Embedding model to use (clip, dinov2, or qwen3vl)",
-)
-def generate_embeddings(
-    image_dir, artworks, save_path, count, batch_size, concurrency, model
-):
-    """Generate image embeddings using the specified model.
+@store_options
+def artworks(artworks: Path, output: Path | None, **options):
+    """Embed scraped artworks into a store, fetching their images as needed.
 
-    Images come either from a local directory (--image-dir) or from a scrape
-    (--artworks), in which case they are fetched while the model works and never
-    stored on disk.
+    ARTWORKS is a scrape (JSON, JSONL, optionally .zst), by default `paths.artworks`.
+    The store defaults to `paths.embeddings.reference`. Only images that are not
+    in it yet are fetched, so running this after every scrape embeds what is new.
     """
-    from embed import (
-        get_embedder,
-        save_embeddings,
+    import artscraper
+
+    urls = dict.fromkeys(a.image_url for a in artscraper.read(artworks) if a.image_url)
+    logger.info(f"{artworks}: {len(urls):,} distinct image URLs")
+    embed_refs({url: url for url in urls}, None, output, "reference", **options)
+
+
+@embed.command()
+@click.argument(
+    "image_dir", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
+@store_options
+def images(image_dir: Path, output: Path | None, **options):
+    """Embed a directory of JPGs into a store.
+
+    IMAGE_DIR defaults to `paths.images.glashelder`, the store to
+    `paths.embeddings.glashelder`. Images are stored relative to IMAGE_DIR, so
+    the store keeps working when the directory is mounted elsewhere.
+    """
+    paths = sorted(image_dir.glob("**/*.jpg"))
+    logger.info(f"{image_dir}: {len(paths):,} images")
+    embed_refs(
+        {str(path): str(path.relative_to(image_dir)) for path in paths},
+        image_dir,
+        output,
+        "glashelder",
+        **options,
     )
 
-    if artworks is None:
-        assert image_dir is not None and Path(image_dir).is_dir(), (
-            "The image directory (`--image-dir`) needs to exist and needs to be a directory!"
+
+def embed_refs(
+    refs: dict[str, str],
+    root: Path | None,
+    output: Path | None,
+    kind: str,
+    *,
+    model: str,
+    batch_size: int,
+    limit: int,
+    verify: bool,
+    prune: bool,
+    concurrency: int | None,
+    per_host: int | None,
+    rate: float | None,
+) -> None:
+    """Bring the store at `output` up to date with `refs` (source -> key in the store)."""
+    from rich.console import Console
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        TextColumn,
+        TimeElapsedColumn,
+        TimeRemainingColumn,
+    )
+
+    from .embed import get_embedder
+    from .store import Store, is_store
+    from .stream import encode_into, pending
+
+    if output is None:
+        raise click.UsageError(
+            f"no store given: pass --output or set paths.embeddings.{kind}"
         )
-        refs = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[:count]
-        root = image_dir
-    else:
-        import artscraper
+    if output.exists() and not is_store(output):
+        raise click.ClickException(
+            f"{output} is not an embedding store. If it is a legacy pickle, convert "
+            f"it first: glashelder embed convert {output} {output.with_suffix('.store')}"
+        )
 
-        refs = [a.image_url for a in artscraper.read(artworks) if a.image_url][:count]
-        root = None
-
-    logger.info(
-        f"Generating embeddings for {len(refs)} images, batch size {batch_size}"
-    )
-
-    device = get_device()
-
-    logger.info(f"Loading embedding model: {model}")
     embedder = get_embedder(model)
-    embedder.load(device)
+    try:
+        store = Store.create_or_open(
+            output, model=embedder.name, model_id=embedder.model_id, root=root
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
 
-    if artworks is None:
-        embeddings, processed = embedder.encode_images(refs, batch_size)
-    else:
-        from embed.stream import encode_refs
+    if prune and (removed := store.prune(set(refs.values()))):
+        logger.warning(
+            f"pruned {removed:,} rows no longer in the input; "
+            "the rows after them moved up"
+        )
 
-        embeddings, processed = encode_refs(
+    todo = pending(store, refs, verify=verify)
+    if limit:
+        todo = todo[:limit]
+    logger.info(
+        f"{output}: {len(store):,} rows stored, {len(todo):,} images to "
+        f"{'check' if verify else 'embed'}"
+    )
+    if not todo:
+        return
+    log_limits(todo, per_host, rate)
+
+    embedder.load(get_device())
+    columns = (
+        TextColumn("{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    )
+    with Progress(*columns, console=Console(stderr=True)) as bar:
+        task = bar.add_task("reading", total=len(todo))
+        done = encode_into(
+            store,
             embedder,
             refs,
+            todo,
             batch_size=batch_size,
+            report=lambda p: bar.update(
+                task,
+                completed=p.loaded,
+                description=f"embedded {p.embedded:,}, hashed {p.hashed:,}",
+            ),
             concurrency=concurrency,
-            on_batch=lambda done: logger.info(f"embedded {done}/{len(refs)}"),
+            per_host=per_host,
+            rate=rate,
         )
 
-    if len(processed) < len(refs):
-        logger.warning(
-            f"Skipped {len(refs) - len(processed)} images due to load errors"
-        )
+    logger.info(
+        f"{output}: embedded {done.embedded:,}, recorded {done.hashed:,} hashes, "
+        f"{done.loaded - done.embedded - done.hashed:,} unchanged, "
+        f"{done.total - done.loaded:,} could not be read; {len(store):,} rows now"
+    )
 
-    save_embeddings(save_path, processed, embeddings, embedder, root=root)
+
+def log_limits(sources: list[str], per_host: int | None, rate: float | None) -> None:
+    """How each host will be fetched from, and how long that takes at the least."""
+    from collections import Counter
+
+    from common.config import config
+    from common.images import host
+
+    settings = config().images
+    slowest = 0.0
+    for name, count in Counter(host(s) for s in sources if is_url(s)).most_common():
+        workers, limit = settings.limits(name, per_host, rate)
+        seconds = count / limit if limit else 0.0
+        slowest = max(slowest, seconds)
+        logger.info(
+            f"{name}: {count:,} images, {workers} at a time, "
+            + (f"{limit:g}/s, at least {hours(seconds)}" if limit else "no rate limit")
+        )
+    if slowest:
+        logger.info(f"the rate limits alone make this run take {hours(slowest)}")
+
+
+def hours(seconds: float) -> str:
+    return f"{seconds / 3600:.1f} h" if seconds >= 3600 else f"{seconds / 60:.0f} min"
 
 
 CONVERT_CHUNK = 65_536
