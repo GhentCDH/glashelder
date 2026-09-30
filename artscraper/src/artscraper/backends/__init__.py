@@ -135,5 +135,12 @@ def registry() -> dict[str, Backend]:
     """All configured backends by name."""
     from .kikirpa import Kikirpa
     from .wikiart import WikiArt
+    from .wm import Wereldmuseum
+    from .met import MetMuseum
+    from .nga import Nga
+    from .louvre import Louvre
+    from .uffizi import Uffizi
+    from .cle import Cleveland
+    from .kc import Kunstcollectie
 
-    return {backend.name: backend for backend in (WikiArt(), Kikirpa())}
+    return {backend.name: backend for backend in (WikiArt(), Kikirpa(), Wereldmuseum(), MetMuseum(), Nga(), Louvre(), Uffizi(), Cleveland(), Kunstcollectie())}
