@@ -1,12 +1,15 @@
 import glob
 import logging
+import pickle
 from pathlib import Path
 
 import click
 
 from common import ASSETS_DIR, PROJECT_ROOT, require_auth
+from common.images import is_url
 
 from .embed import get_device
+from .store import format_bytes
 
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
@@ -107,6 +110,138 @@ def generate_embeddings(
         )
 
     save_embeddings(save_path, processed, embeddings, embedder, root=root)
+
+
+CONVERT_CHUNK = 65_536
+
+
+@embed.command()
+@click.argument(
+    "sources", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path)
+)
+@click.argument("destination", type=click.Path(path_type=Path))
+@click.option(
+    "--root",
+    default=None,
+    help="Directory the sources' local images were embedded from, when the one "
+    "they record (or, for old pickles, the directory all their paths share) is wrong",
+)
+@click.option(
+    "--dtype",
+    type=click.Choice(["float16", "float32"]),
+    default="float16",
+    show_default=True,
+    help="Dtype of a new store",
+)
+def convert(sources: tuple[Path, ...], destination: Path, root, dtype):
+    """Convert embeddings between stores and legacy pickles, or merge several.
+
+    DESTINATION is a store directory, created or appended to, or a `.pkl` file
+    for the legacy format. All SOURCES must come from the same model. Row order
+    is kept, so indices into a converted file stay the same.
+    """
+    import torch
+
+    from .embed import read_embeddings
+    from .store import Store, is_store
+
+    def described(source: Path) -> dict:
+        data = read_embeddings(source, root=root)
+        refs = data["images"]
+        logger.info(
+            f"{source}: {len(refs):,} rows of {data['model_id']}, root {data['root']}, "
+            f"e.g. {refs[0] if refs else '-'}"
+        )
+        if duplicates := len(refs) - len(set(refs)):
+            logger.warning(
+                f"{source}: {duplicates:,} refs appear more than once; "
+                "only the first row is kept, with the last vector"
+            )
+        return data
+
+    if destination.suffix == ".pkl":
+        parts = [described(source) for source in sources]
+        if len({part["model_id"] for part in parts}) > 1:
+            raise click.ClickException("the sources come from different models")
+        data = {
+            **{key: parts[0][key] for key in ("model", "model_id", "embedding_dim")},
+            "root": parts[0]["root"],
+            "images": [ref for part in parts for ref in part["images"]],
+            "embeddings": torch.cat(
+                [part["embeddings"].to(torch.float32) for part in parts]
+            ),
+        }
+        with destination.open("wb") as file:
+            pickle.dump(data, file)
+        logger.info(f"wrote {len(data['images']):,} rows to {destination}")
+        return
+
+    first = described(sources[0])
+    try:
+        store = Store.create_or_open(
+            destination,
+            model=first["model"],
+            model_id=first["model_id"],
+            root=first["root"],
+            dtype=dtype,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+    for source in sources:
+        data = first if source == sources[0] else described(source)
+        if data["model_id"] != store.model_id:
+            raise click.ClickException(
+                f"{source} holds {data['model_id']} embeddings, "
+                f"{destination} holds {store.model_id}"
+            )
+        refs, embeddings = data["images"], data["embeddings"]
+        if data["root"] != store.root and not all(map(is_url, refs)):
+            logger.warning(
+                f"{source} is relative to {data['root']}, {destination} to {store.root}"
+            )
+        known = Store.open(source).hashes() if is_store(source) else {}
+        hashes = [known.get(ref) for ref in refs]
+        for start in range(0, len(refs), CONVERT_CHUNK):
+            end = start + CONVERT_CHUNK
+            store.put(refs[start:end], hashes[start:end], embeddings[start:end].numpy())
+
+    logger.info(
+        f"{destination}: {len(store):,} rows, {format_bytes(store.nbytes)} "
+        f"as {store.dtype.name}"
+    )
+
+
+@embed.command()
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+def info(path: Path):
+    """Show what an embeddings store or legacy pickle holds."""
+    from .embed import read_embeddings
+    from .store import Store, is_store
+
+    data = read_embeddings(path)
+    refs, embeddings = data["images"], data["embeddings"]
+    if is_store(path):
+        store = Store.open(path)
+        kind = f"store (version {store.meta['version']})"
+        hashed = sum(h is not None for h in store.hashes().values())
+        hashed_line = f"{hashed:,} of {len(store):,}"
+    else:
+        kind, hashed_line = "legacy pickle", "none (convert it to a store first)"
+
+    rows, dim = embeddings.shape
+    size = embeddings.element_size() * embeddings.nelement()
+    for name, value in (
+        ("path", path),
+        ("format", kind),
+        ("model", f"{data['model']} ({data['model_id']})"),
+        ("rows", f"{rows:,} x {dim} {str(embeddings.dtype).removeprefix('torch.')}"),
+        ("size", format_bytes(size)),
+        ("hashed", hashed_line),
+        ("root", data["root"]),
+        ("example", refs[0] if refs else "-"),
+    ):
+        click.echo(f"{name + ':':9}{value}")
 
 
 def perform_search(top_k, text_embedding, image_embeddings, image_paths):
