@@ -30,3 +30,8 @@ class Throttle:
 
     async def __aexit__(self, *_exc) -> None:
         self._sem.release()
+
+    def refund(self) -> None:
+        """Give back the last request's place in the rate, for one that cost the
+        server next to nothing (like a 404)."""
+        self._next = max(time.monotonic(), self._next - self._interval)

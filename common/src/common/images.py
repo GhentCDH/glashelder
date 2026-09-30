@@ -15,12 +15,12 @@ import hashlib
 import io
 import logging
 import os
-from collections.abc import AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from PIL import Image
+from PIL import Image, ImageFile
 
 from .config import config
 from .throttle import Throttle
@@ -28,11 +28,37 @@ from .throttle import Throttle
 USER_AGENT = "glashelder/2.0 (sysadmin.ghentcdh@ugent.be)"
 TIMEOUT = 30.0
 MAX_ATTEMPTS = 3
+GONE = (404, 410)
+"""Statuses that say the image is not there, cost the server little, and will not
+change by asking again."""
 
 logger = logging.getLogger(__name__)
 
 # httpx logs every request at INFO, which buries any progress output
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# many WikiArt JPEGs are served complete but end a few bytes short of their end
+# marker; strict decoding would throw every one of them away for a few pixels
+ImageFile.LOAD_TRUNCATED_IMAGES = True  # ty: ignore[invalid-assignment]
+
+
+def reason(error: Exception) -> tuple[str, bool]:
+    """A short, countable reason an image could not be read, and whether trying
+    again later can help."""
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        return f"HTTP {status}", status in GONE
+    if isinstance(error, Image.DecompressionBombError):
+        return "too large", True
+    if isinstance(error, Image.UnidentifiedImageError):
+        return "not an image", True
+    if isinstance(error, httpx.TimeoutException):
+        return "timeout", False
+    if isinstance(error, httpx.TransportError):
+        return "network error", False
+    if isinstance(error, OSError):
+        return "unreadable image", True
+    return type(error).__name__, False
 
 
 def is_url(ref: str | Path) -> bool:
@@ -122,6 +148,7 @@ async def stream(
     rate: float | None = None,
     cache: bool | None = None,
     buffer: int | None = None,
+    on_error: Callable[[str, Exception], None] | None = None,
 ) -> AsyncIterator[tuple[str, Image.Image, str]]:
     """Yield `(reference, image, digest)` as they become available.
 
@@ -132,8 +159,9 @@ async def stream(
     caps the connections over all hosts, and the workers for local files.
 
     At most `buffer` decoded images are held, so memory does not grow with the size
-    of the input. References that fail to load are logged and skipped, the same way
-    the dataloader drops unreadable images.
+    of the input. References that fail to load are skipped, the same way the
+    dataloader drops unreadable images: handed to `on_error` when given (`reason`
+    says why), logged as a warning otherwise.
     """
     settings = config().images
     connections = concurrency if concurrency is not None else settings.concurrency
@@ -157,7 +185,10 @@ async def stream(
                 raw = await _read_async(client, ref, caching, throttle)
                 image, hashed = await asyncio.to_thread(_decode_hashed, raw)
             except Exception as e:  # one bad image must not kill the run
-                logger.warning("skipping %s: %s", ref, e)
+                if on_error is not None:
+                    on_error(str(ref), e)
+                else:
+                    logger.warning("skipping %s: %s", ref, e)
                 continue
             await queue.put((str(ref), image, hashed))
 
@@ -236,6 +267,9 @@ async def _fetch_async(
             continue
         if response.is_success:
             return response.content
+        if response.status_code in GONE:
+            # a miss costs the server next to nothing: do not let it slow the rest
+            throttle.refund()
         if not response.is_server_error and response.status_code != 429:
             response.raise_for_status()
     raise RuntimeError(f"{url}: out of attempts")
