@@ -9,7 +9,9 @@ from xml.etree import ElementTree
 
 import httpx
 
-from ..client import RestrictedError, Stats, Throttle, fetch_bytes
+from common.throttle import Throttle
+
+from ..client import RestrictedError, Stats, fetch_bytes
 from ..model import Artwork
 
 SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
