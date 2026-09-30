@@ -17,6 +17,7 @@ from common.images import is_url
 
 if TYPE_CHECKING:
     import torch
+    from rich.progress import Progress
     from transformers import (
         AutoImageProcessor,
         CLIPModel,
@@ -814,13 +815,18 @@ def rebase_paths(image_paths: list[str], root: str | Path | None) -> list[str]:
     return [str(root_path / p) if p and not is_url(p) else p for p in relative]
 
 
-def read_embeddings(path: str | Path, root: str | Path | None = None) -> dict:
+def read_embeddings(
+    path: str | Path, root: str | Path | None = None, progress: Progress | None = None
+) -> dict:
     """What an embeddings file holds, a store or a legacy pickle, as stored.
 
     Local image paths come back relative to `data["root"]`: the root recorded in
     the file, or `root`, or for old pickles without one, the directory all their
     absolute paths share. This is the raw form, for converting between formats;
     `load_embeddings` is what gives paths usable on this machine.
+
+    A `progress` gets a bar for reading a pickle, which has to be read whole and
+    can take minutes from a network mount.
 
     Returns:
         Dictionary containing 'images', 'embeddings', 'root', 'model',
@@ -844,7 +850,12 @@ def read_embeddings(path: str | Path, root: str | Path | None = None) -> dict:
 
     import pickle
 
-    with open(path, "rb") as f:
+    opened = (
+        progress.open(path, "rb", description=f"reading {Path(path).name}")
+        if progress is not None
+        else open(path, "rb")
+    )
+    with opened as f:
         data = pickle.load(f)
 
     # Handle legacy format without model metadata

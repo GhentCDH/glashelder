@@ -272,13 +272,53 @@ def convert(sources: tuple[Path, ...], destination: Path, root, dtype):
     for the legacy format. All SOURCES must come from the same model. Row order
     is kept, so indices into a converted file stay the same.
     """
+    with progress_bars() as progress:
+        summary = convert_into(sources, destination, root, dtype, progress)
+    # after the bars are gone, so it is the last thing on screen
+    logger.info(summary)
+
+
+def progress_bars():
+    from rich.console import Console
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        TaskProgressColumn,
+        TextColumn,
+        TimeElapsedColumn,
+        TimeRemainingColumn,
+    )
+
+    return Progress(
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=Console(stderr=True),
+    )
+
+
+class CountingWriter:
+    """A file that advances a progress bar by every byte written to it."""
+
+    def __init__(self, file, advance):
+        self._file, self._advance = file, advance
+
+    def write(self, data) -> int:
+        self._advance(memoryview(data).nbytes)
+        return self._file.write(data)
+
+
+def convert_into(sources, destination: Path, root, dtype, progress) -> str:
+    """Do the conversion `convert` describes, returning a summary of the result."""
     import torch
 
     from .embed import read_embeddings
     from .store import Store, is_store
 
     def described(source: Path) -> dict:
-        data = read_embeddings(source, root=root)
+        data = read_embeddings(source, root=root, progress=progress)
         refs = data["images"]
         logger.info(
             f"{source}: {len(refs):,} rows of {data['model_id']}, root {data['root']}, "
@@ -303,10 +343,18 @@ def convert(sources: tuple[Path, ...], destination: Path, root, dtype):
                 [part["embeddings"].to(torch.float32) for part in parts]
             ),
         }
+        # the vectors are nearly all of the file, which makes a good total
+        task = progress.add_task(
+            f"writing {destination.name}", total=data["embeddings"].nbytes
+        )
         with destination.open("wb") as file:
-            pickle.dump(data, file)
-        logger.info(f"wrote {len(data['images']):,} rows to {destination}")
-        return
+            writer = CountingWriter(file, lambda n: progress.advance(task, n))
+            pickle.dump(data, writer)
+        progress.update(task, completed=data["embeddings"].nbytes)
+        return (
+            f"{destination}: {len(data['images']):,} rows, "
+            f"{format_bytes(destination.stat().st_size)} as float32"
+        )
 
     first = described(sources[0])
     try:
@@ -334,11 +382,15 @@ def convert(sources: tuple[Path, ...], destination: Path, root, dtype):
             )
         known = Store.open(source).hashes() if is_store(source) else {}
         hashes = [known.get(ref) for ref in refs]
+        task = progress.add_task(
+            f"writing {source.name} into {destination.name}", total=len(refs)
+        )
         for start in range(0, len(refs), CONVERT_CHUNK):
             end = start + CONVERT_CHUNK
             store.put(refs[start:end], hashes[start:end], embeddings[start:end].numpy())
+            progress.update(task, completed=min(end, len(refs)))
 
-    logger.info(
+    return (
         f"{destination}: {len(store):,} rows, {format_bytes(store.nbytes)} "
         f"as {store.dtype.name}"
     )
