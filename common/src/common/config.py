@@ -59,11 +59,35 @@ class Paths:
 
 
 @dataclass(slots=True)
+class HostLimits:
+    """Fetch limits for one host, overriding the `[images]` ones where set."""
+
+    per_host: int | None = None
+    rate: float | None = None
+
+
+@dataclass(slots=True)
 class Images:
     concurrency: int = 16
-    """Image fetches in flight. Unrelated to the artscraper politeness rate."""
+    """Image fetches in flight, over all hosts together."""
+    per_host: int = 4
+    """Image fetches in flight to any one host."""
+    rate: float = 5.0
+    """Requests per second to any one host, 0 for no limit."""
+    hosts: dict[str, HostLimits] = field(default_factory=dict)
+    """Limits for specific hosts, e.g. `[images.hosts."uploads.wikiart.org"]`."""
     cache: bool = False
     """Keep fetched images on disk. Off: a full reference set is tens of gigabytes."""
+
+    def limits(
+        self, host: str, per_host: int | None = None, rate: float | None = None
+    ) -> tuple[int, float]:
+        """`(per_host, rate)` for a host: its own table first, then the given defaults."""
+        own = self.hosts.get(host, HostLimits())
+        return (
+            next(v for v in (own.per_host, per_host, self.per_host) if v is not None),
+            next(v for v in (own.rate, rate, self.rate) if v is not None),
+        )
 
 
 @dataclass(slots=True)
@@ -146,14 +170,28 @@ def build[T](schema: type[T], data: dict[str, Any], prefix: str) -> T:
         if name not in data:
             continue
         if is_dataclass(spec.type) and isinstance(spec.type, type):
-            section = data[name]
-            if not isinstance(section, dict):
-                raise ValueError(f"config {prefix}{name} should be a table")
-            values[name] = build(spec.type, section, prefix=f"{prefix}{name}.")
+            values[name] = build(
+                spec.type, table(data, name, prefix), f"{prefix}{name}."
+            )
+        elif get_origin(spec.type) is dict and is_dataclass(get_args(spec.type)[1]):
+            # a table of tables keyed by name, like `[images.hosts."some.host"]`
+            item, where = get_args(spec.type)[1], f"{prefix}{name}."
+            section = table(data, name, prefix)
+            values[name] = {
+                key: build(item, table(section, key, where), f"{where}{key}.")
+                for key in section
+            }
         else:
             values[name] = coerce(data[name], spec.type, f"{prefix}{name}")
 
     return schema(**values)
+
+
+def table(data: dict[str, Any], name: str, prefix: str) -> dict[str, Any]:
+    section = data[name]
+    if not isinstance(section, dict):
+        raise ValueError(f"config {prefix}{name} should be a table")
+    return section
 
 
 def coerce(value: Any, annotation: Any, where: str) -> Any:
@@ -187,11 +225,13 @@ def config() -> Config:
 def defaults_for(section: object) -> dict[str, Any]:
     """A config section as a dict, for click's `ctx.default_map`.
 
-    Only set values are handed over, so an unset option keeps the default declared
-    on the command itself.
+    Only set, plain values are handed over, so an unset option keeps the default
+    declared on the command itself.
     """
     return {
         f.name: value
         for f in fields(cast(Any, section))
-        if (value := getattr(section, f.name)) is not None and not is_dataclass(value)
+        if (value := getattr(section, f.name)) is not None
+        and not is_dataclass(value)
+        and not isinstance(value, dict)
     }

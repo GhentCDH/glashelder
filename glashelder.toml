@@ -16,8 +16,15 @@ glashelder = "/mnt/ghentcdh/glashelder/embeddings/glashelder-clip.pkl"
 reference = "/mnt/ghentcdh/glashelder/embeddings/artworks-clip.pkl"
 
 [images]
-concurrency = 16 # image fetches in flight
+concurrency = 16 # image fetches in flight, over all hosts
+per_host = 4     # image fetches in flight to one host
+rate = 5.0       # requests per second to one host, 0 for no limit
 cache = false    # a full reference set on disk is tens of gigabytes
+
+# limits for one host, where it can take more (or less) than the defaults above
+# [images.hosts."uploads.wikiart.org"]
+# per_host = 8
+# rate = 20.0
 
 [artmatcher]
 workers = 45

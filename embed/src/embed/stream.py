@@ -51,7 +51,7 @@ async def encode_stream(
         batch_refs.clear()
         batch_images.clear()
 
-    async for ref, image in stream(refs, concurrency=concurrency):
+    async for ref, image, _ in stream(refs, concurrency=concurrency):
         batch_refs.append(ref)
         batch_images.append(image)
         if len(batch_images) >= batch_size:
