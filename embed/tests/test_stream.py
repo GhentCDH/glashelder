@@ -56,8 +56,14 @@ def images(directory: Path, colours: dict[str, tuple[int, int, int]]) -> dict[st
 
 def run(store: Store, refs: dict[str, str], verify: bool = False):
     embedder = FakeEmbedder()
-    todo = pending(store, refs, verify=verify)
+    todo, _ = pending(store, refs, verify=verify)
     return encode_into(store, embedder, refs, todo, batch_size=2), embedder.calls
+
+
+def fresh(directory: Path) -> Store:
+    return Store.create_or_open(
+        directory / "s.store", model="fake", model_id="fake/1", root=directory
+    )
 
 
 def test_only_new_or_changed_images_are_embedded() -> None:
@@ -102,7 +108,50 @@ def test_rows_without_hash_get_one_without_embedding() -> None:
     assert Store.open(store.path).hashes()["a.png"] is not None
 
 
+def test_new_rows_get_their_hash() -> None:
+    directory = Path(tempfile.mkdtemp())
+    refs = images(directory, {"a.png": (255, 0, 0)})
+    store = fresh(directory)
+    run(store, refs)
+    assert Store.open(store.path).hashes()["a.png"] is not None
+
+
+def test_truncated_jpeg_is_embedded() -> None:
+    directory = Path(tempfile.mkdtemp())
+    Image.new("RGB", (64, 64), (200, 10, 10)).save(directory / "cut.jpg")
+    raw = (directory / "cut.jpg").read_bytes()
+    (directory / "cut.jpg").write_bytes(raw[:-50])  # like the WikiArt files
+    done, _ = run(fresh(directory), {str(directory / "cut.jpg"): "cut.jpg"})
+    assert (done.embedded, done.failed.total()) == (1, 0)
+
+
+def test_lasting_failures_are_recorded_and_skipped() -> None:
+    directory = Path(tempfile.mkdtemp())
+    refs = images(directory, {"a.png": (255, 0, 0)})
+    (directory / "broken.png").write_bytes(b"not an image at all")
+    refs[str(directory / "broken.png")] = "broken.png"
+    store = fresh(directory)
+
+    done, _ = run(store, refs)
+    assert done.embedded == 1 and done.failed == {"not an image": 1}
+    assert Store.open(store.path).failures() == {"broken.png": "not an image"}
+
+    # the next run leaves it out
+    todo, skipped = pending(Store.open(store.path), refs, verify=False)
+    assert (todo, skipped) == ([], 1)
+
+    # once fixed, --verify reads it again, embeds it and forgets the failure
+    images(directory, {"broken.png": (0, 0, 255)})
+    done, _ = run(Store.open(store.path), refs, verify=True)
+    assert done.embedded == 1 and not done.failed
+    assert Store.open(store.path).failures() == {}
+    assert not (store.path / "failures.jsonl").exists()
+
+
 if __name__ == "__main__":
     test_only_new_or_changed_images_are_embedded()
     test_rows_without_hash_get_one_without_embedding()
+    test_new_rows_get_their_hash()
+    test_truncated_jpeg_is_embedded()
+    test_lasting_failures_are_recorded_and_skipped()
     print("ok")
