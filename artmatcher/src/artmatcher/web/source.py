@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -12,6 +14,8 @@ if TYPE_CHECKING:
 
     from ..loading import MatchingInputs
     from ..ml_classifier import MLClassifier
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -143,11 +147,11 @@ class PrecomputedSource(ClassificationSource):
 class LiveSource(ClassificationSource):
     """Classifies glashelder images against reference embeddings on demand.
 
-    Note: this class holds GPU tensors (embeddings) as instance attributes
-    while handing work off to a ProcessPoolExecutor for ORB/hash feature
-    extraction. This is fine under the "fork" multiprocessing start method
-    (the default on Linux) but would break under "spawn", since the CUDA
-    tensors would need to be re-pickled into the worker processes.
+    The embedding search for every glashelder image is done once, up front, in a
+    single pass over the references: they may not fit in RAM, and a pass per
+    image would then read them all from disk per image. After that, only the
+    small top-k arrays are kept, and each request is a lookup plus, with a
+    classifier, the ORB/hash features of its best match.
     """
 
     def __init__(
@@ -160,12 +164,21 @@ class LiveSource(ClassificationSource):
         search_batch_size: int = 32,
         artworks: dict[str, Artwork] | None = None,
     ):
+        from embed.search import topk
+
         self._artworks = artworks or {}
-        self._glashelder_emb = inputs.glashelder_emb
         self._glashelder_paths = inputs.glashelder_paths
-        self._wikiart_emb = inputs.wikiart_emb
         self._wikiart_paths = inputs.wikiart_paths
-        self._top_k = top_k
+
+        started = time.monotonic()
+        self._similarities, self._indices = topk(
+            inputs.glashelder_emb, inputs.wikiart_emb, top_k
+        )
+        logger.info(
+            f"top {top_k} of {len(self._wikiart_paths):,} references for "
+            f"{len(self._glashelder_paths):,} images in "
+            f"{time.monotonic() - started:.1f}s"
+        )
         self._classifier = classifier
         self._search_workers = search_workers
         self._search_batch_size = search_batch_size
@@ -190,14 +203,8 @@ class LiveSource(ClassificationSource):
         )
 
     def _embedding_results(self, index: int) -> tuple[list[int], list[float]]:
-        """Get embedding search results for an image (fast)."""
-        from embed.search import perform_search
-
-        emb = self._glashelder_emb[index]
-        top_indices, top_values = perform_search(
-            self._top_k, emb.unsqueeze(0), self._wikiart_emb, self._wikiart_paths
-        )
-        return top_indices.cpu().numpy().tolist(), top_values.cpu().numpy().tolist()
+        """The precomputed top-k references and similarities for an image."""
+        return self._indices[index].tolist(), self._similarities[index].tolist()
 
     def classify(self, index: int, threshold: float) -> MatchItem | None:
         if index < 0 or index >= self.total_images:

@@ -9,6 +9,7 @@ import torch
 
 import embed
 from embed import get_device
+from embed.search import place
 
 from .ml_classifier import MLClassifier
 
@@ -41,7 +42,9 @@ def load_matching_inputs(
     # Load wikiart embeddings
     logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
     wikiart_data = embed.load_embeddings(wikiart_embeddings, root=wikiart_root)
-    wikiart_emb = wikiart_data["embeddings"].to(device)
+    wikiart_emb = place(
+        wikiart_data["embeddings"], device, label=f"reference {wikiart_embeddings}"
+    )
     wikiart_paths: list[str] = wikiart_data["images"]
     embedding_model_name = wikiart_data.get("model", "clip")
     logger.info(f"Loaded {len(wikiart_paths)} wikiart images")
