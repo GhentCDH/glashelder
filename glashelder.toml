@@ -3,8 +3,8 @@
 #   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
 
 [paths]
-artworks = "artworks.json.zst" # artscraper output, doubles as the metadata index
-ml_model = "model.pkl"
+artworks = "artworks.json.zst"                              # artscraper output, doubles as the metadata index
+ml_model = "/mnt/ghentcdh/glashelder/models/artmatcher.pkl"
 
 [paths.images]
 glashelder = "/mnt/ghentcdh/glashelder/assets-crop"
@@ -12,8 +12,8 @@ glashelder = "/mnt/ghentcdh/glashelder/assets-crop"
 cache = ".image-cache" # only used when image caching is on
 
 [paths.embeddings]
-glashelder = "/mnt/ghentcdh/glashelder/embeddings/glashelder-clip.pkl"
-reference = "/mnt/ghentcdh/glashelder/embeddings/artworks-clip.pkl"
+glashelder = "/mnt/ghentcdh/glashelder/embeddings/glashelder-clip.store"
+reference = "/mnt/ghentcdh/glashelder/embeddings/artworks-clip.store"
 
 [images]
 concurrency = 16 # image fetches in flight, over all hosts
