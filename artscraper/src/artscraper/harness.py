@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
+import zstandard as zstd
+
 from .backends import Context, registry
 from .client import Stats, Throttle, make_client
 from .model import Artwork
@@ -31,18 +33,52 @@ def scraped_urls(path: Path) -> dict[str, set[str]]:
     return done
 
 
-def write_json(jsonl: Path, path: Path | None) -> None:
-    """Turn the JSONL sink into one JSON list, a line at a time."""
-    out = path.open("w") if path else sys.stdout
+def combine_files(*sources: Path, path: Path | None) -> None:
+    """Turn multiple JSON, JSONL, or Zst files into a combined output (auto-compresses if path ends in .zst)."""
+
+    # Choose the correct writer based on output extension
+    if path:
+        is_zst_output = ".zst" in [s.lower() for s in path.suffixes]
+        out = (
+            zstd.open(path, "wt", encoding="utf-8")
+            if is_zst_output
+            else path.open("w", encoding="utf-8")
+        )
+    else:
+        out = sys.stdout
+
     count = 0
+    joined = []
+
     try:
-        out.write("[\n")
-        with jsonl.open() as file:
-            for line in file:
-                if line.strip():
-                    out.write(f"{',\n' if count else ''} {line.strip()}")
-                    count += 1
-        out.write("\n]\n")
+        for file_path in sources:
+            suffixes = [s.lower() for s in file_path.suffixes]
+            is_zst_input = ".zst" in suffixes
+            is_json_input = ".json" in suffixes
+
+            # Read input (compressed or normal)
+            file_context = (
+                zstd.open(file_path, "rt", encoding="utf-8")
+                if is_zst_input
+                else file_path.open("r", encoding="utf-8")
+            )
+
+            with file_context as f:
+                if is_json_input:
+                    data = json.load(f)
+                    for item in data:
+                        artwork = Artwork(**item)
+                        joined.append(asdict(artwork))
+                        count += 1
+                else:
+                    for line in f:
+                        if line.strip():
+                            artwork = Artwork(**json.loads(line))
+                            joined.append(asdict(artwork))
+                            count += 1
+
+        json.dump(joined, out, ensure_ascii=False, indent=2)
+
     finally:
         if path:
             out.close()
