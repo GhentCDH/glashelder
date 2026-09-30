@@ -32,12 +32,17 @@ classify:
     # paths and tuning come from glashelder.toml
     uv run glashelder artmatcher batch-classify -o classes.json --cache-features --cache-save-interval 10
 
-generate:
-    uv run glashelder embed generate-embeddings --image-dir /mnt/share/shares/glashelder/kikirpa --save-path embeddings/kikirpa-dino.pkl --model dinov2 --count 200000 --batch-size 512
+# scrape every backend into paths.artworks (glashelder.toml)
+scrape:
+    uv run glashelder artscraper scrape
 
-# embed the scraped reference artworks straight from their image urls
+# embed what is new in the scrape into paths.embeddings.reference, fetching the images
 reference:
-    uv run glashelder embed generate-embeddings --artworks artworks.jsonl --save-path embeddings/reference.pkl --model dinov2 --count 200000 --batch-size 512
+    uv run glashelder embed artworks --batch-size 512
+
+# embed what is new in paths.images.glashelder into paths.embeddings.glashelder
+generate:
+    uv run glashelder embed images --batch-size 512
 
 servesearch:
-    uv run glashelder embed serve --host 0.0.0.0 --port 5000 --embeddings embeddings/glashelder-clip.pkl
+    uv run glashelder embed serve --host 0.0.0.0 --port 5000 --embeddings embeddings/glashelder-clip.store

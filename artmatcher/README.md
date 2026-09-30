@@ -20,17 +20,25 @@ Artifact locations and tuning defaults live in `glashelder.toml` at the repo roo
 so the options below are only needed when overriding it.
 
 ```bash
-# embed the reference artworks, fetching their images while the model works
-uv run glashelder embed generate-embeddings --artworks artworks.jsonl --save-path embeddings/reference.pkl
+# embed what is new in the scrape, fetching the images while the model works
+uv run glashelder embed artworks
 
 # label a starting set, then train the classifier on it
-uv run glashelder artmatcher serve --glashelder-images <dir>
+uv run glashelder artmatcher serve
 uv run glashelder artmatcher train-classifier labeling_dataset.json model.pkl --workers 48
 
 # classify the whole set
 uv run glashelder artmatcher batch-classify -o classes.json
 
 # review the results
-uv run glashelder artmatcher serve --results-json classes.json --glashelder-images <dir>
+uv run glashelder artmatcher serve --results-json classes.json
 uv run glashelder artmatcher plot-results -i classes.json -o plots/
 ```
+
+All backends share one reference store. `--source` (repeatable) matches against the
+artworks of some backends only, for example `--source wikiart --source kikirpa`.
+
+At start, `serve` and `batch-classify` search every glashelder image against the
+references in one pass. So a reference store larger than RAM is read from disk once
+per start, not once per image. They also report whether the references went to VRAM
+and whether they fit in RAM.
