@@ -8,10 +8,12 @@ from .embed import (
     get_device,
     get_embedder,
     load_embeddings,
+    read_embeddings,
     rebase_paths,
     relativize_image_paths,
     save_embeddings,
 )
+from .store import Store, is_store
 from .stream import encode_refs, encode_stream
 
 __all__ = [
@@ -21,11 +23,14 @@ __all__ = [
     "EmbeddingModel",
     "OpenCLIPEmbedder",
     "Qwen3VLEmbedder",
+    "Store",
     "encode_refs",
     "encode_stream",
     "get_device",
     "get_embedder",
+    "is_store",
     "load_embeddings",
+    "read_embeddings",
     "rebase_paths",
     "relativize_image_paths",
     "save_embeddings",
