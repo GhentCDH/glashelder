@@ -376,47 +376,6 @@ def info(path: Path):
         click.echo(f"{name + ':':9}{value}")
 
 
-def perform_search(top_k, text_embedding, image_embeddings, image_paths):
-    """Search for images similar to a text embedding."""
-    import torch
-
-    # Normalize embeddings
-    text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
-    image_embeddings_norm = image_embeddings / image_embeddings.norm(
-        dim=-1, keepdim=True
-    )
-
-    # Calculate cosine similarity
-    similarities = (text_embedding @ image_embeddings_norm.T).squeeze(0)
-
-    # Get top-k indices
-    top_k = min(top_k, len(image_paths))
-    top_values, top_indices = torch.topk(similarities, top_k)
-
-    return top_indices, top_values
-
-
-def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self=True):
-    """Find images similar to a given image by index in the embedding space."""
-    import torch
-
-    query_embedding = image_embeddings[query_index].unsqueeze(0)
-    query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
-    image_embeddings_norm = image_embeddings / image_embeddings.norm(
-        dim=-1, keepdim=True
-    )
-    similarities = (query_embedding @ image_embeddings_norm.T).squeeze(0)
-
-    if exclude_self:
-        similarities[query_index] = -float("inf")
-        actual_top_k = min(top_k, len(image_paths) - 1)
-    else:
-        actual_top_k = min(top_k, len(image_paths))
-
-    top_values, top_indices = torch.topk(similarities, actual_top_k)
-    return top_indices, top_values
-
-
 @embed.command()
 @click.option(
     "--embeddings", default=EMBEDDINGS_PATH, help="Path to embeddings pickle file"
@@ -439,10 +398,8 @@ def serve(embeddings, image_dir, host, port):
     from flask import Flask, render_template, request, send_from_directory
     from PIL import Image
 
-    from embed import (
-        get_embedder,
-        load_embeddings,
-    )
+    from .embed import get_embedder, load_embeddings
+    from .search import find_similar, perform_search, place
 
     app = Flask(
         __name__,
@@ -460,7 +417,9 @@ def serve(embeddings, image_dir, host, port):
 
     data = load_embeddings(embeddings, root=image_dir)
     image_paths = data["images"]
-    image_embeddings = data["embeddings"].to(device)
+    image_embeddings = place(
+        data["embeddings"], device, label=str(embeddings), scans_per_query=True
+    )
     embedding_model_name = data.get("model", "clip")
 
     logger.info(f"Loaded {len(image_paths)} images")
