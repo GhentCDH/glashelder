@@ -15,7 +15,7 @@ import hashlib
 import io
 import logging
 import os
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Iterable, Iterator
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -125,31 +125,31 @@ async def stream(
 ) -> AsyncIterator[tuple[str, Image.Image, str]]:
     """Yield `(reference, image, digest)` as they become available.
 
-    Order is not preserved: the point is to keep `concurrency` fetches in flight so
-    the consumer never waits on the network. Each host also gets its own
-    `per_host` and `rate` limit (from `[images.hosts]` where set), so one slow or
-    strict server neither gets hammered nor holds up the others. At most `buffer`
-    decoded images are held, so memory does not grow with the size of the input.
-    References that fail to load are logged and skipped, the same way the
-    dataloader drops unreadable images.
+    Order is not preserved: the point is to keep fetches in flight so the consumer
+    never waits on the network. Every host gets its own workers, `per_host` of them
+    at `rate` requests per second (or what `[images.hosts]` sets for it), so a slow
+    or strict server is neither hammered nor holds up the others. `concurrency`
+    caps the connections over all hosts, and the workers for local files.
+
+    At most `buffer` decoded images are held, so memory does not grow with the size
+    of the input. References that fail to load are logged and skipped, the same way
+    the dataloader drops unreadable images.
     """
     settings = config().images
-    workers = concurrency if concurrency is not None else settings.concurrency
+    connections = concurrency if concurrency is not None else settings.concurrency
     caching = settings.cache if cache is None else cache
     queue: asyncio.Queue[tuple[str, Image.Image, str] | None] = asyncio.Queue(
-        maxsize=buffer if buffer is not None else 2 * workers
+        maxsize=buffer if buffer is not None else 2 * connections
     )
-    todo = iter(refs)
     stop = asyncio.Event()
-    throttles: dict[str, Throttle] = {}
 
-    def throttle(url: str) -> Throttle:
-        name = host(url)
-        if name not in throttles:
-            throttles[name] = Throttle(*settings.limits(name, per_host, rate))
-        return throttles[name]
+    groups: dict[str, list[str | Path]] = {}
+    for ref in refs:
+        groups.setdefault(host(str(ref)) if is_url(ref) else "", []).append(ref)
 
-    async def worker(client: httpx.AsyncClient) -> None:
+    async def worker(
+        client: httpx.AsyncClient, todo: Iterator[str | Path], throttle: Throttle
+    ) -> None:
         for ref in todo:  # a shared iterator is safe between coroutines
             if stop.is_set():
                 return
@@ -161,14 +161,28 @@ async def stream(
                 continue
             await queue.put((str(ref), image, hashed))
 
+    def workers(client: httpx.AsyncClient, name: str, group: list[str | Path]):
+        count, limit = (
+            (connections, 0.0) if name == "" else settings.limits(name, per_host, rate)
+        )
+        todo, throttle = iter(group), Throttle(count, limit)
+        return [worker(client, todo, throttle) for _ in range(count)]
+
     async def run() -> None:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT,
+            # waiting for a free connection is expected, not a timeout
+            timeout=httpx.Timeout(TIMEOUT, pool=None),
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
-            limits=httpx.Limits(max_connections=workers),
+            limits=httpx.Limits(max_connections=connections),
         ) as client:
-            await asyncio.gather(*(worker(client) for _ in range(workers)))
+            await asyncio.gather(
+                *(
+                    w
+                    for name, group in groups.items()
+                    for w in workers(client, name, group)
+                )
+            )
         await queue.put(None)  # sentinel: nothing more is coming
 
     runner = asyncio.create_task(run())
@@ -188,7 +202,7 @@ async def _read_async(
     client: httpx.AsyncClient,
     ref: str | Path,
     caching: bool,
-    throttle: Callable[[str], Throttle],
+    throttle: Throttle,
 ) -> bytes:
     """The raw bytes behind a reference; file IO is kept off the event loop."""
     if not is_url(ref):
@@ -199,7 +213,7 @@ async def _read_async(
     if cached is not None and cached.is_file():
         return await asyncio.to_thread(cached.read_bytes)
 
-    raw = await _fetch_async(client, url, throttle(url))
+    raw = await _fetch_async(client, url, throttle)
     if cached is not None:
         await asyncio.to_thread(store, url, raw)
     return raw
