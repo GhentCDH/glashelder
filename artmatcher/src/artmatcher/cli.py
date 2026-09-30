@@ -110,33 +110,52 @@ def train_classifier(
     classifier.save(output_model)
 
 
+def reference_options(command):
+    """Where the references come from, shared by `serve` and `batch-classify`."""
+    options = [
+        click.option(
+            "--reference-embeddings",
+            "-e",
+            type=click.Path(exists=True),
+            default=None,
+            help="Store (or legacy pickle) of the reference artworks' embeddings, "
+            "all backends together",
+        ),
+        click.option(
+            "--source",
+            "sources",
+            multiple=True,
+            help="Only match against artworks from this backend, repeatable. "
+            "Needs --artworks to know where each reference came from.",
+        ),
+        click.option(
+            "--glashelder-images",
+            "-i",
+            type=click.Path(exists=True, file_okay=False),
+            default=ASSETS_DIR,
+            help="Directory the glashelder images live in on this machine",
+        ),
+    ]
+    for option in reversed(options):
+        command = option(command)
+    return command
+
+
 @artmatcher.command()
-@click.option(
-    "--wikiart-embeddings",
-    "-w",
-    type=str,
-    default=None,
-    help="Path to the wikiart embeddings '.pkl' file (not needed with --results-json)",
-)
+@reference_options
 @click.option(
     "--glashelder-embeddings",
     "-g",
     type=str,
     default=None,
-    help="Path to pre-calculated glashelder embeddings '.pkl' file (optional)",
+    help="Store (or legacy pickle) of the glashelder embeddings; "
+    "made on the fly when not given",
 )
 @click.option(
     "--model",
     default="clip",
     type=click.Choice(["clip", "dinov2", "qwen3vl"]),
     help="Embedding model to use",
-)
-@click.option(
-    "--image-dir",
-    "-i",
-    type=str,
-    default=ASSETS_DIR,
-    help="Path to the Glashelder images",
 )
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=5000, help="Port to bind to")
@@ -173,12 +192,6 @@ def train_classifier(
     help="Path to pre-computed batch_classify JSON output. Skips on-the-fly computation.",
 )
 @click.option(
-    "--glashelder-images",
-    type=click.Path(exists=True, dir_okay=True, file_okay=False),
-    default=None,
-    help="Path of the directory where the glashelder images live",
-)
-@click.option(
     "--reference-images",
     type=click.Path(exists=True, dir_okay=True, file_okay=False),
     default=None,
@@ -206,10 +219,11 @@ def train_classifier(
     help="Directory where labeling sessions are stored (one JSON file each)",
 )
 def serve(
-    wikiart_embeddings: str,
+    reference_embeddings: str | None,
+    sources: tuple[str, ...],
+    glashelder_images: str | None,
     glashelder_embeddings: str | None,
     model: Literal["clip", "dinov2", "qwen3vl"],
-    image_dir: str,
     host: str,
     port: int,
     top_k: int,
@@ -218,7 +232,6 @@ def serve(
     search_workers: int,
     search_batch_size: int,
     results_json: str | None,
-    glashelder_images: Path | None,
     reference_images: Path | None,
     artworks: str | None,
     auth: bool,
@@ -237,13 +250,10 @@ def serve(
     Use --search-workers to parallelize ORB/hash extraction during search.
     """
     if glashelder_images is None:
-        logger.error(
-            "!! You need to set the `--glashelder-images` argument to the directory where the glashelder images are on your system"
+        raise click.UsageError(
+            "no glashelder images: pass --glashelder-images or set "
+            "paths.images.glashelder"
         )
-        return
-    else:
-        glashelder_images = Path(glashelder_images)
-
     # references scraped as URLs need no local directory
     reference_images = Path(reference_images) if reference_images is not None else None
 
@@ -269,20 +279,26 @@ def serve(
         from .loading import load_classifier, load_matching_inputs
         from .web.source import LiveSource
 
+        if reference_embeddings is None:
+            raise click.UsageError(
+                "no references: pass --reference-embeddings or set "
+                "paths.embeddings.reference (or use --results-json)"
+            )
         # `None` when ml_model isn't given
         ml_classifier_instance = load_classifier(ml_model, threshold)
         try:
             inputs = load_matching_inputs(
                 glashelder_embeddings=glashelder_embeddings,
-                wikiart_embeddings=wikiart_embeddings,
+                wikiart_embeddings=reference_embeddings,
                 model=model,
-                image_dir=image_dir,
+                image_dir=glashelder_images,
                 wikiart_root=reference_images,
                 glashelder_root=glashelder_images,
+                artworks=artwork_index,
+                sources=sources,
             )
         except ValueError as e:
-            click.echo(f"Error: {e}", err=True)
-            return
+            raise click.ClickException(str(e)) from e
 
         source = LiveSource(
             inputs,
@@ -303,13 +319,7 @@ def serve(
 
 
 @artmatcher.command()
-@click.option(
-    "--wikiart-embeddings",
-    "-w",
-    type=click.Path(exists=True),
-    required=True,
-    help="Path to wikiart embeddings pickle file",
-)
+@reference_options
 @click.option(
     "--ml-model",
     type=click.Path(exists=True),
@@ -329,13 +339,6 @@ def serve(
     type=click.Path(exists=True),
     default=None,
     help="Pre-computed glashelder embeddings (generates if not provided)",
-)
-@click.option(
-    "--image-dir",
-    "-i",
-    type=str,
-    default=ASSETS_DIR,
-    help="Path to glashelder images",
 )
 @click.option(
     "--output-format",
@@ -411,11 +414,12 @@ def serve(
     "carry their title, artist and source link",
 )
 def batch_classify(
-    wikiart_embeddings: str,
+    reference_embeddings: str | None,
+    sources: tuple[str, ...],
+    glashelder_images: str | None,
     ml_model: str,
     output: str,
     glashelder_embeddings: str | None,
-    image_dir: str,
     output_format: Literal["json", "csv", "both"],
     workers: int,
     top_k: int,
@@ -436,11 +440,16 @@ def batch_classify(
 
     Example:
         glashelder artmatcher batch-classify \\
-            -w wikiart.pkl \\
+            -e artworks-clip.store \\
             --ml-model model.pkl \\
             -o results.json \\
             --workers 32
     """
+    if reference_embeddings is None:
+        raise click.UsageError(
+            "no references: pass --reference-embeddings or set "
+            "paths.embeddings.reference"
+        )
     from .batch import (
         FeatureCache,
         write_csv_output,
@@ -456,16 +465,17 @@ def batch_classify(
     artwork_index = load_artworks(artworks)
     try:
         inputs = load_matching_inputs(
-            wikiart_embeddings=wikiart_embeddings,
+            wikiart_embeddings=reference_embeddings,
             glashelder_embeddings=glashelder_embeddings,
             model=model,
-            image_dir=image_dir,
+            image_dir=glashelder_images,
             wikiart_root=config().paths.images.reference,
-            glashelder_root=image_dir,
+            glashelder_root=glashelder_images,
+            artworks=artwork_index,
+            sources=sources,
         )
     except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        return
+        raise click.ClickException(str(e)) from e
 
     # Setup feature cache
     cache = FeatureCache(cache_path) if cache_features else None
