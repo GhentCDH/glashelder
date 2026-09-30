@@ -15,10 +15,7 @@ Image clustering, search using embeddings with UMAP dimensionality reduction and
 First, generate embeddings for your image collection:
 
 ```bash
-uv run glashelder cluster generate-embeddings \
-  --image-dir ./images \
-  --save-path embeddings.pkl \
-  --model clip
+uv run glashelder embed images ./images --output embeddings.store --model clip
 ```
 
 
