@@ -5,8 +5,9 @@ scraped artworks. Nothing else in the pipeline has to care which it is.
 
 Fetching is IO bound and the compute that follows is not, so `stream` pulls many
 images at once and hands them over as they land, which keeps the GPU fed without
-ever writing to disk. Caching is opt-in: a full reference set is tens of gigabytes
-and every image is normally read once.
+ever writing to disk. Each image comes with a hash of its bytes, so an embedding
+can later be checked against the image it was made from. Caching is opt-in: a
+full reference set is tens of gigabytes and every image is normally read once.
 """
 
 import asyncio
@@ -14,13 +15,15 @@ import hashlib
 import io
 import logging
 import os
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from PIL import Image
 
 from .config import config
+from .throttle import Throttle
 
 USER_AGENT = "glashelder/2.0 (sysadmin.ghentcdh@ugent.be)"
 TIMEOUT = 30.0
@@ -102,39 +105,61 @@ def _fetch_sync(client: httpx.Client, url: str) -> bytes:
     raise RuntimeError(f"{url}: out of attempts")
 
 
+def digest(raw: bytes) -> str:
+    """Hash of an image's bytes, to tell whether it changed since it was embedded."""
+    return hashlib.blake2b(raw, digest_size=16).hexdigest()
+
+
+def host(url: str) -> str:
+    return urlsplit(url).hostname or ""
+
+
 async def stream(
     refs: Iterable[str | Path],
     *,
     concurrency: int | None = None,
+    per_host: int | None = None,
+    rate: float | None = None,
     cache: bool | None = None,
     buffer: int | None = None,
-) -> AsyncIterator[tuple[str, Image.Image]]:
-    """Yield `(reference, image)` pairs as they become available.
+) -> AsyncIterator[tuple[str, Image.Image, str]]:
+    """Yield `(reference, image, digest)` as they become available.
 
     Order is not preserved: the point is to keep `concurrency` fetches in flight so
-    the consumer never waits on the network. At most `buffer` decoded images are
-    held, so memory does not grow with the size of the input. References that fail
-    to load are logged and skipped, the same way the dataloader drops unreadable
-    images.
+    the consumer never waits on the network. Each host also gets its own
+    `per_host` and `rate` limit (from `[images.hosts]` where set), so one slow or
+    strict server neither gets hammered nor holds up the others. At most `buffer`
+    decoded images are held, so memory does not grow with the size of the input.
+    References that fail to load are logged and skipped, the same way the
+    dataloader drops unreadable images.
     """
-    workers = concurrency if concurrency is not None else config().images.concurrency
-    caching = config().images.cache if cache is None else cache
-    queue: asyncio.Queue[tuple[str, Image.Image] | None] = asyncio.Queue(
+    settings = config().images
+    workers = concurrency if concurrency is not None else settings.concurrency
+    caching = settings.cache if cache is None else cache
+    queue: asyncio.Queue[tuple[str, Image.Image, str] | None] = asyncio.Queue(
         maxsize=buffer if buffer is not None else 2 * workers
     )
     todo = iter(refs)
     stop = asyncio.Event()
+    throttles: dict[str, Throttle] = {}
+
+    def throttle(url: str) -> Throttle:
+        name = host(url)
+        if name not in throttles:
+            throttles[name] = Throttle(*settings.limits(name, per_host, rate))
+        return throttles[name]
 
     async def worker(client: httpx.AsyncClient) -> None:
         for ref in todo:  # a shared iterator is safe between coroutines
             if stop.is_set():
                 return
             try:
-                image = await _load_async(client, ref, caching)
+                raw = await _read_async(client, ref, caching, throttle)
+                image, hashed = await asyncio.to_thread(_decode_hashed, raw)
             except Exception as e:  # one bad image must not kill the run
                 logger.warning("skipping %s: %s", ref, e)
                 continue
-            await queue.put((str(ref), image))
+            await queue.put((str(ref), image, hashed))
 
     async def run() -> None:
         async with httpx.AsyncClient(
@@ -155,32 +180,42 @@ async def stream(
         runner.cancel()
 
 
-async def _load_async(
-    client: httpx.AsyncClient, ref: str | Path, caching: bool
-) -> Image.Image:
+def _decode_hashed(raw: bytes) -> tuple[Image.Image, str]:
+    return decode(raw), digest(raw)
+
+
+async def _read_async(
+    client: httpx.AsyncClient,
+    ref: str | Path,
+    caching: bool,
+    throttle: Callable[[str], Throttle],
+) -> bytes:
+    """The raw bytes behind a reference; file IO is kept off the event loop."""
     if not is_url(ref):
-        # decoding blocks, so keep it off the event loop
-        return await asyncio.to_thread(lambda: Image.open(ref).convert("RGB"))
+        return await asyncio.to_thread(Path(ref).read_bytes)
 
     url = str(ref)
     cached = cache_path(url) if caching else None
     if cached is not None and cached.is_file():
-        return await asyncio.to_thread(lambda: Image.open(cached).convert("RGB"))
+        return await asyncio.to_thread(cached.read_bytes)
 
-    raw = await _fetch_async(client, url)
+    raw = await _fetch_async(client, url, throttle(url))
     if cached is not None:
         await asyncio.to_thread(store, url, raw)
-    return await asyncio.to_thread(decode, raw)
+    return raw
 
 
-async def _fetch_async(client: httpx.AsyncClient, url: str) -> bytes:
+async def _fetch_async(
+    client: httpx.AsyncClient, url: str, throttle: Throttle
+) -> bytes:
     backoff = 1.0
     for attempt in range(MAX_ATTEMPTS):
         if attempt:
             await asyncio.sleep(backoff)
             backoff *= 2
         try:
-            response = await client.get(url)
+            async with throttle:
+                response = await client.get(url)
         except (httpx.TimeoutException, httpx.TransportError):
             if attempt == MAX_ATTEMPTS - 1:
                 raise
