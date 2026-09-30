@@ -48,6 +48,10 @@ async def encode_stream(
     every image that could not be read. The refs are the original strings (a URL
     stays a URL) and only cover images that loaded. Order follows completion, not
     input.
+
+    Up to a full batch of loaded images is buffered, so the next batch is being
+    fetched while the model works on this one and is ready when it is done. That
+    also means up to two batches of decoded images are in memory at once.
     """
     batch: list[tuple[str, Image.Image, str]] = []
     fetched = stream(
@@ -55,6 +59,7 @@ async def encode_stream(
         concurrency=concurrency,
         per_host=per_host,
         rate=rate,
+        buffer=batch_size,
         on_error=on_error,
     )
     async for ref, image, digest in fetched:
