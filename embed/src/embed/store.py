@@ -20,6 +20,7 @@ on another; URLs are stored as they are.
 
 import json
 import logging
+import math
 import os
 from collections.abc import Collection, Sequence
 from pathlib import Path
@@ -265,6 +266,12 @@ class Store:
             if (self.path / name).stat().st_size != size:
                 os.truncate(self.path / name, size)
         return refs
+
+
+def format_bytes(size: float) -> str:
+    power = min(3, int(math.log10(size) // 3)) if size >= 1 else 0
+    unit = ("B", "KB", "MB", "GB")[power]
+    return f"{size / 1000**power:.1f} {unit}" if power else f"{size:.0f} B"
 
 
 def _hash_bytes(digest: str | None) -> bytes:
