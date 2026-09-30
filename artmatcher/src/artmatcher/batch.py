@@ -151,27 +151,16 @@ def compute_embedding_similarities(
     glashelder_emb: torch.Tensor,
     wikiart_emb: torch.Tensor,
     top_k: int,
-    chunk_size: int = 2 ^ 15,
 ) -> tuple[np.ndarray, np.ndarray]:
-    glashelder_norm = glashelder_emb / glashelder_emb.norm(dim=-1, keepdim=True)
-    wikiart_norm = wikiart_emb / wikiart_emb.norm(dim=-1, keepdim=True)
+    """The `top_k` references for every glashelder image, as `(indices, similarities)`.
 
-    actual_k = min(top_k, wikiart_emb.shape[0])
-    all_indices = []
-    all_values = []
+    One pass over the references for all images together, so a reference set that
+    does not fit in RAM is read from disk once, not once per image.
+    """
+    from embed.search import topk
 
-    for i in range(0, glashelder_norm.shape[0], chunk_size):
-        chunk = glashelder_norm[i : i + chunk_size]
-        sim = chunk @ wikiart_norm.T  # (chunk_size x M)
-        values, indices = torch.topk(sim, actual_k, dim=1)
-        all_indices.append(indices.cpu())
-        all_values.append(values.cpu())
-        del sim
-
-    return (
-        torch.cat(all_indices).numpy(),
-        torch.cat(all_values).numpy(),
-    )
+    similarities, indices = topk(glashelder_emb, wikiart_emb, top_k)
+    return indices.numpy(), similarities.numpy()
 
 
 def _get_default_features(similarities: list[float]) -> dict[str, float]:

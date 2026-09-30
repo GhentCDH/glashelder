@@ -292,6 +292,8 @@ def serve(
             search_batch_size=search_batch_size,
             artworks=artwork_index,
         )
+        # the source kept only the top-k: let the matrices go (and free the VRAM)
+        del inputs
 
     app = create_app(source, threshold=threshold, auth=auth, session_dir=session_dir)
 
