@@ -814,25 +814,34 @@ def rebase_paths(image_paths: list[str], root: str | Path | None) -> list[str]:
     return [str(root_path / p) if p and not is_url(p) else p for p in relative]
 
 
-def load_embeddings(path: str, root: str | Path | None = None) -> dict:
-    """Load embeddings from a pickle file.
+def read_embeddings(path: str | Path, root: str | Path | None = None) -> dict:
+    """What an embeddings file holds, a store or a legacy pickle, as stored.
 
-    Image paths are always returned relative to `root`, which is the single
-    place where the mismatch between the machine that generated the pickle and
-    the machine reading it gets resolved. Pickles written by `save_embeddings`
-    already store relative paths; older ones store absolute paths, which are
-    made relative to their common ancestor directory here.
-
-    Args:
-        path: Path to the pickle file.
-        root: Directory the images live in on *this* machine. When omitted, the
-            root recorded in the pickle (or inferred from it) is used, which
-            only works if the images are in the same place as when embedded.
+    Local image paths come back relative to `data["root"]`: the root recorded in
+    the file, or `root`, or for old pickles without one, the directory all their
+    absolute paths share. This is the raw form, for converting between formats;
+    `load_embeddings` is what gives paths usable on this machine.
 
     Returns:
-        Dictionary containing 'images' (absolute paths under `root`),
-        'embeddings', 'root', and model metadata.
+        Dictionary containing 'images', 'embeddings', 'root', 'model',
+        'model_id' and 'embedding_dim'. For a store the embeddings are a
+        memory-mapped tensor, nothing is read until it is used.
     """
+    from .store import Store, is_store
+
+    if is_store(path):
+        import torch
+
+        store = Store.open(path)
+        return {
+            "model": store.model,
+            "model_id": store.model_id,
+            "embedding_dim": store.dim,
+            "root": store.root,
+            "images": store.refs(),
+            "embeddings": torch.from_numpy(store.vectors()),
+        }
+
     import pickle
 
     with open(path, "rb") as f:
@@ -848,13 +857,38 @@ def load_embeddings(path: str, root: str | Path | None = None) -> dict:
         data["model_id"] = CLIP_MODEL_ID
         data["embedding_dim"] = 768
 
-    resolved_root = root if root is not None else data.get("root") or None
+    stored_root = root if root is not None else data.get("root") or None
+    data["images"], data["root"] = relativize_image_paths(data["images"], stored_root)
+    return data
+
+
+def load_embeddings(path: str | Path, root: str | Path | None = None) -> dict:
+    """Load embeddings from a store or a legacy pickle.
+
+    Image paths are always returned under `root`, which is the single place
+    where the mismatch between the machine that generated the embeddings and
+    the machine reading them gets resolved: the file keeps paths relative to
+    the root it was made with, and here they are joined onto this one.
+
+    Args:
+        path: Path to the store directory or the pickle file.
+        root: Directory the images live in on *this* machine. When omitted, the
+            root recorded in the file (or inferred from it) is used, which
+            only works if the images are in the same place as when embedded.
+
+    Returns:
+        Dictionary containing 'images' (absolute paths under `root`, or URLs),
+        'embeddings', 'root', and model metadata.
+    """
+    data = read_embeddings(path)
+
+    resolved_root = root if root is not None else data["root"]
     if resolved_root is None:
-        logger.warning(
-            f"Embeddings at {path} have no image root and none was given; "
-            "using image paths as stored."
-        )
-        data["root"] = None
+        if any(p and not is_url(p) for p in data["images"]):
+            logger.warning(
+                f"Embeddings at {path} have no image root and none was given; "
+                "using image paths as stored."
+            )
         return data
 
     data["root"] = str(resolved_root)
