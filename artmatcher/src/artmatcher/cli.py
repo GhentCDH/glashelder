@@ -7,13 +7,14 @@ from typing import Literal
 
 import click
 
+from artscraper import Artwork
 from common import ASSETS_DIR
 from common.config import config, defaults_for
 
 logger = logging.getLogger(__name__)
 
 
-def load_artworks(path: str | Path | None) -> dict:
+def load_artworks(path: str | Path | None) -> dict[str, Artwork]:
     """The artwork records a scrape produced, keyed by the reference they describe."""
     if path is None or not Path(path).is_file():
         if path is not None:

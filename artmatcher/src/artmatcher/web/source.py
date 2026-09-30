@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from embed import rebase_paths
 
 if TYPE_CHECKING:
+    from artscraper import Artwork
+
     from ..loading import MatchingInputs
     from ..ml_classifier import MLClassifier
 
@@ -38,7 +40,7 @@ class MatchItem:
 class ClassificationSource(ABC):
     """Supplies classification items for the labeling UI."""
 
-    _artworks: dict
+    _artworks: dict[str, Artwork]
     """Scraped artwork records, keyed by reference. Set by each subclass."""
 
     @property
@@ -62,25 +64,11 @@ class ClassificationSource(ABC):
         """
 
     def artwork(self, index: int) -> dict | None:
-        """The scraped record behind a reference: title, artist, year, source url."""
-        artworks = getattr(self, "_artworks", {})
-        reference = self.wikiart_path(index)
-        if not reference or not artworks:
-            return None
-        found = artworks.get(reference)
-        if found is None:
-            from pathlib import Path as _Path
+        """The scraped record behind a reference, as JSON for the templates."""
+        from ..batch import artwork_of
 
-            found = artworks.get(_Path(reference).name)
-        if found is None:
-            return None
-        return {
-            "source": found.source,
-            "url": found.url,
-            "title": found.title,
-            "artist": found.artist,
-            "year": found.year,
-        }
+        found = artwork_of(self.wikiart_path(index), getattr(self, "_artworks", None))
+        return dataclasses.asdict(found) if found is not None else None
 
     @abstractmethod
     def classify(self, index: int, threshold: float) -> MatchItem | None:
@@ -100,7 +88,7 @@ class PrecomputedSource(ClassificationSource):
         results: list[dict],
         glashelder_root,
         reference_root,
-        artworks: dict | None = None,
+        artworks: dict[str, Artwork] | None = None,
     ):
         self._results = results
         self._artworks = artworks or {}
@@ -170,7 +158,7 @@ class LiveSource(ClassificationSource):
         classifier: MLClassifier | None = None,
         search_workers: int = 8,
         search_batch_size: int = 32,
-        artworks: dict | None = None,
+        artworks: dict[str, Artwork] | None = None,
     ):
         self._artworks = artworks or {}
         self._glashelder_emb = inputs.glashelder_emb

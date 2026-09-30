@@ -6,7 +6,7 @@ import json
 import logging
 import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +25,8 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+
+from artscraper import Artwork
 
 from .ml_classifier import (
     MLClassifier,
@@ -492,28 +494,21 @@ def batch_classify(
     )
 
 
-def artwork_of(reference: str, artworks: dict | None) -> dict | None:
+def artwork_of(reference: str, artworks: dict[str, Artwork] | None) -> Artwork | None:
     """The scraped record a matched reference describes, if we have it.
 
     The reference is the join key: a URL for scraped artworks, a path for local
     files (looked up by name, since the directory may differ per machine).
     """
-    if not artworks:
+    if not artworks or not reference:
         return None
-    artwork = artworks.get(reference) or artworks.get(Path(reference).name)
-    if artwork is None:
-        return None
-    return {
-        "source": artwork.source,
-        "url": artwork.url,
-        "title": artwork.title,
-        "artist": artwork.artist,
-        "year": artwork.year,
-    }
+    return artworks.get(reference) or artworks.get(Path(reference).name)
 
 
 def write_json_output(
-    output: BatchClassifyOutput, path: str | Path, artworks: dict | None = None
+    output: BatchClassifyOutput,
+    path: str | Path,
+    artworks: dict[str, Artwork] | None = None,
 ) -> None:
     """Write batch classification output to JSON file.
 
@@ -536,7 +531,9 @@ def write_json_output(
                 "confidence": r.confidence,
                 "threshold": r.threshold,
                 "features": r.features,
-                "artwork": artwork_of(r.wikiart_path, artworks),
+                "artwork": asdict(a)
+                if (a := artwork_of(r.wikiart_path, artworks))
+                else None,
             }
             for r in output.results
         ],
@@ -549,7 +546,9 @@ def write_json_output(
 
 
 def write_csv_output(
-    output: BatchClassifyOutput, path: str | Path, artworks: dict | None = None
+    output: BatchClassifyOutput,
+    path: str | Path,
+    artworks: dict[str, Artwork] | None = None,
 ) -> None:
     """Write batch classification output to CSV file.
 
@@ -590,7 +589,7 @@ def write_csv_output(
         writer.writerow(header)
 
         for r in output.results:
-            artwork = artwork_of(r.wikiart_path, artworks) or {}
+            artwork = artwork_of(r.wikiart_path, artworks)
             row = [
                 r.glashelder_path,
                 r.glashelder_index,
@@ -599,10 +598,10 @@ def write_csv_output(
                 r.is_match,
                 r.confidence,
                 r.threshold,
-                artwork.get("title"),
-                artwork.get("artist"),
-                artwork.get("year"),
-                artwork.get("url"),
+                artwork and artwork.title,
+                artwork and artwork.artist,
+                artwork and artwork.year,
+                artwork and artwork.url,
             ]
             row.extend(r.similarities)
             row.extend([r.features.get(fn, 0.0) for fn in feature_names])
