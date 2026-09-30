@@ -187,7 +187,7 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
     return combine_files(jsonl, path=output)
 
 
-@artscraper.command("combine_jsonls")
+@artscraper.command("combine_jsons")
 @click.argument(
     "json_files",
     nargs=-1,
@@ -201,8 +201,8 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
     required=True,
     help="output json file path",
 )
-def combine_jsonls_command(json_files: tuple[Path, ...], output: Path):
-    """Combine one or more jsonl files of `Artwork`s into one json"""
+def combine_jsons_command(json_files: tuple[Path, ...], output: Path):
+    """Combine one or more jsonl or json files of `Artwork`s into one json"""
     output = Path(output)
     json_files = tuple(Path(json_file) for json_file in json_files)
 
