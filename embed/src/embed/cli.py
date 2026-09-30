@@ -375,6 +375,18 @@ def info(path: Path):
     ):
         click.echo(f"{name + ':':9}{value}")
 
+    import torch
+
+    from .search import nbytes, placement
+
+    device = get_device()
+    _, lines = placement(
+        size, nbytes(embeddings, torch.float16), embeddings.dtype, device
+    )
+    click.echo(f"\nfor searching on this machine ({device}):")
+    for _, line in lines:
+        click.echo(f"  {line}")
+
 
 @embed.command()
 @click.option(
