@@ -9,7 +9,7 @@ import click
 
 from artscraper import Artwork
 from common import ASSETS_DIR
-from common.config import config, defaults_for
+from common.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -29,27 +29,12 @@ def load_artworks(path: str | Path | None) -> dict[str, Artwork]:
 
 
 @click.group()
-@click.pass_context
-def artmatcher(ctx: click.Context):
+def artmatcher():
     """Match glass plate photos to known artworks using feature matching and ML.
 
     Artifact locations and tuning defaults come from `glashelder.toml`, so the
     options below only need to be given when overriding it.
     """
-    settings = config()
-    paths = {
-        "artworks": settings.paths.artworks,
-        "image_dir": settings.paths.images.glashelder,
-        "glashelder_embeddings": settings.paths.embeddings.glashelder,
-        "wikiart_embeddings": settings.paths.embeddings.reference,
-        "ml_model": settings.paths.ml_model,
-    }
-    # an unset path must not shadow the default declared on the command itself
-    supplied = {
-        **defaults_for(settings.artmatcher),
-        **{name: str(value) for name, value in paths.items() if value is not None},
-    }
-    ctx.default_map = dict.fromkeys(("serve", "batch-classify"), supplied)
 
 
 @artmatcher.command()
