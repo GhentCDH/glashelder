@@ -119,8 +119,22 @@ def cli_defaults() -> dict:
             ml_model=paths.ml_model,
         ),
     }
+    embedding = defaults_for(settings.embed)
     return {
         "artscraper": {"scrape": given(output=paths.artworks)},
+        "embed": {
+            "artworks": {
+                **embedding,
+                **given(artworks=paths.artworks, output=paths.embeddings.reference),
+            },
+            "images": {
+                **embedding,
+                **given(
+                    image_dir=paths.images.glashelder,
+                    output=paths.embeddings.glashelder,
+                ),
+            },
+        },
         "artmatcher": {"serve": matching, "batch-classify": matching},
     }
 

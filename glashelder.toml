@@ -26,6 +26,10 @@ cache = false    # a full reference set on disk is tens of gigabytes
 # per_host = 8
 # rate = 20.0
 
+[embed]
+model = "clip"
+batch_size = 64
+
 [artmatcher]
 workers = 45
 threshold = 0.82

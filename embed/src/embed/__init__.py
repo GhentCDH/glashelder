@@ -14,7 +14,7 @@ from .embed import (
     save_embeddings,
 )
 from .store import Store, is_store
-from .stream import encode_refs, encode_stream
+from .stream import encode_into, encode_stream, pending
 
 __all__ = [
     "CLIP_MODEL_ID",
@@ -24,12 +24,13 @@ __all__ = [
     "OpenCLIPEmbedder",
     "Qwen3VLEmbedder",
     "Store",
-    "encode_refs",
+    "encode_into",
     "encode_stream",
     "get_device",
     "get_embedder",
     "is_store",
     "load_embeddings",
+    "pending",
     "read_embeddings",
     "rebase_paths",
     "relativize_image_paths",
