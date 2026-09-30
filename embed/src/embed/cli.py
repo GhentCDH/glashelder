@@ -1,5 +1,6 @@
 import logging
 import pickle
+from collections import Counter
 from pathlib import Path
 
 import click
@@ -175,13 +176,18 @@ def embed_refs(
             "the rows after them moved up"
         )
 
-    todo = pending(store, refs, verify=verify)
+    todo, skipped = pending(store, refs, verify=verify)
     if limit:
         todo = todo[:limit]
     logger.info(
         f"{output}: {len(store):,} rows stored, {len(todo):,} images to "
         f"{'check' if verify else 'embed'}"
     )
+    if skipped:
+        logger.info(
+            f"left out {skipped:,} images that failed before for a lasting reason "
+            "(like a 404); --verify tries them again"
+        )
     if not todo:
         return
     log_limits(todo, per_host, rate)
@@ -204,8 +210,9 @@ def embed_refs(
             batch_size=batch_size,
             report=lambda p: bar.update(
                 task,
-                completed=p.loaded,
-                description=f"embedded {p.embedded:,}, hashed {p.hashed:,}",
+                completed=p.done,
+                description=f"embedded {p.embedded:,}, failed {p.failed.total():,}"
+                + (f", hash added to {p.hashed:,} old rows" if verify else ""),
             ),
             concurrency=concurrency,
             per_host=per_host,
@@ -213,16 +220,23 @@ def embed_refs(
         )
 
     logger.info(
-        f"{output}: embedded {done.embedded:,}, recorded {done.hashed:,} hashes, "
-        f"{done.loaded - done.embedded - done.hashed:,} unchanged, "
-        f"{done.total - done.loaded:,} could not be read; {len(store):,} rows now"
+        f"{output}: embedded {done.embedded:,} (each with the hash of its image), "
+        f"{done.loaded - done.embedded - done.hashed:,} unchanged"
+        + (f", hash added to {done.hashed:,} old rows" if verify else "")
+        + f"; {len(store):,} rows now"
     )
+    if done.failed:
+        reasons = ", ".join(f"{n:,} {why}" for why, n in done.failed.most_common())
+        logger.warning(
+            f"could not read {done.failed.total():,} images: {reasons}. "
+            f"{len(store.failures()):,} failed for a lasting reason; they are listed "
+            f"in {output / 'failures.jsonl'} and left out of the next run "
+            "(--verify tries them again). The rest are tried again next time."
+        )
 
 
 def log_limits(sources: list[str], per_host: int | None, rate: float | None) -> None:
     """How each host will be fetched from, and how long that takes at the least."""
-    from collections import Counter
-
     from common.config import config
     from common.images import host
 
@@ -410,8 +424,17 @@ def info(path: Path):
         kind = f"store (version {store.meta['version']})"
         hashed = sum(h is not None for h in store.hashes().values())
         hashed_line = f"{hashed:,} of {len(store):,}"
+        failures = Counter(store.failures().values())
+        failed_line = (
+            f"{failures.total():,} ("
+            + ", ".join(f"{n:,} {why}" for why, n in failures.most_common())
+            + ")"
+            if failures
+            else "0"
+        )
     else:
         kind, hashed_line = "legacy pickle", "none (convert it to a store first)"
+        failed_line = "-"
 
     rows, dim = embeddings.shape
     size = embeddings.element_size() * embeddings.nelement()
@@ -422,6 +445,7 @@ def info(path: Path):
         ("rows", f"{rows:,} x {dim} {str(embeddings.dtype).removeprefix('torch.')}"),
         ("size", format_bytes(size)),
         ("hashed", hashed_line),
+        ("failed", failed_line),
         ("root", data["root"]),
         ("example", refs[0] if refs else "-"),
     ):

@@ -6,6 +6,8 @@ A store is a directory:
     vectors.bin   N x dim matrix, one fixed-size row per image
     hashes.bin    N x 16 bytes: a hash of the image bytes each row was made from
     refs.txt      one reference per line, line i belongs to row i
+    failures.jsonl  optional: refs that could not be read, with the reason, for
+                    failures that trying again will not fix (a 404, a broken file)
 
 The matrix is memory-mapped, so opening a store reads nothing up front and the OS
 keeps as much of it in RAM as fits. New rows are appended with their ref line
@@ -28,6 +30,7 @@ from pathlib import Path
 import numpy as np
 
 META, VECTORS, HASHES, REFS = "meta.json", "vectors.bin", "hashes.bin", "refs.txt"
+FAILURES = "failures.jsonl"
 VERSION = 1
 HASH_BYTES = 16
 UNKNOWN = bytes(HASH_BYTES)
@@ -208,8 +211,36 @@ class Store:
                 file.seek(rows[ref] * HASH_BYTES)
                 file.write(_hash_bytes(digest))
 
+    def failures(self) -> dict[str, str]:
+        """Refs that could not be read for a lasting reason, with that reason."""
+        path = self.path / FAILURES
+        if not path.is_file():
+            return {}
+        lines = path.read_text(encoding="utf-8").splitlines()
+        rows = (json.loads(line) for line in lines if line)
+        return {row["ref"]: row["reason"] for row in rows}
+
+    def set_failures(self, failures: Mapping[str, str]) -> None:
+        """Replace the recorded failures, atomically."""
+        path = self.path / FAILURES
+        if not failures:
+            path.unlink(missing_ok=True)
+            return
+        temporary = self.path / f"{FAILURES}.tmp"
+        temporary.write_text(
+            "".join(
+                json.dumps({"ref": ref, "reason": why}, ensure_ascii=False) + "\n"
+                for ref, why in failures.items()
+            ),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+
     def prune(self, keep: Collection[str]) -> int:
         """Drop every row whose ref is not in `keep`. Shifts the rows after it."""
+        failures = self.failures()
+        if any(ref not in keep for ref in failures):
+            self.set_failures({r: w for r, w in failures.items() if r in keep})
         kept = [i for i, ref in enumerate(self._refs) if ref in keep]
         removed = len(self._refs) - len(kept)
         if not removed:

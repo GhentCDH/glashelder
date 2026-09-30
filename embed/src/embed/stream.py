@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from common.images import stream
+from common.images import reason, stream
 
 from .embed import EmbeddingModel
 from .store import Store
@@ -35,6 +36,7 @@ async def encode_stream(
     *,
     batch_size: int = 64,
     keep: Callable[[str, str], bool] | None = None,
+    on_error: Callable[[str, Exception], None] | None = None,
     concurrency: int | None = None,
     per_host: int | None = None,
     rate: float | None = None,
@@ -42,12 +44,19 @@ async def encode_stream(
     """Embed every reference, yielding `(refs, digests, embeddings)` a batch at a time.
 
     `keep(ref, digest)` is asked for every image once it is loaded, before it is
-    embedded, so a known and unchanged image costs no GPU time. The refs are the
-    original strings (a URL stays a URL) and only cover images that loaded. Order
-    follows completion, not input.
+    embedded, so a known and unchanged image costs no GPU time. `on_error` gets
+    every image that could not be read. The refs are the original strings (a URL
+    stays a URL) and only cover images that loaded. Order follows completion, not
+    input.
     """
     batch: list[tuple[str, Image.Image, str]] = []
-    fetched = stream(refs, concurrency=concurrency, per_host=per_host, rate=rate)
+    fetched = stream(
+        refs,
+        concurrency=concurrency,
+        per_host=per_host,
+        rate=rate,
+        on_error=on_error,
+    )
     async for ref, image, digest in fetched:
         if keep is not None and not keep(ref, digest):
             continue
@@ -67,12 +76,21 @@ def _encode(
     return refs, digests, embedder.encode_pil_batch(images).cpu()
 
 
-def pending(store: Store, refs: Mapping[str, str], *, verify: bool) -> list[str]:
-    """The images a run has to read: the ones missing from the store, or all with `verify`."""
+def pending(
+    store: Store, refs: Mapping[str, str], *, verify: bool
+) -> tuple[list[str], int]:
+    """The images a run has to read, and how many were left out as failed before.
+
+    That is the ones missing from the store, except those that failed for a lasting
+    reason on an earlier run (a 404, a broken file). With `verify` it is all of them.
+    """
     if verify:
-        return list(refs)
+        return list(refs), 0
     stored = set(store.refs())
-    return [source for source, key in refs.items() if key not in stored]
+    failed = store.failures()
+    missing = [(source, key) for source, key in refs.items() if key not in stored]
+    todo = [source for source, key in missing if key not in failed]
+    return todo, len(missing) - len(todo)
 
 
 @dataclass
@@ -82,6 +100,12 @@ class Progress:
     embedded: int = 0
     hashed: int = 0
     """Stored rows that had no hash yet: hashed, not embedded again."""
+    failed: Counter[str] = field(default_factory=Counter)
+    """Images that could not be read, by reason."""
+
+    @property
+    def done(self) -> int:
+        return self.loaded + self.failed.total()
 
 
 def encode_into(
@@ -102,8 +126,13 @@ def encode_into(
     in the store (the path relative to the store's root, or the same URL). An image
     whose key is stored with the same hash is skipped; one stored without a hash,
     from before hashes were kept, gets its hash recorded and keeps its vector.
+
+    Images that fail for a lasting reason are recorded in the store, so the next
+    run skips them; one that loads again is taken off that list.
     """
     known = store.hashes()
+    recorded = store.failures()
+    before = dict(recorded)
     progress = Progress(total=len(todo))
     unhashed: dict[str, str] = {}
 
@@ -111,11 +140,23 @@ def encode_into(
         store.put_hashes(unhashed)
         unhashed.clear()
 
+    def failed(source: str, error: Exception) -> None:
+        why, lasting = reason(error)
+        progress.failed[why] += 1
+        logger.debug(f"skipping {source}: {error}")
+        if lasting:
+            recorded[refs[source]] = why
+        else:
+            recorded.pop(refs[source], None)
+        if report is not None:
+            report(progress)
+
     def keep(source: str, digest: str) -> bool:
         progress.loaded += 1
         if report is not None:
             report(progress)
         key = refs[source]
+        recorded.pop(key, None)
         if key not in known:
             return True
         if known[key] is None:
@@ -132,6 +173,7 @@ def encode_into(
             todo,
             batch_size=batch_size,
             keep=keep,
+            on_error=failed,
             concurrency=concurrency,
             per_host=per_host,
             rate=rate,
@@ -146,4 +188,6 @@ def encode_into(
         asyncio.run(run())
     finally:
         flush()
+        if recorded != before:
+            store.set_failures(recorded)
     return progress
