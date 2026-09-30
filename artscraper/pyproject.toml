@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [{ name = "Miel Peeters", email = "peetersmiel@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
+    "common",
     "beautifulsoup4>=4.12",
     "click>=8.3.1",
     "httpx>=0.27",

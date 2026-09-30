@@ -9,8 +9,10 @@ from contextlib import nullcontext
 from dataclasses import asdict
 from pathlib import Path
 
+from common.throttle import Throttle
+
 from .backends import Context, registry
-from .client import Stats, Throttle, make_client
+from .client import Stats, make_client
 from .index import open_text, read
 from .model import Artwork
 
