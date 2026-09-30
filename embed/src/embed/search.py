@@ -70,50 +70,75 @@ def place(
     matrix that does not fit in RAM costs one full read per query.
     """
     logger.info(describe(matrix, label))
-    gpu_size = nbytes(matrix, torch.float16)
+    on_gpu, lines = placement(
+        nbytes(matrix), nbytes(matrix, torch.float16), matrix.dtype, device
+    )
+    for level, line in lines:
+        if level == logging.WARNING and scans_per_query:
+            line += ", and every text or upload query is one full scan"
+        logger.log(level, line)
+    return matrix.to(device=device, dtype=torch.float16) if on_gpu else matrix
 
+
+def placement(
+    size: int, gpu_size: int, dtype: torch.dtype, device: str
+) -> tuple[bool, list[tuple[int, str]]]:
+    """Whether a matrix goes to the GPU, and the report lines that explain it.
+
+    Needs only sizes, so `embed info` can say where a store would go on this
+    machine without loading it.
+    """
+    lines: list[tuple[int, str]] = []
     if device.startswith("cuda"):
         free, _ = torch.cuda.mem_get_info(torch.device(device))
         if gpu_size * VRAM_MARGIN <= free:
-            placed = matrix.to(device=device, dtype=torch.float16)
-            logger.info(
-                f"VRAM: moved to {device} ({format_bytes(gpu_size)} of "
-                f"{format_bytes(free)} free)"
+            return True, [
+                (
+                    logging.INFO,
+                    f"VRAM: on {device} ({format_bytes(gpu_size)} of "
+                    f"{format_bytes(free)} free)",
+                ),
+                (logging.INFO, "RAM:  not needed for search (on GPU)"),
+                (logging.INFO, f"compute: float16 on {device}"),
+            ]
+        lines.append(
+            (
+                logging.INFO,
+                f"VRAM: not used, needs {format_bytes(gpu_size * VRAM_MARGIN)}, "
+                f"{format_bytes(free)} free on {device}",
             )
-            logger.info("RAM:  not needed for search (on GPU)")
-            logger.info(f"compute: float16 on {device}")
-            return placed
-        logger.info(
-            f"VRAM: not used, needs {format_bytes(gpu_size * VRAM_MARGIN)}, "
-            f"{format_bytes(free)} free on {device}"
         )
     else:
-        logger.info("VRAM: not used (no CUDA device)")
+        lines.append((logging.INFO, "VRAM: not used (no CUDA device)"))
 
-    size, available = nbytes(matrix), available_ram()
+    available = available_ram()
     if available is None:
-        logger.info(f"RAM:  unknown how much is available, needs {format_bytes(size)}")
+        lines.append(
+            (
+                logging.INFO,
+                f"RAM:  unknown how much is available, needs {format_bytes(size)}",
+            )
+        )
     elif size <= available:
-        logger.info(
-            f"RAM:  fits ({format_bytes(size)} of {format_bytes(available)} "
-            "available), repeated searches read from RAM"
+        lines.append(
+            (
+                logging.INFO,
+                f"RAM:  fits ({format_bytes(size)} of {format_bytes(available)} "
+                "available), repeated searches read from RAM",
+            )
         )
     else:
-        logger.warning(
-            f"RAM:  does NOT fit ({format_bytes(size)}, {format_bytes(available)} "
-            "available), every full scan reads the file from disk again"
-            + (
-                ", and every text or upload query is one full scan"
-                if scans_per_query
-                else ""
+        lines.append(
+            (
+                logging.WARNING,
+                f"RAM:  does NOT fit ({format_bytes(size)}, {format_bytes(available)} "
+                "available), every full scan reads the file from disk again",
             )
         )
 
-    converted = (
-        " (each chunk converted from float16)" if matrix.dtype == torch.float16 else ""
-    )
-    logger.info(f"compute: float32 on cpu{converted}")
-    return matrix
+    converted = " (each chunk converted from float16)" if dtype == torch.float16 else ""
+    lines.append((logging.INFO, f"compute: float32 on cpu{converted}"))
+    return False, lines
 
 
 def topk(
