@@ -191,10 +191,10 @@ class LiveSource(ClassificationSource):
 
     def _embedding_results(self, index: int) -> tuple[list[int], list[float]]:
         """Get embedding search results for an image (fast)."""
-        import cluster
+        from embed.search import perform_search
 
         emb = self._glashelder_emb[index]
-        top_indices, top_values = cluster.perform_search(
+        top_indices, top_values = perform_search(
             self._top_k, emb.unsqueeze(0), self._wikiart_emb, self._wikiart_paths
         )
         return top_indices.cpu().numpy().tolist(), top_values.cpu().numpy().tolist()

@@ -52,47 +52,6 @@ def resize_image_to_max_dimension(src_path: str, dst_path: str, max_dim: int = 5
     resized_img.save(dst_path, quality=quality)
 
 
-def perform_search(top_k, text_embedding, image_embeddings, image_paths):
-    """Shared search logic"""
-    import torch
-
-    # Normalize embeddings
-    text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
-    image_embeddings_norm = image_embeddings / image_embeddings.norm(
-        dim=-1, keepdim=True
-    )
-
-    # Calculate cosine similarity
-    similarities = (text_embedding @ image_embeddings_norm.T).squeeze(0)
-
-    # Get top-k indices
-    top_k = min(top_k, len(image_paths))
-    top_values, top_indices = torch.topk(similarities, top_k)
-
-    return top_indices, top_values
-
-
-def find_similar(query_index, top_k, image_embeddings, image_paths, exclude_self=True):
-    """Find images similar to a given image by index in the embedding space"""
-    import torch
-
-    query_embedding = image_embeddings[query_index].unsqueeze(0)
-    query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
-    image_embeddings_norm = image_embeddings / image_embeddings.norm(
-        dim=-1, keepdim=True
-    )
-    similarities = (query_embedding @ image_embeddings_norm.T).squeeze(0)
-
-    if exclude_self:
-        similarities[query_index] = -float("inf")
-        actual_top_k = min(top_k, len(image_paths) - 1)
-    else:
-        actual_top_k = min(top_k, len(image_paths))
-
-    top_values, top_indices = torch.topk(similarities, actual_top_k)
-    return top_indices, top_values
-
-
 @click.group()
 def cluster():
     """Cluster and search images using embedding similarity."""
@@ -157,7 +116,8 @@ def do_clustering(embeddings, image_dir, save, output_files, count, reduce, nbs,
     logger.info("Loading embeddings")
     data = load_embeddings(embeddings, root=image_dir)
     image_paths: list[str] = data["images"]
-    embeddings = data["embeddings"].to(device)
+    # UMAP needs all of it in memory, as float32
+    embeddings = data["embeddings"].float().to(device)
     logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
 
     logger.info("Reducing dimensions")
@@ -293,6 +253,7 @@ def search(
         get_embedder,
         load_embeddings,
     )
+    from embed.search import perform_search, place
 
     logger.info(f"Searching for: '{prompt}'")
     logger.info(f"Looking for top {top_k} matches")
@@ -303,7 +264,7 @@ def search(
     if embeddings is not None:
         data = load_embeddings(embeddings, root=image_dir)
         image_paths = data["images"]
-        image_embeddings = data["embeddings"].to(device)
+        image_embeddings = place(data["embeddings"], device, label=str(embeddings))
         embedding_model_name = data.get("model", "clip")
         logger.info(f"Loaded embeddings from model: {embedding_model_name}")
     else:
@@ -448,7 +409,7 @@ def analyze(
         logger.info("Loading embeddings")
         data = load_embeddings(embeddings, root=image_dir)
         image_paths = data["images"][:sample_size]
-        embeddings_tensor = data["embeddings"][:sample_size].to(device)
+        embeddings_tensor = data["embeddings"][:sample_size].float().to(device)
         embedding_model_name = data.get("model", "clip")
         embedding_model_id = data.get("model_id", CLIP_MODEL_ID)
         logger.info(f"Loaded embeddings from model: {embedding_model_name}")
