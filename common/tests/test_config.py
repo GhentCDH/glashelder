@@ -34,7 +34,7 @@ def write(text: str) -> Path:
 
 def test_defaults() -> None:
     config = Config()
-    assert config.paths.artworks == Path("artworks.jsonl")
+    assert config.paths.artworks == Path("artworks.json.zst")
     assert config.images.concurrency == 16
     assert config.paths.images.glashelder is None
 

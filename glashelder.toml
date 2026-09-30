@@ -3,7 +3,7 @@
 #   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
 
 [paths]
-artworks = "artworks.jsonl" # artscraper output, doubles as the metadata index
+artworks = "artworks.json.zst" # artscraper output, doubles as the metadata index
 ml_model = "model.pkl"
 
 [paths.images]

@@ -144,13 +144,21 @@ class TuiView:
 )
 @click.option(
     "--output",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Write the JSON list here instead of stdout (.json or compressed: .json.zst)",
+    type=click.Path(path_type=Path, allow_dash=True),
+    default="-",
+    show_default=True,
+    help="Where the JSON list goes (.json, or compressed: .json.zst), '-' for stdout. "
+    "Defaults to `paths.artworks` from glashelder.toml.",
 )
 @click.option("--tui", is_flag=True, help="Show a live table instead of progress bars")
 def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, output, tui):
     """Scrape the configured backends into a JSON list of artworks."""
+    output = None if str(output) == "-" else output
+    if output is not None and output.resolve() == jsonl.resolve():
+        raise click.BadParameter(
+            "the JSON list would overwrite the JSONL it is made from",
+            param_hint="--output",
+        )
     names = list(backends) or sorted(registry())
     console = Console(stderr=True)
 

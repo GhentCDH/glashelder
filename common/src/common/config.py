@@ -53,7 +53,7 @@ class EmbeddingPaths:
 class Paths:
     images: ImagePaths = field(default_factory=ImagePaths)
     embeddings: EmbeddingPaths = field(default_factory=EmbeddingPaths)
-    artworks: Path = Path("artworks.jsonl")
+    artworks: Path = Path("artworks.json.zst")
     """Artscraper output, which doubles as the artwork metadata index."""
     ml_model: Path | None = None
 

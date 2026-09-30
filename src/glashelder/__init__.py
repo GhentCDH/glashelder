@@ -2,6 +2,7 @@
 
 import logging
 from importlib import import_module
+from pathlib import Path
 
 import click
 from dotenv import load_dotenv
@@ -89,8 +90,45 @@ class LazyGroup(click.Group):
             )
 
 
+def cli_defaults() -> dict:
+    """Every command's defaults from `glashelder.toml`, as click's nested `default_map`.
+
+    Only settings that are set are handed over, so an unset one keeps the default
+    declared on the command itself. `common.config` imports nothing heavy, so this
+    costs nothing for commands that do not use it.
+    """
+    from common.config import config, defaults_for
+
+    settings = config()
+    paths = settings.paths
+
+    def given(**values) -> dict:
+        return {
+            name: str(value) if isinstance(value, Path) else value
+            for name, value in values.items()
+            if value is not None
+        }
+
+    matching = {
+        **defaults_for(settings.artmatcher),
+        **given(
+            artworks=paths.artworks,
+            image_dir=paths.images.glashelder,
+            glashelder_embeddings=paths.embeddings.glashelder,
+            wikiart_embeddings=paths.embeddings.reference,
+            ml_model=paths.ml_model,
+        ),
+    }
+    return {
+        "artscraper": {"scrape": given(output=paths.artworks)},
+        "artmatcher": {"serve": matching, "batch-classify": matching},
+    }
+
+
 @click.group(cls=LazyGroup)
-def main():
+@click.pass_context
+def main(ctx: click.Context):
     """Run the full glashelder CLI interface."""
-    # load .env file
+    # before the config is read, so `.env` can hold `GLASHELDER_*` overrides too
     load_dotenv()
+    ctx.default_map = cli_defaults()
