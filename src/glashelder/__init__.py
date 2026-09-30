@@ -113,9 +113,10 @@ def cli_defaults() -> dict:
         **defaults_for(settings.artmatcher),
         **given(
             artworks=paths.artworks,
-            image_dir=paths.images.glashelder,
+            glashelder_images=paths.images.glashelder,
             glashelder_embeddings=paths.embeddings.glashelder,
-            wikiart_embeddings=paths.embeddings.reference,
+            reference_embeddings=paths.embeddings.reference,
+            reference_images=paths.images.reference,
             ml_model=paths.ml_model,
         ),
     }
