@@ -22,7 +22,7 @@ from rich.table import Table
 
 from .backends import registry
 from .client import Stats
-from .harness import scrape, write_json
+from .harness import combine_files, scrape
 from .model import Artwork
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ class TuiView:
     "--output",
     type=click.Path(path_type=Path),
     default=None,
-    help="Write the JSON list here instead of stdout",
+    help="Write the JSON list here instead of stdout (.json or compressed: .json.zst)",
 )
 @click.option("--tui", is_flag=True, help="Show a live table instead of progress bars")
 def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, output, tui):
@@ -176,7 +176,35 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
                 with_images,
             )
 
-    write_json(jsonl, output)
+    return combine_files(jsonl, path=output)
+
+
+@artscraper.command("combine_jsonls")
+@click.argument(
+    "json_files",
+    nargs=-1,
+    type=click.Path(exists=True, file_okay=True, dir_okay=False),
+    required=True,
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(file_okay=True, dir_okay=False),
+    required=True,
+    help="output json file path",
+)
+def combine_jsonls_command(json_files: tuple[Path, ...], output: Path):
+    """Combine one or more jsonl files of `Artwork`s into one json"""
+    output = Path(output)
+    json_files = tuple(Path(json_file) for json_file in json_files)
+
+    if output.exists() and not click.confirm(
+        f"Warning: '{output}' already exists. Do you want to overwrite it?"
+    ):
+        click.echo("Aborted!")
+        return
+
+    combine_files(*json_files, path=output)
 
 
 def run(names, report, jsonl, concurrency, rate, limit, with_images):
