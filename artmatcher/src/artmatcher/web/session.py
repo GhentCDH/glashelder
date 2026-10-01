@@ -71,6 +71,11 @@ class LabelSession:
     # screen (which would otherwise attach the next label to the wrong image).
     request_seq: int = 0
 
+    # Where a running search for the next image has got to in `order`, so the
+    # page can show it move while the search is still going. None when idle.
+    # Not saved: it only means something while a request is in flight.
+    scan_position: int | None = None
+
     def begin_request(self) -> int:
         self.request_seq += 1
         return self.request_seq

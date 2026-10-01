@@ -487,7 +487,7 @@ def batch_classify(
     similarities, indices = top_matches(inputs, top_k)
     result = do_batch_classify(
         glashelder_paths=inputs.glashelder_paths,
-        wikiart_paths=inputs.wikiart_paths,
+        wikiart_paths=inputs.artwork_paths,
         top_indices=indices,
         top_similarities=similarities,
         classifier=classifier,

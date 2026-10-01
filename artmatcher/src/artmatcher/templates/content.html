@@ -1,5 +1,7 @@
 {% if dataset_counts %}
-<div class="flex gap-4 items-center p-3 bg-blue-50 rounded mb-4 text-sm">
+<!-- the row doubles as a picture of the session's order: the arrow below it
+     is where in that (random, fixed, wrapping) order the cursor is -->
+<div class="relative flex gap-4 items-center p-3 bg-blue-50 rounded mb-6 text-sm">
   <span class="font-bold">Dataset:</span>
   <span class="text-green-600">TP: {{ dataset_counts.positives }}</span>
   <span class="text-blue-600">TN: {{ dataset_counts.negatives }}</span>
@@ -10,6 +12,21 @@
   <span class="text-neutral-600">
     ({{ labeled_count }}/{{ total_images }} labeled, {{ remaining }} to go)
   </span>
+  {% endif %} {% if session_id %}
+  <a
+    href="/download-dataset?session={{ session_id }}"
+    class="bg-neutral-800 text-white rounded px-3 py-1 hover:bg-neutral-600 transition-colors"
+  >
+    Download
+  </a>
+  {% endif %} {% if queue_size %}
+  <span
+    id="queue-arrow"
+    class="absolute top-full -translate-x-1/2 text-xs leading-none text-blue-700 transition-[left] duration-200"
+    style="left: {{ 100 * queue_position / queue_size }}%"
+    title="at {{ queue_position + 1 }} of {{ queue_size }} in this session's order"
+    >▲</span
+  >
   {% endif %}
 </div>
 {% endif %} {% if error %}
@@ -18,7 +35,9 @@
 
 <div class="flex gap-4 items-center p-3 bg-neutral-100 rounded mb-4 text-sm">
   <span>Image {{ current_index + 1 }} of {{ total_images }}</span>
-  <span class="px-2 py-1 rounded text-xs {% if classifier_type == 'ml' %}bg-purple-100 text-purple-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+  <span
+    class="px-2 py-1 rounded text-xs {% if classifier_type == 'ml' %}bg-purple-100 text-purple-800{% else %}bg-gray-100 text-gray-800{% endif %}"
+  >
     {{ classifier_type|upper }}
   </span>
   <span class="ml-auto">
@@ -30,28 +49,14 @@
     </span>
   </span>
   <span>
-    {% if classifier_type == 'ml' %}
-    Confidence:
-    {% else %}
-    Diff:
-    {% endif %}
+    {% if classifier_type == 'ml' %} Confidence: {% else %} Diff: {% endif %}
     <span
       class="font-bold {% if diff > threshold %}text-green-600{% else %}text-red-600{% endif %}"
     >
       {{ "%.4f"|format(diff) }}
     </span>
-    (threshold: {{ "%.2f"|format(threshold) }})
-  </span>
-</div>
-
-<div class="flex gap-4 items-center p-3 bg-neutral-50 rounded mb-4 text-sm">
-  <form
-    hx-post="/set-threshold"
-    hx-target="#content"
-    hx-indicator="#loading"
-    class="flex gap-2 items-center"
-  >
-    <label for="threshold">Threshold:</label>
+    (<label for="threshold">threshold:</label>
+    <!-- applied on Enter or when the field loses focus -->
     <input
       type="number"
       name="threshold"
@@ -60,15 +65,14 @@
       step="0.01"
       min="0"
       max="1"
-      class="border border-neutral-300 rounded px-2 py-1 w-24"
-    />
-    <button
-      type="submit"
-      class="bg-neutral-800 text-white rounded px-3 py-1 hover:bg-neutral-600 transition-colors"
-    >
-      Apply
-    </button>
-  </form>
+      title="Enter, or click elsewhere, to apply"
+      hx-post="/set-threshold"
+      hx-trigger="change"
+      hx-target="#content"
+      hx-indicator="#loading"
+      class="border border-neutral-300 rounded px-1 w-20 bg-white"
+    />)
+  </span>
 </div>
 
 <div class="grid grid-cols-2 gap-8 mb-8">
@@ -82,24 +86,26 @@
     <div class="p-3 text-xs break-all bg-neutral-50">{{ glashelder_path }}</div>
   </div>
 
-  <div class="border-2 {% if is_match %}border-green-300{% else %}border-red-300{% endif %} rounded overflow-hidden">
-    <h2 class="p-3 text-sm font-bold {% if is_match %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
-      {% if is_match %}
-      WikiArt Match
-      {% else %}
-      Top WikiArt Result (Not a Match)
-      {% endif %}
+  <div
+    class="border-2 {% if is_match %}border-green-300{% else %}border-red-300{% endif %} rounded overflow-hidden"
+  >
+    <h2
+      class="p-3 text-sm font-bold {% if is_match %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}"
+    >
+      {% if is_match %} Artwork Match {% else %} Best Guess (Not a Match) {%
+      endif %}
     </h2>
     <img
-      src="/wikiart-image/{{ top_match_index }}"
-      alt="WikiArt top result"
+      src="/artwork-image/{{ top_match_index }}"
+      alt="Artmatcher top result"
       class="w-full h-[500px] object-contain bg-neutral-50 {% if not is_match %}opacity-75{% endif %}"
     />
     {% if artwork %}
     <div class="p-3 text-sm bg-neutral-50 border-t border-neutral-200">
       <div class="font-bold">{{ artwork.title or "Untitled" }}</div>
       <div class="text-neutral-600">
-        {{ artwork.artist or "unknown artist" }}{% if artwork.year %} · {{ artwork.year }}{% endif %}
+        {{ artwork.artist or "unknown artist" }}{% if artwork.year %} · {{
+        artwork.year }}{% endif %}
       </div>
       {% if artwork.url %}
       <a
@@ -113,7 +119,71 @@
       {% endif %}
     </div>
     {% endif %}
-    <div class="p-3 text-xs break-all bg-neutral-50">{{ wikiart_path }}</div>
+    <div class="p-3 text-xs break-all bg-neutral-50">{{ artwork_path }}</div>
+
+    {% if alternatives %}
+    <!-- the next best matches; their images load only when this is opened -->
+    <details
+      id="alternatives"
+      class="border-t border-neutral-200"
+      ontoggle="
+        try { localStorage.setItem('artmatcher.alternatives', this.open ? '1' : '0'); } catch (e) {}
+        if (this.open) this.querySelectorAll('img[data-src]').forEach((img) => {
+          if (!img.getAttribute('src')) img.src = img.dataset.src;
+        });
+      "
+    >
+      <summary class="p-3 bg-neutral-100 cursor-pointer text-sm font-bold">
+        Next {{ alternatives|length }} best matches
+      </summary>
+      <div class="grid grid-cols-2 gap-3 p-3 bg-neutral-50">
+        {% for alt in alternatives %}
+        <div class="border border-neutral-200 rounded overflow-hidden bg-white">
+          <img
+            data-src="/artwork-image/{{ alt.index }}"
+            alt="match {{ alt.rank }}"
+            class="w-full h-48 object-contain bg-neutral-50"
+          />
+          <div class="p-2 text-xs">
+            <div class="flex justify-between gap-2">
+              <span class="font-bold">#{{ alt.rank }}</span>
+              <span>similarity {{ "%.4f"|format(alt.similarity) }}</span>
+            </div>
+            {% if alt.artwork %}
+            <div class="font-bold mt-1">{{ alt.artwork.title or "Untitled" }}</div>
+            <div class="text-neutral-600">
+              {{ alt.artwork.artist or "unknown artist" }}{% if alt.artwork.year %}
+              · {{ alt.artwork.year }}{% endif %}
+            </div>
+            {% if alt.artwork.url %}
+            <a
+              href="{{ alt.artwork.url }}"
+              target="_blank"
+              rel="noreferrer"
+              class="text-blue-700 underline"
+            >
+              {{ alt.artwork.source }} record
+            </a>
+            {% endif %} {% else %}
+            <div class="break-all text-neutral-600 mt-1">{{ alt.artwork_path }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("artmatcher.alternatives") === "1") {
+            document.getElementById("alternatives").open = true;
+          }
+        } catch (e) {
+          // blocked storage: the list just starts closed
+        }
+      })();
+    </script>
+    {% endif %}
   </div>
 </div>
 
@@ -121,7 +191,9 @@
 <div class="grid grid-cols-3 gap-4 mb-8">
   <!-- ORB Features Panel -->
   <div class="border-2 border-purple-200 rounded p-4">
-    <h2 class="text-sm font-bold mb-3 text-purple-800">ORB Geometric Features</h2>
+    <h2 class="text-sm font-bold mb-3 text-purple-800">
+      ORB Geometric Features
+    </h2>
     <div class="grid grid-cols-2 gap-2 text-sm">
       <div class="flex justify-between bg-purple-50 p-2 rounded">
         <span>Matches:</span>
@@ -129,21 +201,29 @@
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded">
         <span>Inliers:</span>
-        <span class="font-bold {% if features.orb_num_inliers > 10 %}text-green-600{% elif features.orb_num_inliers > 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.orb_num_inliers > 10 %}text-green-600{% elif features.orb_num_inliers > 4 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ features.orb_num_inliers|int }}
         </span>
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded">
         <span>Confidence:</span>
-        <span class="font-bold">{{ "%.4f"|format(features.orb_confidence) }}</span>
+        <span class="font-bold"
+          >{{ "%.4f"|format(features.orb_confidence) }}</span
+        >
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded">
         <span>Inlier Ratio:</span>
-        <span class="font-bold">{{ "%.2f"|format(features.inlier_match_ratio) }}</span>
+        <span class="font-bold"
+          >{{ "%.2f"|format(features.inlier_match_ratio) }}</span
+        >
       </div>
       <div class="flex justify-between bg-purple-50 p-2 rounded col-span-2">
         <span>Warp Stretch:</span>
-        <span class="font-bold {% if features.orb_warp_stretch < 2 %}text-green-600{% elif features.orb_warp_stretch < 4 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.orb_warp_stretch < 2 %}text-green-600{% elif features.orb_warp_stretch < 4 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ "%.2f"|format(features.orb_warp_stretch) }}
         </span>
       </div>
@@ -152,29 +232,39 @@
 
   <!-- Hash Features Panel -->
   <div class="border-2 border-green-200 rounded p-4">
-    <h2 class="text-sm font-bold mb-3 text-green-800">Perceptual Hash Distance</h2>
+    <h2 class="text-sm font-bold mb-3 text-green-800">
+      Perceptual Hash Distance
+    </h2>
     <div class="grid grid-cols-2 gap-2 text-sm">
       <div class="flex justify-between bg-green-50 p-2 rounded">
         <span>pHash:</span>
-        <span class="font-bold {% if features.phash_distance < 10 %}text-green-600{% elif features.phash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.phash_distance < 10 %}text-green-600{% elif features.phash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ features.phash_distance|int }}
         </span>
       </div>
       <div class="flex justify-between bg-green-50 p-2 rounded">
         <span>dHash:</span>
-        <span class="font-bold {% if features.dhash_distance < 10 %}text-green-600{% elif features.dhash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.dhash_distance < 10 %}text-green-600{% elif features.dhash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ features.dhash_distance|int }}
         </span>
       </div>
       <div class="flex justify-between bg-green-50 p-2 rounded">
         <span>wHash:</span>
-        <span class="font-bold {% if features.whash_distance < 10 %}text-green-600{% elif features.whash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.whash_distance < 10 %}text-green-600{% elif features.whash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ features.whash_distance|int }}
         </span>
       </div>
       <div class="flex justify-between bg-green-50 p-2 rounded">
         <span>aHash:</span>
-        <span class="font-bold {% if features.ahash_distance < 10 %}text-green-600{% elif features.ahash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.ahash_distance < 10 %}text-green-600{% elif features.ahash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ features.ahash_distance|int }}
         </span>
       </div>
@@ -192,13 +282,17 @@
       </div>
       <div class="flex justify-between bg-blue-50 p-2 rounded">
         <span>Gap (1st-2nd):</span>
-        <span class="font-bold {% if features.gap_01 > 0.1 %}text-green-600{% elif features.gap_01 > 0.05 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.gap_01 > 0.1 %}text-green-600{% elif features.gap_01 > 0.05 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ "%.4f"|format(features.gap_01) }}
         </span>
       </div>
       <div class="flex justify-between bg-blue-50 p-2 rounded">
         <span>Z-Score:</span>
-        <span class="font-bold {% if features.sim_0_zscore > 3 %}text-green-600{% elif features.sim_0_zscore > 2 %}text-yellow-600{% else %}text-red-600{% endif %}">
+        <span
+          class="font-bold {% if features.sim_0_zscore > 3 %}text-green-600{% elif features.sim_0_zscore > 2 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
           {{ "%.2f"|format(features.sim_0_zscore) }}
         </span>
       </div>
@@ -208,7 +302,9 @@
       </div>
       <div class="flex justify-between bg-blue-50 p-2 rounded">
         <span>Sim Ratio:</span>
-        <span class="font-bold">{{ "%.3f"|format(features.sim_ratio_01) }}</span>
+        <span class="font-bold"
+          >{{ "%.3f"|format(features.sim_ratio_01) }}</span
+        >
       </div>
       <div class="flex justify-between bg-blue-50 p-2 rounded">
         <span>Decay Rate:</span>
@@ -217,6 +313,49 @@
     </div>
   </div>
 </div>
+
+<!-- ORB alignment: computed by the server only when opened, since it runs the
+     whole ORB matching again. Stays open from one image to the next. -->
+<details
+  id="orb-overlay"
+  class="mb-8 border-2 border-purple-200 rounded"
+  ontoggle="
+    try { localStorage.setItem('artmatcher.orbOverlay', this.open ? '1' : '0'); } catch (e) {}
+    const img = this.querySelector('img');
+    if (this.open && img && !img.getAttribute('src')) img.src = img.dataset.src;
+  "
+>
+  <summary class="p-3 bg-purple-50 cursor-pointer text-sm font-bold text-purple-800">
+    ORB alignment: glashelder image warped onto the artwork, at half opacity
+  </summary>
+  <div class="p-4">
+    <img
+      data-src="/orb-overlay/{{ current_index }}/{{ top_match_index }}"
+      alt="computing the alignment…"
+      class="w-full max-h-[700px] object-contain bg-neutral-50"
+      onerror="this.replaceWith(Object.assign(document.createElement('p'), {
+        className: 'text-sm text-neutral-600',
+        textContent: 'No alignment to show: ORB found no homography between these two images.',
+      }))"
+    />
+    <p class="text-xs text-neutral-500 mt-2">
+      Uses the same ORB matches as the features above. Where the warped image
+      lines up with the artwork, the two blend into one; a wrong match shows as
+      two images on top of each other.
+    </p>
+  </div>
+</details>
+<script>
+  (function () {
+    try {
+      if (localStorage.getItem("artmatcher.orbOverlay") === "1") {
+        document.getElementById("orb-overlay").open = true;
+      }
+    } catch (e) {
+      // blocked storage: the overlay just starts closed
+    }
+  })();
+</script>
 
 <!-- All Features (collapsible) -->
 <details class="mb-8 border-2 border-neutral-200 rounded">
@@ -245,118 +384,118 @@
 </div>
 
 <script>
-(function() {
-  const similarityScores = [
-    {% for score in similarities %}
-      {{ score }}{{ "," if not loop.last else "" }}
-    {% endfor %}
-  ];
-  const diff = {{ diff }};
-  const threshold = {{ threshold }};
-  const classifierType = "{{ classifier_type }}";
+  (function() {
+    const similarityScores = [
+      {% for score in similarities %}
+        {{ score }}{{ "," if not loop.last else "" }}
+      {% endfor %}
+    ];
+    const diff = {{ diff }};
+    const threshold = {{ threshold }};
+    const classifierType = "{{ classifier_type }}";
 
-  function drawSimilarityPlot() {
-    const svg = document.getElementById('similarity-plot');
-    if (!svg || similarityScores.length === 0) return;
+    function drawSimilarityPlot() {
+      const svg = document.getElementById('similarity-plot');
+      if (!svg || similarityScores.length === 0) return;
 
-    const rect = svg.getBoundingClientRect();
-    const width = rect.width || 800;
-    const height = 200;
-    const padding = { top: 10, right: 10, bottom: 30, left: 50 };
-    const plotWidth = width - padding.left - padding.right;
-    const plotHeight = height - padding.top - padding.bottom;
+      const rect = svg.getBoundingClientRect();
+      const width = rect.width || 800;
+      const height = 200;
+      const padding = { top: 10, right: 10, bottom: 30, left: 50 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
 
-    svg.innerHTML = '';
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.innerHTML = '';
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
 
-    const maxScore = Math.max(...similarityScores);
-    const minScore = Math.min(...similarityScores);
-    const scoreRange = maxScore - minScore || 0.1;
+      const maxScore = Math.max(...similarityScores);
+      const minScore = Math.min(...similarityScores);
+      const scoreRange = maxScore - minScore || 0.1;
 
-    const xScale = (i) => padding.left + (i / (similarityScores.length - 1 || 1)) * plotWidth;
-    const yScale = (score) => padding.top + plotHeight - ((score - minScore) / scoreRange) * plotHeight;
+      const xScale = (i) => padding.left + (i / (similarityScores.length - 1 || 1)) * plotWidth;
+      const yScale = (score) => padding.top + plotHeight - ((score - minScore) / scoreRange) * plotHeight;
 
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-    // Y-axis
-    const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    yAxis.setAttribute('x1', padding.left);
-    yAxis.setAttribute('y1', padding.top);
-    yAxis.setAttribute('x2', padding.left);
-    yAxis.setAttribute('y2', height - padding.bottom);
-    yAxis.setAttribute('stroke', '#666');
-    yAxis.setAttribute('stroke-width', '1');
-    g.appendChild(yAxis);
+      // Y-axis
+      const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      yAxis.setAttribute('x1', padding.left);
+      yAxis.setAttribute('y1', padding.top);
+      yAxis.setAttribute('x2', padding.left);
+      yAxis.setAttribute('y2', height - padding.bottom);
+      yAxis.setAttribute('stroke', '#666');
+      yAxis.setAttribute('stroke-width', '1');
+      g.appendChild(yAxis);
 
-    // X-axis
-    const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    xAxis.setAttribute('x1', padding.left);
-    xAxis.setAttribute('y1', height - padding.bottom);
-    xAxis.setAttribute('x2', width - padding.right);
-    xAxis.setAttribute('y2', height - padding.bottom);
-    xAxis.setAttribute('stroke', '#666');
-    xAxis.setAttribute('stroke-width', '1');
-    g.appendChild(xAxis);
+      // X-axis
+      const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      xAxis.setAttribute('x1', padding.left);
+      xAxis.setAttribute('y1', height - padding.bottom);
+      xAxis.setAttribute('x2', width - padding.right);
+      xAxis.setAttribute('y2', height - padding.bottom);
+      xAxis.setAttribute('stroke', '#666');
+      xAxis.setAttribute('stroke-width', '1');
+      g.appendChild(xAxis);
 
-    // Y-axis labels (just min and max)
-    [minScore, maxScore].forEach((score) => {
-      const y = yScale(score);
-      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      label.setAttribute('x', padding.left - 5);
-      label.setAttribute('y', y + 4);
-      label.setAttribute('text-anchor', 'end');
-      label.setAttribute('font-size', '10');
-      label.setAttribute('fill', '#666');
-      label.textContent = score.toFixed(3);
-      g.appendChild(label);
-    });
+      // Y-axis labels (just min and max)
+      [minScore, maxScore].forEach((score) => {
+        const y = yScale(score);
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', padding.left - 5);
+        label.setAttribute('y', y + 4);
+        label.setAttribute('text-anchor', 'end');
+        label.setAttribute('font-size', '10');
+        label.setAttribute('fill', '#666');
+        label.textContent = score.toFixed(3);
+        g.appendChild(label);
+      });
 
-    // X-axis labels (just 1 and n)
-    [0, similarityScores.length - 1].forEach((i) => {
-      const x = xScale(i);
-      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      label.setAttribute('x', x);
-      label.setAttribute('y', height - padding.bottom + 15);
-      label.setAttribute('text-anchor', 'middle');
-      label.setAttribute('font-size', '10');
-      label.setAttribute('fill', '#666');
-      label.textContent = i + 1;
-      g.appendChild(label);
-    });
+      // X-axis labels (just 1 and n)
+      [0, similarityScores.length - 1].forEach((i) => {
+        const x = xScale(i);
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', x);
+        label.setAttribute('y', height - padding.bottom + 15);
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('font-size', '10');
+        label.setAttribute('fill', '#666');
+        label.textContent = i + 1;
+        g.appendChild(label);
+      });
 
-    // Draw line
-    if (similarityScores.length > 1) {
-      let pathData = `M ${xScale(0)} ${yScale(similarityScores[0])}`;
-      for (let i = 1; i < similarityScores.length; i++) {
-        pathData += ` L ${xScale(i)} ${yScale(similarityScores[i])}`;
+      // Draw line
+      if (similarityScores.length > 1) {
+        let pathData = `M ${xScale(0)} ${yScale(similarityScores[0])}`;
+        for (let i = 1; i < similarityScores.length; i++) {
+          pathData += ` L ${xScale(i)} ${yScale(similarityScores[i])}`;
+        }
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', pathData);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', '#3b82f6');
+        path.setAttribute('stroke-width', '2');
+        g.appendChild(path);
       }
 
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', pathData);
-      path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', '#3b82f6');
-      path.setAttribute('stroke-width', '2');
-      g.appendChild(path);
+      // Draw first point highlighted (color based on ML confidence or simple diff)
+      const cx = xScale(0);
+      const cy = yScale(similarityScores[0]);
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', cx);
+      circle.setAttribute('cy', cy);
+      circle.setAttribute('r', '5');
+      circle.setAttribute('fill', diff > threshold ? '#22c55e' : '#ef4444');
+      g.appendChild(circle);
+
+      svg.appendChild(g);
     }
 
-    // Draw first point highlighted (color based on ML confidence or simple diff)
-    const cx = xScale(0);
-    const cy = yScale(similarityScores[0]);
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', cx);
-    circle.setAttribute('cy', cy);
-    circle.setAttribute('r', '5');
-    circle.setAttribute('fill', diff > threshold ? '#22c55e' : '#ef4444');
-    g.appendChild(circle);
-
-    svg.appendChild(g);
-  }
-
-  // Draw after layout is complete
-  requestAnimationFrame(() => {
-    requestAnimationFrame(drawSimilarityPlot);
-  });
-})();
+    // Draw after layout is complete
+    requestAnimationFrame(() => {
+      requestAnimationFrame(drawSimilarityPlot);
+    });
+  })();
 </script>
 
 {% endif %}
