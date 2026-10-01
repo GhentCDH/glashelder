@@ -36,9 +36,11 @@ classify:
 scrape:
     uv run glashelder artscraper scrape
 
-# embed what is new in the scrape into paths.embeddings.reference, fetching the images
+# embed what is new in the scrape into paths.embeddings.reference, fetching the
+# images, then bring the saved top-k for artmatcher up to date
 reference:
     uv run glashelder embed artworks --batch-size 512
+    uv run glashelder embed neighbours
 
 # embed what is new in paths.images.glashelder into paths.embeddings.glashelder
 generate:

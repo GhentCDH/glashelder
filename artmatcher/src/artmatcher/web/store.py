@@ -56,7 +56,8 @@ def normalize_dataset(data: dict) -> LabelDataset:
     Accepts a session file written by this app (four buckets nested under
     "dataset") and the older plain "Download dataset" export (the four buckets
     at the top level). Entries are left as they are apart from filling in
-    `is_match`, which older exports imply through the bucket rather than store.
+    `is_match`, which older exports imply through the bucket rather than store,
+    and renaming the `wikiart_*` keys of older labels to `artwork_*`.
     """
     buckets = data.get("dataset") if isinstance(data.get("dataset"), dict) else data
     if not isinstance(buckets, dict):
@@ -78,6 +79,13 @@ def normalize_dataset(data: dict) -> LabelDataset:
                 raise ValueError(f"Bucket {name!r} contains a non-object entry")
             entry = dict(entry)
             entry.setdefault("is_match", BUCKET_WAS_MATCH[name])
+            # labels from before `wikiart_*` became `artwork_*`
+            for old, new in (
+                ("wikiart_path", "artwork_path"),
+                ("wikiart_idx", "artwork_idx"),
+            ):
+                if old in entry:
+                    entry.setdefault(new, entry.pop(old))
             normalized.append(entry)
         setattr(dataset, name, normalized)
 

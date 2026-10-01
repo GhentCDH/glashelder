@@ -21,26 +21,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class _EmbeddingData:
-    batch_idx: int
-    image_index: int
-    top_indices_list: list[int]
-    similarities: list[float]
-    glashelder_path: str
-    artwork_path: str
-
-
-@dataclass
 class MatchItem:
     glashelder_index: int
     glashelder_path: str
     top_indices: list[int]
+    """The top matches by CLIP similarity, best first."""
     similarities: list[float]
+    """What the classifier saw for the chosen match (see `batch.shifted`)."""
     is_match: bool
     diff: float
     threshold: float
     classifier_type: str
     features: dict[str, float] = field(default_factory=dict)
+    rank: int = 0
+    """Which of `top_indices` was chosen; above 0 when earlier ones did not match."""
+    top_similarities: list[float] = field(default_factory=list)
+    """The CLIP similarities of `top_indices`, in the same order."""
+
+    @property
+    def best_index(self) -> int:
+        return self.top_indices[self.rank]
 
 
 class ClassificationSource(ABC):
@@ -86,6 +86,17 @@ class ClassificationSource(ABC):
         return [self.classify(i, threshold) for i in indices]
 
 
+def _current_keys(result: dict) -> dict:
+    """A batch-classify result, also one written before `wikiart_*` became `artwork_*`."""
+    if "artwork_index" in result:
+        return result
+    return {
+        **result,
+        "artwork_index": result["wikiart_index"],
+        "artwork_path": result["wikiart_path"],
+    }
+
+
 class PrecomputedSource(ClassificationSource):
     """Serves classification items from pre-computed batch_classify results."""
 
@@ -96,7 +107,8 @@ class PrecomputedSource(ClassificationSource):
         reference_root,
         artworks: dict[str, Artwork] | None = None,
     ):
-        self._results = results
+        self._results = [_current_keys(r) for r in results]
+        results = self._results
         self._artworks = artworks or {}
 
         glashelder_paths = [r["glashelder_path"] for r in results]
@@ -165,6 +177,7 @@ class LiveSource(ClassificationSource):
         search_workers: int = 8,
         search_batch_size: int = 32,
         artworks: dict[str, Artwork] | None = None,
+        candidates: int = 1,
     ):
         from ..loading import top_matches
 
@@ -182,7 +195,11 @@ class LiveSource(ClassificationSource):
         self._classifier = classifier
         self._search_workers = search_workers
         self._search_batch_size = search_batch_size
+        self._candidates = max(1, candidates)
         self._cache: dict[int, MatchItem] = {}
+        # the ML classifier's verdict per candidate tried, per image: kept across
+        # threshold changes, since a higher threshold may need more candidates
+        self._tried: dict[int, list[tuple[float, dict[str, float]]]] = {}
         self._pool: ProcessPoolExecutor | None = None
 
     @property
@@ -235,136 +252,83 @@ class LiveSource(ClassificationSource):
     def classify(self, index: int, threshold: float) -> MatchItem | None:
         if index < 0 or index >= self.total_images:
             return None
+        if self._classifier is not None:
+            return self.classify_many([index], threshold)[0]
 
         if index in self._cache:
             cached = self._cache[index]
             is_match = cached.diff > threshold
             return dataclasses.replace(cached, is_match=is_match, threshold=threshold)
 
+        from ..similarity_classifier import SimpleClassifier
+
         top_indices_list, similarities = self._embedding_results(index)
-
-        glashelder_path = self._glashelder_paths[index]
-        artwork_path = (
-            self._artwork_paths[top_indices_list[0]] if top_indices_list else None
+        result = SimpleClassifier(threshold=threshold).classify(similarities)
+        item = MatchItem(
+            glashelder_index=index,
+            glashelder_path=self._glashelder_paths[index],
+            top_indices=top_indices_list,
+            similarities=similarities,
+            is_match=result.is_match,
+            diff=result.diff,
+            threshold=threshold,
+            classifier_type="simple",
+            top_similarities=similarities,
         )
-
-        if self._classifier is not None:
-            self._classifier.threshold = threshold
-            result = self._classifier.classify(
-                similarities, glashelder_path, artwork_path
-            )
-            item = MatchItem(
-                glashelder_index=index,
-                glashelder_path=glashelder_path,
-                top_indices=top_indices_list,
-                similarities=similarities,
-                is_match=result.is_match,
-                diff=result.confidence,
-                threshold=threshold,
-                classifier_type="ml",
-                features=result.features,
-            )
-        else:
-            from ..similarity_classifier import SimpleClassifier
-
-            simple_clf = SimpleClassifier(threshold=threshold)
-            result = simple_clf.classify(similarities)
-            item = MatchItem(
-                glashelder_index=index,
-                glashelder_path=glashelder_path,
-                top_indices=top_indices_list,
-                similarities=similarities,
-                is_match=result.is_match,
-                diff=result.diff,
-                threshold=threshold,
-                classifier_type="simple",
-            )
-
         self._cache[index] = item
         return item
 
     def classify_many(
         self, indices: list[int], threshold: float
     ) -> list[MatchItem | None]:
+        """The ML verdict for each image, trying up to `candidates` of its top
+        matches while the ones before them are no match (see `batch.score_round`).
+
+        Candidates already scored are kept, so going back to an image, or a lower
+        threshold, costs nothing; a higher one only scores the extra candidates.
+        """
         if self._classifier is None:
             return [self.classify(i, threshold) for i in indices]
 
         from .. import batch
 
-        results: list[MatchItem | None] = [None] * len(indices)
+        images = [i for i in indices if 0 <= i < self.total_images]
+        while batch.score_round(
+            self._tried,
+            images,
+            threshold=threshold,
+            candidates=self._candidates,
+            glashelder_paths=self._glashelder_paths,
+            artwork_paths=self._artwork_paths,
+            top_indices=self._indices,
+            top_similarities=self._similarities,
+            classifier=self._classifier,
+            extract=self._extract,
+        ):
+            pass
 
-        uncached_batch = []
-        for batch_idx, image_index in enumerate(indices):
-            if image_index in self._cache:
-                cached = self._cache[image_index]
-                is_match = cached.diff > threshold
-                results[batch_idx] = dataclasses.replace(
-                    cached, is_match=is_match, threshold=threshold
-                )
-            else:
-                uncached_batch.append((batch_idx, image_index))
-
-        if not uncached_batch:
-            return results
-
-        embedding_data = []
-        for batch_idx, image_index in uncached_batch:
-            if image_index < 0 or image_index >= self.total_images:
-                embedding_data.append(None)
-                continue
-            top_indices_list, similarities = self._embedding_results(image_index)
-            glashelder_path = self._glashelder_paths[image_index]
-            artwork_path = (
-                self._artwork_paths[top_indices_list[0]] if top_indices_list else ""
-            )
-            embedding_data.append(
-                _EmbeddingData(
-                    batch_idx=batch_idx,
-                    image_index=image_index,
-                    top_indices_list=top_indices_list,
-                    similarities=similarities,
-                    glashelder_path=glashelder_path,
-                    artwork_path=artwork_path,
-                )
-            )
-
-        work_items = [
-            (i, d.glashelder_path, d.artwork_path, d.similarities, 0)
-            for i, d in enumerate(embedding_data)
-            if d is not None
+        return [
+            self._ml_item(i, threshold) if 0 <= i < self.total_images else None
+            for i in indices
         ]
 
-        features_map = self._extract(work_items)
+    def _ml_item(self, index: int, threshold: float) -> MatchItem:
+        from .. import batch
 
-        confidences = batch.predict_confidences(
-            self._classifier,
-            features_map,
-            list(range(len(work_items))),
+        tried = self._tried[index]
+        rank = batch.choose(tried, threshold, self._candidates)
+        confidence, features = tried[rank]
+        top_indices, top_similarities = self._embedding_results(index)
+        return MatchItem(
+            glashelder_index=index,
+            glashelder_path=self._glashelder_paths[index],
+            top_indices=top_indices,
+            similarities=batch.shifted(top_similarities, rank),
+            is_match=confidence > threshold,
+            diff=confidence,
+            threshold=threshold,
+            classifier_type="ml",
+            features=features,
+            rank=rank,
+            top_similarities=top_similarities,
         )
-
-        confidence_by_pos = dict(zip(range(len(work_items)), confidences, strict=True))
-
-        pos = 0
-        for i, data in enumerate(embedding_data):
-            if data is None:
-                continue
-            confidence = confidence_by_pos[pos]
-            pos += 1
-
-            is_match = confidence > threshold
-
-            item = MatchItem(
-                glashelder_index=data.image_index,
-                glashelder_path=data.glashelder_path,
-                top_indices=data.top_indices_list,
-                similarities=data.similarities,
-                is_match=is_match,
-                diff=confidence,
-                threshold=threshold,
-                classifier_type="ml",
-                features=features_map[i],
-            )
-            results[data.batch_idx] = item
-            self._cache[data.image_index] = item
-
-        return results
