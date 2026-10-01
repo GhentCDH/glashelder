@@ -1,0 +1,285 @@
+{%- macro pct(value) -%}
+{{ "-" if value is none else "%.1f%%"|format(100 * value) }}
+{%- endmacro -%}
+{%- macro rate(r) -%}
+{% if r.total %}{{ pct(r.value) }}
+<span class="dim">({{ r.hits }} of {{ r.total }}; {{ pct(r.interval[0]) }} to {{ pct(r.interval[1]) }})</span>
+{% else %}<span class="dim">no labels</span>{% endif %}
+{%- endmacro -%}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Artmatcher report</title>
+    <!-- self-contained on purpose: no external scripts or fonts, so the file
+         can be archived next to the run and opened anywhere -->
+    <style>
+      :root {
+        --bg: #0f1117;
+        --panel: #181b25;
+        --line: #2a2e3a;
+        --text: #c8cdd8;
+        --dim: #6b7280;
+        --accent: #6c8aff;
+        --warn: #ffc46c;
+      }
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 ui-monospace, "JetBrains Mono", Menlo, monospace;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.25rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+        margin: 2.5rem 0 0.75rem;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 0.25rem;
+      }
+      .dim {
+        color: var(--dim);
+      }
+      .cards {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        min-width: 10rem;
+      }
+      .card .value {
+        font-size: 1.5rem;
+        color: var(--accent);
+      }
+      .note {
+        border-left: 3px solid var(--warn);
+        padding: 0.25rem 0.75rem;
+        margin: 1rem 0;
+        color: var(--warn);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        background: var(--panel);
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      td.n {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      img {
+        max-width: 100%;
+        display: block;
+        margin: 1rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Artmatcher report</h1>
+      <div class="dim">
+        {{ report.source }} · threshold {{ report.threshold }}{% if
+        report.threshold != report.run_threshold %} (the run used {{
+        report.run_threshold }}){% endif %}{% if report.candidates > 1 %} · {{
+        report.candidates }} candidates per image{% endif %}
+      </div>
+
+      {% if report.partial %}
+      <p class="note">
+        This run left out results below <code>--min-confidence</code>, so most
+        non-matches are missing. Counts and estimates cover only the results in
+        the file.
+      </p>
+      {% endif %} {% if report.threshold != report.run_threshold and
+      report.candidates > 1 %}
+      <p class="note">
+        With several candidates per image, which one was kept depended on the
+        threshold of the run. At another threshold these numbers are an
+        approximation; run <code>batch-classify</code> again to be exact.
+      </p>
+      {% endif %}
+
+      <h2>Totals</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="dim">images</div>
+          <div class="value">{{ "{:,}".format(report.images) }}</div>
+        </div>
+        <div class="card">
+          <div class="dim">matches</div>
+          <div class="value">{{ "{:,}".format(report.matches) }}</div>
+          <div class="dim">{{ pct(report.match_rate) }} of all images</div>
+        </div>
+        <div class="card">
+          <div class="dim">near the threshold (±0.05)</div>
+          <div class="value">{{ "{:,}".format(report.near_threshold) }}</div>
+          <div class="dim">how much the count depends on it</div>
+        </div>
+        {% if report.accuracy and report.accuracy.true_matches %} {% set t =
+        report.accuracy.true_matches %}
+        <div class="card">
+          <div class="dim">estimated true matches</div>
+          <div class="value">~{{ "{:,.0f}".format(t[1]) }}</div>
+          <div class="dim">
+            {{ "{:,.0f}".format(t[0]) }} to {{ "{:,.0f}".format(t[2]) }}, from the
+            labels
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% if charts.confidence %}
+      <img
+        src="data:image/png;base64,{{ charts.confidence }}"
+        alt="confidence histogram"
+      />
+      {% endif %}
+
+      <h2>By source</h2>
+      <table>
+        <tr>
+          <th>source</th>
+          <th>matches</th>
+          <th>share of matches</th>
+          <th>mean confidence</th>
+          <th>no match (best guess)</th>
+          {% if report.accuracy %}
+          <th>precision</th>
+          <th>miss rate</th>
+          {% endif %}
+        </tr>
+        {% for g in report.by_source %}
+        <tr>
+          <td>{{ g.name }}</td>
+          <td class="n">{{ "{:,}".format(g.matches) }}</td>
+          <td class="n">
+            {{ pct(g.matches / report.matches if report.matches else none) }}
+          </td>
+          <td class="n">
+            {{ "-" if g.mean_confidence is none else "%.3f"|format(g.mean_confidence)
+            }}
+          </td>
+          <td class="n">{{ "{:,}".format(g.non_matches) }}</td>
+          {% if report.accuracy %}
+          <td>{{ rate(g.precision) }}</td>
+          <td>{{ rate(g.miss_rate) }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </table>
+      {% if charts.sources %}
+      <img src="data:image/png;base64,{{ charts.sources }}" alt="matches by source" />
+      {% endif %} {% if report.by_rank %}
+
+      <h2>By CLIP rank</h2>
+      <p class="dim">
+        Which of each image's top CLIP matches was kept. Ranks above 1 are
+        matches found only because the ones before them were classified as no
+        match.
+      </p>
+      <table>
+        <tr>
+          <th>rank</th>
+          <th>matches</th>
+        </tr>
+        {% for rank, n in report.by_rank %}
+        <tr>
+          <td>#{{ rank }}</td>
+          <td class="n">{{ "{:,}".format(n) }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if charts.ranks %}
+      <img src="data:image/png;base64,{{ charts.ranks }}" alt="matches by rank" />
+      {% endif %} {% endif %} {% if report.accuracy %} {% set a =
+      report.accuracy %}
+
+      <h2>Accuracy, from the labels</h2>
+      <p class="dim">
+        {{ a.labels }} labeled images; {{ a.comparable }} are about the same
+        pair this run chose and are used here. {% if a.other_artwork %}{{
+        a.other_artwork }} were labeled for another artwork than the run chose.
+        {% endif %}{% if a.not_in_results %}{{ a.not_in_results }} are not in
+        this run.{% endif %}
+      </p>
+      <table>
+        <tr>
+          <th>precision</th>
+          <td>
+            {{ rate(a.precision) }}
+            <div class="dim">of the images the run calls a match</div>
+          </td>
+        </tr>
+        <tr>
+          <th>miss rate</th>
+          <td>
+            {{ rate(a.miss_rate) }}
+            <div class="dim">of the images the run calls no match</div>
+          </td>
+        </tr>
+        {% if a.true_matches and a.recall %}
+        <tr>
+          <th>true matches</th>
+          <td>
+            ~{{ "{:,.0f}".format(a.true_matches[1]) }}
+            <span class="dim"
+              >({{ "{:,.0f}".format(a.true_matches[0]) }} to {{
+              "{:,.0f}".format(a.true_matches[2]) }})</span
+            >
+            <div class="dim">matches × precision + no matches × miss rate</div>
+          </td>
+        </tr>
+        <tr>
+          <th>recall</th>
+          <td>
+            ~{{ pct(a.recall[1]) }}
+            <span class="dim"
+              >({{ pct(a.recall[0]) }} to {{ pct(a.recall[2]) }})</span
+            >
+            <div class="dim">the share of true matches this run finds</div>
+          </td>
+        </tr>
+        {% endif %}
+      </table>
+      <p class="dim">
+        Ranges are 95% intervals. Matches and non-matches are labeled at
+        different rates (Next Match / Next Negative), so each verdict is scaled
+        by its own number of images; the estimate holds however the labeling
+        went, as long as the labels within a verdict are not picked by hand.
+      </p>
+      {% if not (a.true_matches and a.recall) %}
+      <p class="note">
+        Label at least one image of each verdict (a match and a non-match) to
+        estimate the true matches and the recall.
+      </p>
+      {% endif %} {% if charts.curve %}
+      <h2>Other thresholds</h2>
+      <p class="dim">
+        Precision and recall if the threshold were moved, estimated from the
+        same labels.
+      </p>
+      <img
+        src="data:image/png;base64,{{ charts.curve }}"
+        alt="precision and recall against the threshold"
+      />
+      {% endif %} {% endif %}
+    </main>
+  </body>
+</html>

@@ -638,3 +638,72 @@ def plot_results(input, output_dir):
     plot_hash_orb(d, output_dir)
     plot_statistical_analysis(d, output_dir)
     logger.info("Done!")
+
+
+@artmatcher.command()
+@click.argument("results", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--labels",
+    "label_files",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="A labeling session (or a downloaded dataset) to measure accuracy "
+    "against, repeatable. A later label of the same image replaces an earlier one.",
+)
+@click.option(
+    "--threshold",
+    type=float,
+    default=None,
+    help="Count matches at this confidence instead of the run's threshold",
+)
+@click.option(
+    "--artworks",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Scraped artworks, to find the source of results written without "
+    "artwork metadata",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=Path("report.html"),
+    show_default=True,
+    help="Where to write the HTML report",
+)
+def report(
+    results: Path,
+    label_files: tuple[Path, ...],
+    threshold: float | None,
+    artworks: str | None,
+    output: Path,
+):
+    """Report how matching went over a whole `batch-classify` run.
+
+    RESULTS is the JSON `batch-classify` wrote. The report counts the matches,
+    by source and by CLIP rank, and with --labels estimates how many of them are
+    right and how many true matches the run missed. It is one self-contained
+    HTML file; a summary is printed here too.
+    """
+    from .report import build, render, summary_lines
+    from .web.store import normalize_dataset
+
+    data = json.loads(results.read_text())
+    labels = []
+    for path in label_files:
+        try:
+            labels.append(normalize_dataset(json.loads(path.read_text())))
+        except (ValueError, json.JSONDecodeError) as e:
+            raise click.ClickException(f"{path} is not a labeling session: {e}") from e
+
+    # only needed when the run did not join the artwork metadata itself
+    unjoined = any(not r.get("artwork") for r in data.get("results", []))
+    artwork_index = load_artworks(artworks) if unjoined else None
+
+    found = build(
+        data, labels, threshold=threshold, artworks=artwork_index, source=str(results)
+    )
+    output.write_text(render(found))
+    for line in summary_lines(found):
+        click.echo(line)
+    click.echo(f"-> {output}")

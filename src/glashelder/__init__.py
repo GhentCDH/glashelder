@@ -141,7 +141,11 @@ def cli_defaults() -> dict:
                 top_k=settings.artmatcher.top_k,
             ),
         },
-        "artmatcher": {"serve": matching, "batch-classify": matching},
+        "artmatcher": {
+            "serve": matching,
+            "batch-classify": matching,
+            "report": given(artworks=paths.artworks),
+        },
     }
 
 
