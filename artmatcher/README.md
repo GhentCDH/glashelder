@@ -35,6 +35,24 @@ uv run glashelder artmatcher serve --results-json classes.json
 uv run glashelder artmatcher plot-results -i classes.json -o plots/
 ```
 
+To see how a whole `batch-classify` run went, and how good it is according to your
+labels:
+
+```bash
+uv run glashelder artmatcher report classes.json --labels labeling-sessions/my-session.json
+```
+
+This writes `report.html` (one self-contained file) and prints a summary:
+- matches in total, by source and by CLIP rank, and how many images are near the threshold
+- with `--labels` (repeatable): precision among the matches, the miss rate among the
+  non-matches, and from those the estimated number of true matches and the recall,
+  with 95% intervals, per source too
+- precision and recall at other thresholds
+
+Matches and non-matches are labeled at different rates (Next Match / Next Negative), so
+each verdict is scaled by its own number of images. Only labels about the same pair the
+run chose are used. `--threshold` counts at another threshold without classifying again.
+
 To label only part of the glass plates, list them in a file (one per line, as a file
 name or a path relative to the image directory) and pass it with `--subset`:
 
