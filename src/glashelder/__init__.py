@@ -135,6 +135,11 @@ def cli_defaults() -> dict:
                     output=paths.embeddings.glashelder,
                 ),
             },
+            "neighbours": given(
+                queries=paths.embeddings.glashelder,
+                references=paths.embeddings.reference,
+                top_k=settings.artmatcher.top_k,
+            ),
         },
         "artmatcher": {"serve": matching, "batch-classify": matching},
     }
