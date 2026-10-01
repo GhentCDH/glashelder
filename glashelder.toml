@@ -34,3 +34,4 @@ batch_size = 64
 workers = 45
 threshold = 0.82
 top_k = 10
+candidates = 3

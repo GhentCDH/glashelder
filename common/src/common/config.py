@@ -102,6 +102,10 @@ class Artmatcher:
     workers: int = 8
     threshold: float = 0.5
     top_k: int = 10
+    candidates: int = 1
+    """How many of the top CLIP matches the ML classifier tries while the ones
+    before them are no match; the most confident is kept. Each extra one costs
+    another ORB/hash extraction for every image without a match."""
 
 
 @dataclass(slots=True)

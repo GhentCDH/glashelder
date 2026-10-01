@@ -111,6 +111,7 @@ def test_click_defaults() -> None:
         "workers": 8,
         "threshold": 0.9,
         "top_k": 10,
+        "candidates": 1,
     }
     # nested sections and unset values are left out
     assert "images" not in defaults_for(config.paths)

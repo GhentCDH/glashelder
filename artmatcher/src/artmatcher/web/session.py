@@ -49,6 +49,10 @@ class LabelSession:
     `labeled` holds the glashelder indices that already have a label. The
     traversal skips them, which is what makes every image in the sample
     reachable instead of only the ones the cursor happened to land on.
+
+    `order` may cover only part of the glashelder images (`serve --subset`). The
+    indices stay those of the full set, so labels from different subsets agree;
+    `labeled` can then hold images outside `order`, which the counts leave out.
     """
 
     session_id: str
@@ -108,17 +112,25 @@ class LabelSession:
         self.exhausted_matches_at = None
         self.exhausted_negatives_at = None
 
+    def __post_init__(self) -> None:
+        self._members = set(self.order)
+
+    def includes(self, index: int) -> bool:
+        """Whether an image is part of this session's order."""
+        return index in self._members
+
     @property
     def total_images(self) -> int:
         return len(self.order)
 
     @property
     def labeled_count(self) -> int:
-        return len(self.labeled)
+        """Labeled images in this session's order (others may carry labels too)."""
+        return len(self.labeled & self._members)
 
     @property
     def remaining(self) -> int:
-        return len(self.order) - len(self.labeled)
+        return len(self.order) - self.labeled_count
 
     def rebuild_labeled(self) -> None:
         """Recompute `labeled` from the dataset entries (used after loading)."""

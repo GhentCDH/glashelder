@@ -126,6 +126,15 @@ def _extract_orb_worker(
         signal.signal(signal.SIGALRM, old)
 
 
+def entry_artwork_path(entry: dict) -> str:
+    """The reference a labeled entry was matched to.
+
+    Labels made before `wikiart_path` became `artwork_path` still count: without
+    a path, the entry would be trained on without its ORB/hash features.
+    """
+    return entry.get("artwork_path") or entry.get("wikiart_path") or ""
+
+
 def _sanitize_features(features: dict[str, float]) -> dict[str, float]:
     """Replace NaN and Inf values with safe defaults."""
     sanitized = {}
@@ -946,7 +955,7 @@ class MLClassifier:
                 (
                     idx,
                     entry.get("glashelder_path", ""),
-                    entry.get("wikiart_path", ""),
+                    entry_artwork_path(entry),
                     entry.get("similarities", []),
                     label,
                 )
@@ -1010,10 +1019,10 @@ class MLClassifier:
         glashelder_path = (
             entry.get("glashelder_path") if extract_image_features else None
         )
-        wikiart_path = entry.get("wikiart_path") if extract_image_features else None
+        artwork_path = entry_artwork_path(entry) if extract_image_features else None
 
         return self._feature_extractor.extract_all_features(
-            similarities, glashelder_path, wikiart_path
+            similarities, glashelder_path, artwork_path
         )
 
     def classify(

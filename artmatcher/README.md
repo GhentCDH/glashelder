@@ -35,6 +35,17 @@ uv run glashelder artmatcher serve --results-json classes.json
 uv run glashelder artmatcher plot-results -i classes.json -o plots/
 ```
 
+To label only part of the glass plates, list them in a file (one per line, as a file
+name or a path relative to the image directory) and pass it with `--subset`:
+
+```bash
+uv run glashelder artmatcher serve --subset plates-to-label.txt
+```
+
+The full stores and the saved top-k are used as they are, so nothing is embedded or
+searched again. Images keep their number in the full set, so labels from different
+subsets can be merged.
+
 All backends share one reference store. `--source` (repeatable) matches against the
 artworks of some backends only, for example `--source wikiart --source kikirpa`.
 

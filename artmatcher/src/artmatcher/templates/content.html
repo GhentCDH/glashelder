@@ -8,9 +8,9 @@
   <span class="text-orange-600">FP: {{ dataset_counts.false_positives }}</span>
   <span class="text-red-600">FN: {{ dataset_counts.false_negatives }}</span>
   <span class="ml-auto font-bold">Total: {{ dataset_counts.total }}</span>
-  {% if total_images %}
+  {% if queue_size %}
   <span class="text-neutral-600">
-    ({{ labeled_count }}/{{ total_images }} labeled, {{ remaining }} to go)
+    ({{ labeled_count }}/{{ queue_size }} labeled, {{ remaining }} to go)
   </span>
   {% endif %} {% if session_id %}
   <a
@@ -34,7 +34,30 @@
 {% else %}
 
 <div class="flex gap-4 items-center p-3 bg-neutral-100 rounded mb-4 text-sm">
-  <span>Image {{ current_index + 1 }} of {{ total_images }}</span>
+  <span>
+    <label for="image-number">Image</label>
+    <!-- type another number and press Enter to match that image instead -->
+    <input
+      type="number"
+      name="index"
+      id="image-number"
+      value="{{ current_index + 1 }}"
+      min="1"
+      max="{{ total_images }}"
+      title="Type an image number and press Enter to match that image"
+      hx-post="/go-to-image"
+      hx-trigger="change"
+      hx-target="#content"
+      hx-indicator="#loading"
+      class="border border-neutral-300 rounded px-1 w-24 bg-white"
+    />
+    of {{ total_images }}{% if current_index in labeled_indices %}
+    <span
+      class="ml-1 text-xs text-orange-700"
+      title="labeling it again replaces its label"
+      >(already labeled)</span
+    >{% endif %}
+  </span>
   <span
     class="px-2 py-1 rounded text-xs {% if classifier_type == 'ml' %}bg-purple-100 text-purple-800{% else %}bg-gray-100 text-gray-800{% endif %}"
   >
@@ -93,7 +116,13 @@
       class="p-3 text-sm font-bold {% if is_match %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}"
     >
       {% if is_match %} Artwork Match {% else %} Best Guess (Not a Match) {%
-      endif %}
+      endif %} {% if match_rank and match_rank > 1 %}
+      <span
+        class="ml-2 px-2 py-0.5 rounded bg-white text-xs font-normal"
+        title="the CLIP matches above it were classified as no match"
+        >CLIP rank #{{ match_rank }}</span
+      >
+      {% endif %}
     </h2>
     <img
       src="/artwork-image/{{ top_match_index }}"

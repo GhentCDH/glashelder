@@ -28,6 +28,40 @@ def load_artworks(path: str | Path | None) -> dict[str, Artwork]:
     return found
 
 
+def resolve_subset(path: Path, source, root: str | Path | None) -> list[int]:
+    """The glashelder indices of the images a `--subset` file lists.
+
+    A line matches an image by its path relative to `root`, by its full path, or
+    by its file name, in that order. Lines that match nothing are reported, so a
+    typo or a list for another image directory does not go unnoticed.
+    """
+    by_key: dict[str, int] = {}
+    for index in range(source.total_images):
+        image = Path(source.glashelder_path(index) or "")
+        by_key.setdefault(image.name, index)
+        by_key[str(image)] = index
+        if root is not None and image.is_relative_to(root):
+            by_key[str(image.relative_to(root))] = index
+
+    lines = [line.split("#", 1)[0].strip() for line in path.read_text().splitlines()]
+    wanted = [line for line in lines if line]
+    found = {by_key[line] for line in wanted if line in by_key}
+    missing = [line for line in wanted if line not in by_key]
+
+    if not found:
+        raise click.ClickException(
+            f"none of the {len(wanted):,} images in {path} are among the "
+            f"{source.total_images:,} glashelder images being served"
+        )
+    logger.info(f"labeling a subset: {len(found):,} images from {path}")
+    if missing:
+        logger.warning(
+            f"{len(missing):,} lines in {path} match no glashelder image, "
+            f"for example {missing[:3]}"
+        )
+    return sorted(found)
+
+
 @click.group()
 def artmatcher():
     """Match glass plate photos to known artworks using feature matching and ML.
@@ -161,6 +195,14 @@ def reference_options(command):
 @click.option("--port", default=5000, help="Port to bind to")
 @click.option("--top-k", default=10, help="Number of top matches to consider")
 @click.option(
+    "--candidates",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help="With --ml-model: how many of the top CLIP matches to classify while "
+    "the ones before them are no match; the most confident one is shown",
+)
+@click.option(
     "--threshold", default=0.2, help="Diff threshold for match classification"
 )
 @click.option(
@@ -218,6 +260,14 @@ def reference_options(command):
     show_default=True,
     help="Directory where labeling sessions are stored (one JSON file each)",
 )
+@click.option(
+    "--subset",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Only label the glashelder images listed in this file: one per line, as "
+    "a file name or a path relative to --glashelder-images ('#' starts a "
+    "comment). Uses the same stores and saved top-k as the full set.",
+)
 def serve(
     reference_embeddings: str | None,
     sources: tuple[str, ...],
@@ -227,6 +277,7 @@ def serve(
     host: str,
     port: int,
     top_k: int,
+    candidates: int,
     threshold: float,
     ml_model: str | None,
     search_workers: int,
@@ -237,6 +288,7 @@ def serve(
     auth: bool,
     debug: bool,
     session_dir: str,
+    subset: Path | None,
 ):
     """Start a web interface for labeling artwork matches.
 
@@ -310,11 +362,19 @@ def serve(
             search_workers=search_workers,
             search_batch_size=search_batch_size,
             artworks=artwork_index,
+            candidates=candidates,
         )
         # the source kept only the top-k: let the matrices go (and free the VRAM)
         del inputs
 
-    app = create_app(source, threshold=threshold, auth=auth, session_dir=session_dir)
+    chosen = (
+        resolve_subset(subset, source, glashelder_images)
+        if subset is not None
+        else None
+    )
+    app = create_app(
+        source, threshold=threshold, auth=auth, session_dir=session_dir, subset=chosen
+    )
 
     logger.info(f"Starting Flask server on {host}:{port}...")
     logger.info(f"Open http://localhost:{port} in your browser")
@@ -363,6 +423,14 @@ def serve(
     default=10,
     show_default=True,
     help="Top wikiart matches to consider",
+)
+@click.option(
+    "--candidates",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help="How many of the top CLIP matches to classify while the ones before "
+    "them are no match; the most confident one is kept",
 )
 @click.option(
     "--threshold",
@@ -426,6 +494,7 @@ def batch_classify(
     output_format: Literal["json", "csv", "both"],
     workers: int,
     top_k: int,
+    candidates: int,
     threshold: float,
     min_confidence: float | None,
     cache_features: bool,
@@ -487,7 +556,7 @@ def batch_classify(
     similarities, indices = top_matches(inputs, top_k)
     result = do_batch_classify(
         glashelder_paths=inputs.glashelder_paths,
-        wikiart_paths=inputs.artwork_paths,
+        artwork_paths=inputs.artwork_paths,
         top_indices=indices,
         top_similarities=similarities,
         classifier=classifier,
@@ -498,6 +567,7 @@ def batch_classify(
         cache=cache,
         timeout_per_item=timeout,
         cache_save_interval=cache_save_interval,
+        candidates=candidates,
     )
 
     # Write output

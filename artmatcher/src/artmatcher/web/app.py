@@ -29,7 +29,14 @@ def create_app(
     threshold: float,
     auth: bool,
     session_dir: str | Path = "labeling-sessions",
+    subset: list[int] | None = None,
 ) -> Flask:
+    """The labeling web app over `source`.
+
+    With `subset` (glashelder indices), every session only walks through those
+    images; they keep their indices in the full set, so labels stay compatible.
+    """
+    sample = sorted(set(subset)) if subset is not None else range(source.total_images)
     app = Flask(
         __name__,
         template_folder=Path(__file__).parent.parent / "templates",
@@ -46,7 +53,7 @@ def create_app(
 
     def _traversal_order(session_id: str) -> list[int]:
         """Shuffled order, derived from the session id so a resume matches."""
-        order = list(range(source.total_images))
+        order = list(sample)
         random.Random(session_id).shuffle(order)
         return order
 
@@ -150,6 +157,7 @@ def create_app(
             "total_images": source.total_images,
             "labeled_count": session.labeled_count,
             "remaining": session.remaining,
+            "labeled_indices": session.labeled,
             **_queue(session),
         }
         if item is None:
@@ -171,21 +179,21 @@ def create_app(
                 "features": {},
             }
 
-        artwork_idx = item.top_indices[0]
-        # the runners-up behind the best match, for a look at what else came close
+        artwork_idx = item.best_index
+        # the other top matches, in CLIP order, for a look at what else came close
         alternatives = [
             {
                 "index": index,
-                "rank": rank,
+                "rank": rank + 1,
                 "similarity": similarity,
                 "artwork_path": source.artwork_path(index),
                 "artwork": source.artwork(index),
             }
             for rank, (index, similarity) in enumerate(
-                zip(item.top_indices[1:5], item.similarities[1:5], strict=False),
-                start=2,
+                zip(item.top_indices, item.top_similarities, strict=False)
             )
-        ]
+            if rank != item.rank
+        ][:4]
         return {
             **base,
             "error": None,
@@ -195,6 +203,7 @@ def create_app(
             "top_match_index": artwork_idx,
             "artwork": source.artwork(artwork_idx),
             "alternatives": alternatives,
+            "match_rank": item.rank + 1,
             "similarities": item.similarities,
             "is_match": item.is_match,
             "diff": item.diff,
@@ -227,7 +236,7 @@ def create_app(
             "session_progress.html",
             oob=True,
             labeled_count=session.labeled_count,
-            total_images=source.total_images,
+            queue_size=session.total_images,
             remaining=session.remaining,
         )
 
@@ -326,12 +335,15 @@ def create_app(
         # the search for the next image afterwards is abandonable.
         item = cast("MatchItem | None", session.current_item)
         if item is not None:
-            artwork_idx = item.top_indices[0]
+            artwork_idx = item.best_index
             entry = {
                 "glashelder_index": item.glashelder_index,
                 "glashelder_path": item.glashelder_path,
                 "artwork_idx": artwork_idx,
                 "artwork_path": source.artwork_path(artwork_idx),
+                # which CLIP match was labeled (0 = the best); its similarities
+                # below are the ones the classifier saw for it
+                "rank": item.rank,
                 "diff": item.diff,
                 # the threshold this verdict was decided at, and the verdict itself
                 "threshold": item.threshold,
@@ -339,6 +351,19 @@ def create_app(
                 "classifier_type": item.classifier_type,
                 "similarities": item.similarities,
             }
+            # an image opened again by its number replaces its label, rather than
+            # adding a second one that would weigh double in training
+            for bucket in (
+                session.dataset.positives,
+                session.dataset.negatives,
+                session.dataset.false_positives,
+                session.dataset.false_negatives,
+            ):
+                bucket[:] = [
+                    old
+                    for old in bucket
+                    if old.get("glashelder_index") != item.glashelder_index
+                ]
             if is_correct:
                 if item.is_match:
                     session.dataset.positives.append(entry)
@@ -372,7 +397,7 @@ def create_app(
             return render_template(
                 "start.html",
                 sessions=store.list_sessions(),
-                total_images=source.total_images,
+                total_images=len(sample),
                 error=request.args.get("error"),
             )
 
@@ -555,6 +580,35 @@ def create_app(
         session.want_match = False
         store.save(session)
         return _render_content(session, _find_next(session, False, seq), False)
+
+    @app.route("/go-to-image", methods=["POST"])
+    def go_to_image():
+        """Match one image chosen by its number, and continue from there.
+
+        The cursor moves to that image's place in the session's order, so the
+        next search (and the arrow under the dataset row) carry on from it.
+        """
+        session = _requested_session()
+        if session is None:
+            return _missing_session()
+        seq = session.begin_request()
+
+        number = request.form.get("index", type=int)
+        if number is None or not 1 <= number <= source.total_images:
+            return _render_content_with_error(
+                session, f"There is no image {number}: pick 1 to {source.total_images}."
+            )
+
+        index = number - 1
+        if not session.includes(index):
+            return _render_content_with_error(
+                session, f"Image {number} is not part of the subset this server labels."
+            )
+        item = source.classify(index, session.threshold)
+        if session.is_current(seq):
+            session.queue_position = session.order.index(index)
+            session.current_item = item
+        return _render_content(session, item, session.want_match)
 
     @app.route("/set-threshold", methods=["POST"])
     def set_threshold():
