@@ -109,14 +109,27 @@ def load(ref: str | Path, *, cache: bool | None = None) -> Image.Image:
     if cached is not None and cached.is_file():
         return Image.open(cached).convert("RGB")
 
-    with httpx.Client(
-        timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}
-    ) as client:
-        raw = _fetch_sync(client, url)
-
+    raw = _fetch_sync(_client(), url)
     if cached is not None:
         store(url, raw)
     return decode(raw)
+
+
+_clients: dict[int, httpx.Client] = {}
+
+
+def _client() -> httpx.Client:
+    """This process's client for single fetches, so connections are reused.
+
+    Keyed by process, because a client must not cross a fork: a worker process
+    that inherited its parent's client would share its sockets.
+    """
+    pid = os.getpid()
+    if pid not in _clients:
+        _clients[pid] = httpx.Client(
+            timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}
+        )
+    return _clients[pid]
 
 
 def _fetch_sync(client: httpx.Client, url: str) -> bytes:
@@ -287,8 +300,5 @@ def as_paths(refs: Iterable[str | Path]) -> list[Path]:
 def _ensure_cached(url: str) -> Path:
     path = cache_path(url)
     if not path.is_file():
-        with httpx.Client(
-            timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}
-        ) as client:
-            store(url, _fetch_sync(client, url))
+        store(url, _fetch_sync(_client(), url))
     return path
