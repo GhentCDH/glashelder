@@ -16,6 +16,8 @@ import logging
 import os
 
 import torch
+from rich.console import Console
+from rich.progress import track
 
 from .store import format_bytes
 
@@ -142,7 +144,12 @@ def placement(
 
 
 def topk(
-    queries: torch.Tensor, refs: torch.Tensor, k: int, *, chunk: int = REF_CHUNK
+    queries: torch.Tensor,
+    refs: torch.Tensor,
+    k: int,
+    *,
+    chunk: int = REF_CHUNK,
+    description: str | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """The `k` most similar refs for every query, as `(similarities, indices)`.
 
@@ -150,6 +157,9 @@ def topk(
     chunk, keeping a running top-k. Works on whatever device `refs` is on: float16
     on a GPU, float32 on the CPU (a float16 chunk is converted as it is read). The
     results are float32 and int64 on the CPU, shaped `(len(queries), k)`.
+
+    With a `description`, a progress bar shows how far the pass is, which is
+    worth it for many queries (minutes on a CPU) and noise for one.
     """
     device = refs.device
     compute = torch.float16 if device.type == "cuda" else torch.float32
@@ -160,19 +170,34 @@ def topk(
 
     values = torch.full((len(queries), k), -torch.inf, dtype=compute, device=device)
     indices = torch.zeros((len(queries), k), dtype=torch.long, device=device)
-    for start in range(0, len(refs), chunk):
+    starts = range(0, len(refs), chunk)
+    if description is not None:
+        starts = track(starts, description=description, console=Console(stderr=True))
+    for start in starts:
         block = refs[start : start + chunk].to(device=device, dtype=compute)
         for first in range(0, len(queries), step):
             rows = slice(first, first + step)
-            similarities = queries[rows] @ block.T
-            found, where = torch.topk(similarities, min(k, len(block)), dim=1)
-            merged, pick = torch.topk(torch.cat([values[rows], found], dim=1), k, dim=1)
-            indices[rows] = torch.gather(
-                torch.cat([indices[rows], where + start], dim=1), 1, pick
+            found, where = torch.topk(
+                queries[rows] @ block.T, min(k, len(block)), dim=1
             )
-            values[rows] = merged
+            values[rows], indices[rows] = merge(
+                values[rows], indices[rows], found, where + start, k
+            )
 
     return values.float().cpu(), indices.cpu()
+
+
+def merge(
+    values: torch.Tensor,
+    indices: torch.Tensor,
+    more_values: torch.Tensor,
+    more_indices: torch.Tensor,
+    k: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Two top-k results for the same queries, over different refs, as one."""
+    k = min(k, values.shape[1] + more_values.shape[1])
+    merged, pick = torch.topk(torch.cat([values, more_values], dim=1), k, dim=1)
+    return merged, torch.gather(torch.cat([indices, more_indices], dim=1), 1, pick)
 
 
 def perform_search(top_k, query_embedding, image_embeddings, image_paths):

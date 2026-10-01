@@ -146,7 +146,11 @@ uv run glashelder artscraper scrape
 #    again after the next scrape. Run it on a machine with a GPU.
 uv run glashelder embed artworks
 
-# 3. label matches against the stored embeddings
+# 3. find the top-k references for every glashelder image, and save them in the
+#    reference store. Later runs only search what is new. Also best on the GPU.
+uv run glashelder embed neighbours
+
+# 4. label matches against the stored embeddings; starts at once thanks to step 3
 uv run glashelder artmatcher serve
 ```
 

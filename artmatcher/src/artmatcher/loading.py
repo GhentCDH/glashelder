@@ -6,11 +6,12 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import torch
 
 import embed
 from artscraper import Artwork
-from embed import get_device
+from embed import get_device, is_store
 from embed.search import place
 
 from .ml_classifier import MLClassifier
@@ -26,6 +27,54 @@ class MatchingInputs:
     wikiart_paths: list[str]
     glashelder_emb: torch.Tensor
     glashelder_paths: list[str]
+    reference_store: str | None = None
+    """Where `wikiart_emb` came from, if it is all of a store (no --source)."""
+    glashelder_store: str | None = None
+    """Where `glashelder_emb` came from, if it is a store."""
+
+
+def top_matches(inputs: MatchingInputs, top_k: int) -> tuple[np.ndarray, np.ndarray]:
+    """The top-k references of every glashelder image, as `(similarities, indices)`.
+
+    When both sides are stores, the result saved in the reference store is used
+    and brought up to date (see `embed neighbours`), so a start only searches
+    what is new. Otherwise everything is searched now, and nothing is saved.
+    """
+    from embed.neighbours import neighbours
+    from embed.search import topk
+    from embed.store import Store
+
+    if inputs.reference_store is not None and inputs.glashelder_store is not None:
+        return neighbours(
+            Store.open(inputs.glashelder_store),
+            Store.open(inputs.reference_store),
+            inputs.glashelder_emb,
+            inputs.wikiart_emb,
+            top_k,
+            hint="consider running `glashelder embed neighbours` first "
+            "(on a GPU, after every `embed artworks`), so this start does not wait",
+        )
+
+    if inputs.glashelder_store is not None:
+        logger.info(
+            "searching all references for every image now, not saved: --source "
+            "uses only part of the references, and their top-k is not part of the "
+            "saved one"
+        )
+    else:
+        logger.info(
+            "searching all references for every image now, not saved: the "
+            "embeddings are not both stores. Consider running `glashelder embed "
+            "convert` on them, then `glashelder embed neighbours` first"
+        )
+    similarities, indices = topk(
+        inputs.glashelder_emb,
+        inputs.wikiart_emb,
+        top_k,
+        description=f"top {top_k} of {len(inputs.wikiart_paths):,} references "
+        f"for {len(inputs.glashelder_paths):,} images",
+    )
+    return similarities.numpy(), indices.numpy()
 
 
 def load_matching_inputs(
@@ -97,6 +146,14 @@ def load_matching_inputs(
         wikiart_paths=wikiart_paths,
         glashelder_emb=glashelder_emb,
         glashelder_paths=glashelder_paths,
+        reference_store=(
+            wikiart_embeddings if is_store(wikiart_embeddings) and not sources else None
+        ),
+        glashelder_store=(
+            glashelder_embeddings
+            if glashelder_embeddings is not None and is_store(glashelder_embeddings)
+            else None
+        ),
     )
 
 

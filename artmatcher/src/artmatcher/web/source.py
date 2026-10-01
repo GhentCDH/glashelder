@@ -164,19 +164,17 @@ class LiveSource(ClassificationSource):
         search_batch_size: int = 32,
         artworks: dict[str, Artwork] | None = None,
     ):
-        from embed.search import topk
+        from ..loading import top_matches
 
         self._artworks = artworks or {}
         self._glashelder_paths = inputs.glashelder_paths
         self._wikiart_paths = inputs.wikiart_paths
 
         started = time.monotonic()
-        self._similarities, self._indices = topk(
-            inputs.glashelder_emb, inputs.wikiart_emb, top_k
-        )
+        self._similarities, self._indices = top_matches(inputs, top_k)
         logger.info(
             f"top {top_k} of {len(self._wikiart_paths):,} references for "
-            f"{len(self._glashelder_paths):,} images in "
+            f"{len(self._glashelder_paths):,} images ready in "
             f"{time.monotonic() - started:.1f}s"
         )
         self._classifier = classifier

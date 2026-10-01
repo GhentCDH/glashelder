@@ -8,6 +8,8 @@ A store is a directory:
     refs.txt      one reference per line, line i belongs to row i
     failures.jsonl  optional: refs that could not be read, with the reason, for
                     failures that trying again will not fix (a 404, a broken file)
+    neighbours/     optional: saved top-k searches against this store
+                    (see `embed.neighbours`)
 
 The matrix is memory-mapped, so opening a store reads nothing up front and the OS
 keeps as much of it in RAM as fits. New rows are appended with their ref line
@@ -124,6 +126,15 @@ class Store:
     def root(self) -> str | None:
         return self.meta["root"]
 
+    @property
+    def edits(self) -> int:
+        """How often rows were changed in place or removed.
+
+        Appending does not count: rows only ever get added at the end, so anything
+        computed from the first N rows stays valid until this changes.
+        """
+        return self.meta.get("edits", 0)
+
     def __len__(self) -> int:
         return len(self._refs)
 
@@ -190,6 +201,8 @@ class Store:
             self._refs.extend(refs[i] for i in appended)
 
         if updated:
+            # first: even a write that dies halfway must make saved results stale
+            self._edited()
             row_bytes = self.meta["dim"] * self.dtype.itemsize
             with (
                 (self.path / VECTORS).open("r+b") as vector_file,
@@ -246,6 +259,7 @@ class Store:
         if not removed:
             return 0
 
+        self._edited()
         vectors = self.vectors()
         hashes = (self.path / HASHES).read_bytes()
         with (
@@ -271,6 +285,10 @@ class Store:
 
         self._refs, self._rows = refs, None
         return removed
+
+    def _edited(self) -> None:
+        self.meta["edits"] = self.edits + 1
+        self._write_meta()
 
     def _index(self) -> dict[str, int]:
         if self._rows is None:
