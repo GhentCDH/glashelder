@@ -24,7 +24,7 @@ class MatchingInputs:
     device: str
     model: str  # the reconciled model name actually used
     wikiart_emb: torch.Tensor
-    wikiart_paths: list[str]
+    artwork_paths: list[str]
     glashelder_emb: torch.Tensor
     glashelder_paths: list[str]
     reference_store: str | None = None
@@ -71,7 +71,7 @@ def top_matches(inputs: MatchingInputs, top_k: int) -> tuple[np.ndarray, np.ndar
         inputs.glashelder_emb,
         inputs.wikiart_emb,
         top_k,
-        description=f"top {top_k} of {len(inputs.wikiart_paths):,} references "
+        description=f"top {top_k} of {len(inputs.artwork_paths):,} references "
         f"for {len(inputs.glashelder_paths):,} images",
     )
     return similarities.numpy(), indices.numpy()
@@ -143,7 +143,7 @@ def load_matching_inputs(
         device=device,
         model=model,
         wikiart_emb=wikiart_emb,
-        wikiart_paths=wikiart_paths,
+        artwork_paths=wikiart_paths,
         glashelder_emb=glashelder_emb,
         glashelder_paths=glashelder_paths,
         reference_store=(

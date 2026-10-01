@@ -263,45 +263,70 @@ def _pair_features(
     )
 
 
+def _orb_matches(query_img: np.ndarray, ref_img: np.ndarray, orb, bf) -> tuple:
+    """ORB keypoints of two BGR images and the matches that pass the ratio test.
+
+    Returns `(query_kp, ref_kp, good_matches)`; no matches when either image has
+    too few keypoints to match.
+    """
+    query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
+    ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
+
+    query_kp, query_des = orb.detectAndCompute(query_gray, None)
+    ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
+    if query_des is None or ref_des is None or len(query_kp) == 0:
+        return query_kp, ref_kp, []
+    if len(query_des) < 2 or len(ref_des) < 2:
+        return query_kp, ref_kp, []
+
+    # Use knnMatch with ratio test for ORB (like SIFT)
+    good_matches = []
+    for match in bf.knnMatch(query_des, ref_des, k=2):
+        if len(match) == 2:
+            m, n = match
+            # Ratio test (slightly higher threshold for binary descriptors)
+            if m.distance < 0.75 * n.distance:
+                good_matches.append(m)
+    return query_kp, ref_kp, good_matches
+
+
+def orb_overlay(
+    query_path: str, reference_path: str, max_side: int = 1200
+) -> np.ndarray | None:
+    """The query image warped onto the reference with the ORB homography, blended
+    half and half over it, as BGR; None when ORB finds no homography.
+
+    The same matching as the ORB features, so this shows what they measured.
+    """
+    query_img, _ = _load_views(query_path)
+    ref_img, _ = _load_views(reference_path)
+    orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    query_kp, ref_kp, good_matches = _orb_matches(query_img, ref_img, orb, bf)
+    h = compute_homography(query_kp, ref_kp, good_matches)
+    if h is None:
+        return None
+
+    height, width = ref_img.shape[:2]
+    warped = cv2.warpPerspective(query_img, h, (width, height))
+    covered = cv2.warpPerspective(
+        np.full(query_img.shape[:2], 255, np.uint8), h, (width, height)
+    )
+    blended = cv2.addWeighted(ref_img, 0.5, warped, 0.5, 0)
+    # outside the warped image there is only the reference to show
+    out = np.where(covered[..., None] > 0, blended, ref_img)
+    scale = max_side / max(height, width)
+    if scale < 1:
+        out = cv2.resize(out, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    return out
+
+
 def _orb_features(
     query_img: np.ndarray, ref_img: np.ndarray, orb, bf
 ) -> dict[str, float]:
     """ORB geometric verification of two BGR images (much faster than SIFT)."""
     try:
-        # Convert to grayscale for ORB
-        query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
-        ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
-
-        query_kp, query_des = orb.detectAndCompute(query_gray, None)
-        ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
-
-        if query_des is None or ref_des is None or len(query_kp) == 0:
-            return {
-                "num_matches": 0,
-                "num_inliers": 0,
-                "confidence": 0.0,
-                "warp_stretch": 1.0,
-            }
-
-        if len(query_des) < 2 or len(ref_des) < 2:
-            return {
-                "num_matches": 0,
-                "num_inliers": 0,
-                "confidence": 0.0,
-                "warp_stretch": 1.0,
-            }
-
-        # Use knnMatch with ratio test for ORB (like SIFT)
-        matches = bf.knnMatch(query_des, ref_des, k=2)
-
-        good_matches = []
-        for match in matches:
-            if len(match) == 2:
-                m, n = match
-                # Ratio test (slightly higher threshold for binary descriptors)
-                if m.distance < 0.75 * n.distance:
-                    good_matches.append(m)
-
+        query_kp, ref_kp, good_matches = _orb_matches(query_img, ref_img, orb, bf)
         num_matches = len(good_matches)
 
         if num_matches < 4:

@@ -27,7 +27,7 @@ class _EmbeddingData:
     top_indices_list: list[int]
     similarities: list[float]
     glashelder_path: str
-    wikiart_path: str
+    artwork_path: str
 
 
 @dataclass
@@ -63,8 +63,8 @@ class ClassificationSource(ABC):
         """Path for a glashelder index, or None if out of range."""
 
     @abstractmethod
-    def wikiart_path(self, index: int) -> str:
-        """Reference for a wikiart index, or "" if unknown/out of range.
+    def artwork_path(self, index: int) -> str:
+        """Reference for a artwork index, or "" if unknown/out of range.
 
         A local path or, for a scraped artwork, the image URL.
         """
@@ -73,7 +73,7 @@ class ClassificationSource(ABC):
         """The scraped record behind a reference, as JSON for the templates."""
         from ..batch import artwork_of
 
-        found = artwork_of(self.wikiart_path(index), getattr(self, "_artworks", None))
+        found = artwork_of(self.artwork_path(index), getattr(self, "_artworks", None))
         return dataclasses.asdict(found) if found is not None else None
 
     @abstractmethod
@@ -102,14 +102,14 @@ class PrecomputedSource(ClassificationSource):
         glashelder_paths = [r["glashelder_path"] for r in results]
         self._glashelder_paths = rebase_paths(glashelder_paths, glashelder_root)
 
-        wikiart_indices: dict[int, str] = {}
+        artwork_indices: dict[int, str] = {}
         for r in results:
-            wikiart_indices[r["wikiart_index"]] = r["wikiart_path"]
-        keys = list(wikiart_indices.keys())
+            artwork_indices[r["artwork_index"]] = r["artwork_path"]
+        keys = list(artwork_indices.keys())
         rebased_values = rebase_paths(
-            [wikiart_indices[k] for k in keys], reference_root
+            [artwork_indices[k] for k in keys], reference_root
         )
-        self._wikiart_paths: dict[int, str] = dict(
+        self._artwork_paths: dict[int, str] = dict(
             zip(keys, rebased_values, strict=True)
         )
 
@@ -122,8 +122,8 @@ class PrecomputedSource(ClassificationSource):
             return None
         return self._glashelder_paths[index]
 
-    def wikiart_path(self, index: int) -> str:
-        return self._wikiart_paths.get(index, "")
+    def artwork_path(self, index: int) -> str:
+        return self._artwork_paths.get(index, "")
 
     def classify(self, index: int, threshold: float) -> MatchItem | None:
         if index < 0 or index >= len(self._results):
@@ -136,7 +136,7 @@ class PrecomputedSource(ClassificationSource):
         return MatchItem(
             glashelder_index=index,
             glashelder_path=r["glashelder_path"],
-            top_indices=[r["wikiart_index"]],
+            top_indices=[r["artwork_index"]],
             similarities=r["similarities"],
             is_match=is_match,
             diff=confidence,
@@ -170,12 +170,12 @@ class LiveSource(ClassificationSource):
 
         self._artworks = artworks or {}
         self._glashelder_paths = inputs.glashelder_paths
-        self._wikiart_paths = inputs.wikiart_paths
+        self._artwork_paths = inputs.artwork_paths
 
         started = time.monotonic()
         self._similarities, self._indices = top_matches(inputs, top_k)
         logger.info(
-            f"top {top_k} of {len(self._wikiart_paths):,} references for "
+            f"top {top_k} of {len(self._artwork_paths):,} references for "
             f"{len(self._glashelder_paths):,} images ready in "
             f"{time.monotonic() - started:.1f}s"
         )
@@ -223,9 +223,9 @@ class LiveSource(ClassificationSource):
             return None
         return self._glashelder_paths[index]
 
-    def wikiart_path(self, index: int) -> str:
+    def artwork_path(self, index: int) -> str:
         return (
-            self._wikiart_paths[index] if 0 <= index < len(self._wikiart_paths) else ""
+            self._artwork_paths[index] if 0 <= index < len(self._artwork_paths) else ""
         )
 
     def _embedding_results(self, index: int) -> tuple[list[int], list[float]]:
@@ -244,14 +244,14 @@ class LiveSource(ClassificationSource):
         top_indices_list, similarities = self._embedding_results(index)
 
         glashelder_path = self._glashelder_paths[index]
-        wikiart_path = (
-            self._wikiart_paths[top_indices_list[0]] if top_indices_list else None
+        artwork_path = (
+            self._artwork_paths[top_indices_list[0]] if top_indices_list else None
         )
 
         if self._classifier is not None:
             self._classifier.threshold = threshold
             result = self._classifier.classify(
-                similarities, glashelder_path, wikiart_path
+                similarities, glashelder_path, artwork_path
             )
             item = MatchItem(
                 glashelder_index=index,
@@ -314,8 +314,8 @@ class LiveSource(ClassificationSource):
                 continue
             top_indices_list, similarities = self._embedding_results(image_index)
             glashelder_path = self._glashelder_paths[image_index]
-            wikiart_path = (
-                self._wikiart_paths[top_indices_list[0]] if top_indices_list else ""
+            artwork_path = (
+                self._artwork_paths[top_indices_list[0]] if top_indices_list else ""
             )
             embedding_data.append(
                 _EmbeddingData(
@@ -324,12 +324,12 @@ class LiveSource(ClassificationSource):
                     top_indices_list=top_indices_list,
                     similarities=similarities,
                     glashelder_path=glashelder_path,
-                    wikiart_path=wikiart_path,
+                    artwork_path=artwork_path,
                 )
             )
 
         work_items = [
-            (i, d.glashelder_path, d.wikiart_path, d.similarities, 0)
+            (i, d.glashelder_path, d.artwork_path, d.similarities, 0)
             for i, d in enumerate(embedding_data)
             if d is not None
         ]

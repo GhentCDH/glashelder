@@ -13,11 +13,11 @@
         theme: {
           extend: {
             fontFamily: {
-              mono: ['JetBrains Mono', 'monospace'],
-            }
-          }
-        }
-      }
+              mono: ["JetBrains Mono", "monospace"],
+            },
+          },
+        },
+      };
     </script>
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap"
@@ -25,7 +25,7 @@
     />
     <style>
       body {
-        font-family: 'JetBrains Mono', monospace;
+        font-family: "JetBrains Mono", monospace;
       }
       .htmx-indicator {
         display: none;
@@ -53,167 +53,188 @@
         class="flex gap-4 items-center p-3 bg-neutral-100 rounded mb-4 text-sm flex-wrap"
       >
         <span class="font-bold">Session:</span>
-        <code class="bg-white border border-neutral-300 rounded px-2 py-1"
-          >{{ session_id }}</code
-        >
+        <span>{{ session_id }}</span>
         {% include "session_progress.html" %}
 
-        <form
-          hx-post="/rename-session"
-          hx-target="#content"
-          hx-indicator="#loading"
-          class="flex gap-2 items-center"
-        >
-          <input
-            type="text"
-            name="new_name"
-            placeholder="rename to…"
-            class="border border-neutral-300 rounded px-2 py-1 w-40"
-          />
-          <button
-            type="submit"
-            class="bg-neutral-700 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+        <!-- everything about switching or changing the session, out of the way -->
+        <details id="session-menu" class="relative ml-auto">
+          <summary
+            class="list-none cursor-pointer select-none bg-neutral-200 hover:bg-neutral-300 rounded px-3 py-1"
           >
-            Rename
-          </button>
-        </form>
-
-        <label for="session-picker" class="ml-auto">Resume:</label>
-        <select
-          id="session-picker"
-          class="border border-neutral-300 rounded px-2 py-1 bg-white"
-          onchange="if (this.value) { localStorage.setItem('artmatcher.sessionId', this.value); window.location = '/?session=' + encodeURIComponent(this.value); }"
-        >
-          <option value="">— pick a session —</option>
-          {% for s in sessions %}
-          <option value="{{ s.session_id }}" {% if s.session_id == session_id %}selected{% endif %}>
-            {{ s.session_id }} — {{ s.labeled_count }} labeled{% if s.updated_at %} ({{ s.updated_at }}){% endif %}
-          </option>
-          {% endfor %}
-        </select>
-
-        <form
-          method="post"
-          action="/new-session"
-          class="flex gap-2 items-center"
-          onsubmit="localStorage.removeItem('artmatcher.sessionId')"
-        >
-          <input type="hidden" name="session" value="{{ session_id }}" />
-          <input
-            type="text"
-            name="name"
-            placeholder="new session name…"
-            required
-            class="border border-neutral-300 rounded px-2 py-1 w-40"
-          />
-          <button
-            type="submit"
-            class="bg-neutral-800 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+            Sessions ▾
+          </summary>
+          <div
+            class="absolute right-0 z-10 mt-2 w-[30rem] bg-white border border-neutral-300 rounded shadow-lg p-4 flex flex-col gap-4"
           >
-            New Session
-          </button>
-        </form>
+            <form
+              hx-post="/rename-session"
+              hx-target="#content"
+              hx-indicator="#loading"
+              class="flex gap-2 items-center"
+            >
+              <label class="w-24">Rename:</label>
+              <input
+                type="text"
+                name="new_name"
+                placeholder="rename to…"
+                value="{{session_id}}"
+                class="border border-neutral-300 rounded px-2 py-1 flex-1"
+              />
+              <button
+                type="submit"
+                class="bg-neutral-700 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+              >
+                Rename
+              </button>
+            </form>
 
-        <form
-          hx-post="/import-session"
-          hx-encoding="multipart/form-data"
-          hx-target="#content"
-          hx-indicator="#loading"
-          class="flex gap-2 items-center border-l-2 border-neutral-300 pl-4"
-          onsubmit="localStorage.removeItem('artmatcher.sessionId')"
-        >
-          <label for="dataset" title="Continue from a previously downloaded dataset JSON">
-            Import:
-          </label>
-          <input
-            type="file"
-            id="dataset"
-            name="dataset"
-            accept=".json,application/json"
-            class="text-xs w-48"
-          />
-          <input
-            type="text"
-            name="name"
-            placeholder="name for it…"
-            required
-            class="border border-neutral-300 rounded px-2 py-1 w-36"
-          />
-          <button
-            class="bg-neutral-800 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
-            type="submit"
-          >
-            Import
-          </button>
-        </form>
+            <form
+              method="post"
+              action="/new-session"
+              class="flex gap-2 items-center"
+              onsubmit="localStorage.removeItem('artmatcher.sessionId')"
+            >
+              <label class="w-24">New:</label>
+              <input type="hidden" name="session" value="{{ session_id }}" />
+              <input
+                type="text"
+                name="name"
+                placeholder="new session name…"
+                required
+                class="border border-neutral-300 rounded px-2 py-1 flex-1"
+              />
+              <button
+                type="submit"
+                class="bg-neutral-800 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+              >
+                Create
+              </button>
+            </form>
+
+            <div class="flex gap-2 items-center">
+              <label for="session-picker" class="w-24">Resume:</label>
+              <select
+                id="session-picker"
+                class="border border-neutral-300 rounded px-2 py-1 bg-white flex-1 min-w-0"
+                onchange="if (this.value) { localStorage.setItem('artmatcher.sessionId', this.value); window.location = '/?session=' + encodeURIComponent(this.value); }"
+              >
+                <option value="">— pick a session —</option>
+                {% for s in sessions %}
+                <option value="{{ s.session_id }}" {% if s.session_id == session_id %}selected{% endif %}>
+                  {{ s.session_id }} — {{ s.labeled_count }} labeled{% if s.updated_at %} ({{ s.updated_at }}){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <form
+              hx-post="/import-session"
+              hx-encoding="multipart/form-data"
+              hx-target="#content"
+              hx-indicator="#loading"
+              class="flex flex-col gap-2"
+              onsubmit="localStorage.removeItem('artmatcher.sessionId')"
+            >
+              <div class="flex gap-2 items-center">
+                <label
+                  for="dataset"
+                  class="w-24"
+                  title="Continue from a previously downloaded dataset JSON"
+                >
+                  Import:
+                </label>
+                <input
+                  type="file"
+                  id="dataset"
+                  name="dataset"
+                  accept=".json,application/json"
+                  class="text-xs flex-1 min-w-0"
+                />
+              </div>
+              <div class="flex gap-2 items-center">
+                <span class="w-24"></span>
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="name for it…"
+                  required
+                  class="border border-neutral-300 rounded px-2 py-1 flex-1"
+                />
+                <button
+                  class="bg-neutral-800 text-white rounded px-3 py-1 cursor-pointer hover:bg-neutral-600 transition-colors border-0"
+                  type="submit"
+                >
+                  Import
+                </button>
+              </div>
+            </form>
+          </div>
+        </details>
       </div>
 
       <div class="flex gap-4 mb-4 flex-wrap">
         <div class="flex gap-2">
           <button
+            id="next-match"
             class="bg-green-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-green-600 transition-colors border-0"
             hx-post="/next-match"
             hx-target="#content"
             hx-indicator="#loading"
           >
-            Next Match
+            Next Match <span class="opacity-75">[m]</span>
           </button>
           <button
+            id="next-negative"
             class="bg-red-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-red-600 transition-colors border-0"
             hx-post="/next-negative"
             hx-target="#content"
             hx-indicator="#loading"
           >
-            Next Negative
+            Next Negative <span class="opacity-75">[n]</span>
           </button>
         </div>
 
         <div class="border-l-2 border-neutral-300 pl-4 flex gap-2">
           <button
+            id="label-correct"
             class="bg-blue-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-blue-600 transition-colors border-0"
             hx-post="/label-correct"
             hx-target="#content"
             hx-indicator="#loading"
           >
-            Correct
+            Correct <span class="opacity-75">[c]</span>
           </button>
           <button
+            id="label-incorrect"
             class="bg-orange-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-orange-600 transition-colors border-0"
             hx-post="/label-incorrect"
             hx-target="#content"
             hx-indicator="#loading"
           >
-            Incorrect
+            Incorrect <span class="opacity-75">[i]</span>
           </button>
         </div>
 
-        <div class="border-l-2 border-neutral-300 pl-4">
-          <a
-            href="/download-dataset?session={{ session_id }}"
-            class="bg-neutral-800 text-white rounded px-6 py-3 cursor-pointer hover:bg-neutral-600 transition-colors border-0 inline-block"
-          >
-            Download Dataset
-          </a>
-        </div>
-
-        <span id="loading" class="htmx-indicator text-neutral-500 self-center">Loading...</span>
+        <span id="loading" class="htmx-indicator text-neutral-500 self-center"
+          >Loading...</span
+        >
       </div>
 
       {% if notice %}
-      <div class="bg-green-50 border border-green-300 text-green-800 p-3 rounded mb-4 text-sm">
+      <div
+        class="bg-green-50 border border-green-300 text-green-800 p-3 rounded mb-4 text-sm"
+      >
         {{ notice }}
       </div>
-      {% endif %}
-
-      {% if page_error %}
-      <div class="bg-red-50 border border-red-300 text-red-800 p-3 rounded mb-4 text-sm">
+      {% endif %} {% if page_error %}
+      <div
+        class="bg-red-50 border border-red-300 text-red-800 p-3 rounded mb-4 text-sm"
+      >
         {{ page_error }}
       </div>
       {% endif %}
 
-      <div id="content">
-        {% include "content.html" %}
-      </div>
+      <div id="content">{% include "content.html" %}</div>
     </div>
 
     <script>
@@ -223,12 +244,76 @@
       (function () {
         try {
           localStorage.setItem(
-            'artmatcher.sessionId',
-            document.body.dataset.sessionId
+            "artmatcher.sessionId",
+            document.body.dataset.sessionId,
           );
         } catch (e) {
           // private mode / blocked storage: nothing to remember, carry on
         }
+      })();
+
+      // Keyboard shortcuts for the four labeling buttons. Typing in a field
+      // (a session name, the threshold) must not label anything.
+      (function () {
+        const shortcuts = {
+          m: "next-match",
+          n: "next-negative",
+          c: "label-correct",
+          i: "label-incorrect",
+        };
+        document.addEventListener("keydown", (event) => {
+          if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) {
+            return;
+          }
+          const typing =
+            event.target instanceof Element &&
+            event.target.closest("input, textarea, select, [contenteditable]");
+          if (typing) return;
+          const id = shortcuts[event.key];
+          if (!id) return;
+          event.preventDefault();
+          document.getElementById(id).click();
+        });
+      })();
+
+      // While a request is running (a search for the next match can walk past
+      // hundreds of images), ask the server where it has got to and move the
+      // arrow under the dataset row along with it.
+      (function () {
+        const session = document.body.dataset.sessionId;
+        const loading = document.getElementById("loading");
+
+        async function poll() {
+          // htmx marks the indicator while any labeler request is in flight;
+          // idle, nothing is fetched
+          if (!loading.classList.contains("htmx-request")) return;
+          try {
+            const response = await fetch(
+              "/queue-position?session=" + encodeURIComponent(session),
+            );
+            if (!response.ok) return;
+            const { queue_position, queue_size } = await response.json();
+            const arrow = document.getElementById("queue-arrow");
+            if (!arrow || !queue_size) return;
+            arrow.style.left = (100 * queue_position) / queue_size + "%";
+            arrow.title = `at ${queue_position + 1} of ${queue_size} in this session's order`;
+          } catch (e) {
+            // a missed update only means the arrow moves a bit later
+          }
+        }
+
+        setInterval(poll, 250);
+      })();
+
+      // The session menu closes on a click outside it, or on Escape.
+      (function () {
+        const menu = document.getElementById("session-menu");
+        document.addEventListener("click", (event) => {
+          if (menu.open && !menu.contains(event.target)) menu.open = false;
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") menu.open = false;
+        });
       })();
     </script>
   </body>
