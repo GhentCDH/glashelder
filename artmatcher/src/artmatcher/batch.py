@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -145,22 +144,6 @@ class FeatureCache:
 
     def __bool__(self) -> bool:
         return True
-
-
-def compute_embedding_similarities(
-    glashelder_emb: torch.Tensor,
-    wikiart_emb: torch.Tensor,
-    top_k: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    """The `top_k` references for every glashelder image, as `(indices, similarities)`.
-
-    One pass over the references for all images together, so a reference set that
-    does not fit in RAM is read from disk once, not once per image.
-    """
-    from embed.search import topk
-
-    similarities, indices = topk(glashelder_emb, wikiart_emb, top_k)
-    return indices.numpy(), similarities.numpy()
 
 
 def _get_default_features(similarities: list[float]) -> dict[str, float]:
@@ -347,10 +330,10 @@ def predict_confidences(
 
 
 def batch_classify(
-    glashelder_emb: torch.Tensor,
     glashelder_paths: list[str],
-    wikiart_emb: torch.Tensor,
     wikiart_paths: list[str],
+    top_indices: np.ndarray,
+    top_similarities: np.ndarray,
     classifier: MLClassifier,
     top_k: int = 10,
     threshold: float = 0.5,
@@ -363,10 +346,11 @@ def batch_classify(
     """Batch classify all glashelder images against wikiart.
 
     Args:
-        glashelder_emb: Glashelder embeddings tensor
         glashelder_paths: List of glashelder image paths
-        wikiart_emb: Wikiart embeddings tensor
         wikiart_paths: List of wikiart image paths
+        top_indices: `(glashelder, k)` best references per image, from
+            `loading.top_matches`
+        top_similarities: their similarities
         classifier: Trained ML classifier
         top_k: Number of top wikiart matches to consider
         threshold: Confidence threshold for is_match
@@ -390,12 +374,7 @@ def batch_classify(
     console.print(f"  Threshold: {threshold}")
     console.print(f"  Workers: {workers}")
 
-    # Phase 1: Compute embedding similarities
-    console.print("\n[cyan]Phase 1: Computing embedding similarities...[/cyan]")
-    top_indices, top_sims = compute_embedding_similarities(
-        glashelder_emb, wikiart_emb, top_k
-    )
-    console.print(f"[green]Computed similarities for {n_glashelder} images[/green]")
+    top_sims = top_similarities
 
     # Phase 2: Prepare work items for ORB/hash extraction
     console.print("\n[cyan]Phase 2: Extracting ORB/hash features...[/cyan]")

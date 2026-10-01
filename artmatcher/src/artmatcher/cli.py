@@ -257,6 +257,7 @@ def serve(
     # references scraped as URLs need no local directory
     reference_images = Path(reference_images) if reference_images is not None else None
 
+    logger.info(f"Loading artworks from {artworks}...")
     artwork_index = load_artworks(artworks)
 
     from .web.app import create_app
@@ -299,6 +300,8 @@ def serve(
             )
         except ValueError as e:
             raise click.ClickException(str(e)) from e
+
+        logger.info("Creating live source from inputs")
 
         source = LiveSource(
             inputs,
@@ -458,7 +461,7 @@ def batch_classify(
     from .batch import (
         batch_classify as do_batch_classify,
     )
-    from .loading import load_classifier, load_matching_inputs
+    from .loading import load_classifier, load_matching_inputs, top_matches
 
     classifier = load_classifier(ml_model, threshold)
     assert classifier is not None
@@ -481,11 +484,12 @@ def batch_classify(
     cache = FeatureCache(cache_path) if cache_features else None
 
     # Run batch classification
+    similarities, indices = top_matches(inputs, top_k)
     result = do_batch_classify(
-        glashelder_emb=inputs.glashelder_emb,
         glashelder_paths=inputs.glashelder_paths,
-        wikiart_emb=inputs.wikiart_emb,
         wikiart_paths=inputs.wikiart_paths,
+        top_indices=indices,
+        top_similarities=similarities,
         classifier=classifier,
         top_k=top_k,
         threshold=threshold,

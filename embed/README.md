@@ -17,6 +17,10 @@ uv run glashelder embed artworks
 # embed a directory of JPGs (paths.images.glashelder) into paths.embeddings.glashelder
 uv run glashelder embed images
 
+# save the top-k references of every glashelder image in the reference store,
+# searching only what is new since the last run
+uv run glashelder embed neighbours
+
 # what a store (or old pickle) holds, and whether it fits in RAM or VRAM here
 uv run glashelder embed info embeddings/artworks-clip.store
 
@@ -54,7 +58,13 @@ artworks-clip.store/
 - **Larger than RAM.** The matrix is memory-mapped. Commands that search it say
   whether it went to VRAM and whether it fits in RAM. If it does not fit, every full
   scan reads it from disk again, so `artmatcher` searches all glashelder images in
-  one pass at start instead of one pass per image.
+  one pass instead of one pass per image.
+- **Saved top-k.** `embed neighbours` saves the exact top-k references of every
+  glashelder image in `<reference store>/neighbours/`. It stays exact as the stores
+  grow: new references are searched and merged, new glashelder images get their own
+  search. A store counts rows changed in place (`--verify`) or removed (`--prune`)
+  as `edits`, and a saved result made before an edit is searched again from scratch.
+  `artmatcher serve` and `batch-classify` use it, so they start at once.
 
 ## Fetching politely
 

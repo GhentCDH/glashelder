@@ -411,6 +411,89 @@ def convert_into(sources, destination: Path, root, dtype, progress) -> str:
 
 
 @embed.command()
+@click.option(
+    "--queries",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Store of the images to find matches for [paths.embeddings.glashelder]",
+)
+@click.option(
+    "--references",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Store to search them in [paths.embeddings.reference]",
+)
+@click.option("--top-k", default=10, show_default=True, help="Matches per image")
+def neighbours(queries: Path | None, references: Path | None, top_k: int):
+    """Find and save the top-k references for every image in the query store.
+
+    The result is saved in the reference store, and later runs (and
+    `artmatcher serve`) only search what was added since: new references after
+    `embed artworks`, new images after `embed images`. Best run on a GPU after
+    every `embed artworks`, so serving starts at once anywhere.
+    """
+    import torch
+
+    from .neighbours import neighbours as find
+    from .search import place
+    from .store import Store, is_store
+
+    for name, path, setting in (
+        ("--queries", queries, "glashelder"),
+        ("--references", references, "reference"),
+    ):
+        if path is None:
+            raise click.UsageError(
+                f"pass {name} or set paths.embeddings.{setting} in glashelder.toml"
+            )
+        if not is_store(path):
+            raise click.ClickException(
+                f"{path} is not an embedding store; convert it first with "
+                "`glashelder embed convert`"
+            )
+    assert queries is not None and references is not None
+    query_store, reference_store = Store.open(queries), Store.open(references)
+
+    device = get_device()
+    ref_vectors = place(
+        torch.from_numpy(reference_store.vectors()), device, label=str(references)
+    )
+    try:
+        find(
+            query_store,
+            reference_store,
+            torch.from_numpy(query_store.vectors()),
+            ref_vectors,
+            top_k,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
+
+
+def saved_neighbours(store) -> str:
+    """The saved top-k results in a store, and how far behind each one is."""
+    from .neighbours import DIRECTORY, load
+
+    lines = []
+    for path in sorted((store.path / DIRECTORY).glob("*.npz")):
+        saved = load(path)
+        if saved is None:
+            continue
+        state = (
+            "rows changed since, searched again from scratch on next use"
+            if saved.edits != store.edits
+            else f"{len(store) - saved.rows:,} new rows to search"
+            if saved.rows < len(store)
+            else "up to date with this store"
+        )
+        lines.append(
+            f"{path.stem}: {saved.queries:,} images, top {saved.indices.shape[1]}, "
+            f"{state}"
+        )
+    return "\n         ".join(lines) or "none (glashelder embed neighbours makes one)"
+
+
+@embed.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
 def info(path: Path):
     """Show what an embeddings store or legacy pickle holds."""
@@ -432,9 +515,10 @@ def info(path: Path):
             if failures
             else "0"
         )
+        neighbours_line = saved_neighbours(store)
     else:
         kind, hashed_line = "legacy pickle", "none (convert it to a store first)"
-        failed_line = "-"
+        failed_line, neighbours_line = "-", "-"
 
     rows, dim = embeddings.shape
     size = embeddings.element_size() * embeddings.nelement()
@@ -446,6 +530,7 @@ def info(path: Path):
         ("size", format_bytes(size)),
         ("hashed", hashed_line),
         ("failed", failed_line),
+        ("top-k", neighbours_line),
         ("root", data["root"]),
         ("example", refs[0] if refs else "-"),
     ):

@@ -38,7 +38,11 @@ uv run glashelder artmatcher plot-results -i classes.json -o plots/
 All backends share one reference store. `--source` (repeatable) matches against the
 artworks of some backends only, for example `--source wikiart --source kikirpa`.
 
-At start, `serve` and `batch-classify` search every glashelder image against the
-references in one pass. So a reference store larger than RAM is read from disk once
-per start, not once per image. They also report whether the references went to VRAM
-and whether they fit in RAM.
+`serve` and `batch-classify` need the top-k references of every glashelder image.
+They use the result `glashelder embed neighbours` saved in the reference store, and
+only search what is new since. Without it, they search everything at start, which
+is minutes on a CPU for a million references, and say so. They also report whether
+the references went to VRAM and whether they fit in RAM.
+
+With `--source`, the saved result cannot be used (the top-k of some backends is not
+part of the top-k of all), so the references of those backends are searched at start.
