@@ -175,6 +175,11 @@ class _NullProgress:
         pass
 
 
+def pool(workers: int) -> ProcessPoolExecutor:
+    """Worker processes for ORB/hash extraction, each with its own detector."""
+    return ProcessPoolExecutor(max_workers=workers, initializer=_init_orb_worker)
+
+
 def extract_features_batch(
     work_items: list[tuple[int, str, str, list[float], int]],
     workers: int,
@@ -182,6 +187,7 @@ def extract_features_batch(
     timeout_per_item: float = 30.0,
     cache_save_interval: int = 100,
     progress: bool = True,
+    executor: ProcessPoolExecutor | None = None,
 ) -> dict[int, dict[str, float]]:
     """Extract ORB/hash features for a batch of image pairs in parallel.
 
@@ -192,6 +198,9 @@ def extract_features_batch(
         timeout_per_item: Timeout in seconds per item (default 30s)
         cache_save_interval: Save cache to disk every N items (default 100)
         progress: If False, suppress the progress bar and all console output
+        executor: A pool to use and leave running, for callers that extract
+            often (one per call costs a fork of every worker each time). Made
+            from `pool(workers)` and shut down here when not given.
 
     Returns:
         Dict mapping index to feature dict
@@ -241,9 +250,9 @@ def extract_features_batch(
             total=len(uncached_items),
         )
 
-        executor = ProcessPoolExecutor(
-            max_workers=workers, initializer=_init_orb_worker
-        )
+        owned = executor is None
+        if executor is None:
+            executor = pool(workers)
 
         try:
             future_to_item = {
@@ -303,7 +312,8 @@ def extract_features_batch(
             if cache:
                 cache.save()
         finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+            if owned:
+                executor.shutdown(wait=False, cancel_futures=True)
 
     if n_failed > 0 and progress:
         console.print(

@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 from embed import rebase_paths
 
 if TYPE_CHECKING:
+    from concurrent.futures import ProcessPoolExecutor
+
     from artscraper import Artwork
 
     from ..loading import MatchingInputs
@@ -181,6 +183,7 @@ class LiveSource(ClassificationSource):
         self._search_workers = search_workers
         self._search_batch_size = search_batch_size
         self._cache: dict[int, MatchItem] = {}
+        self._pool: ProcessPoolExecutor | None = None
 
     @property
     def total_images(self) -> int:
@@ -189,6 +192,31 @@ class LiveSource(ClassificationSource):
     @property
     def batch_size(self) -> int:
         return self._search_batch_size if self._classifier is not None else 1
+
+    def _extract(self, work_items: list) -> dict[int, dict[str, float]]:
+        """ORB/hash features in the server's worker pool, started on first use.
+
+        One pool for the life of the server: a new one per batch would fork every
+        worker again for each 32 images. A pool that broke (a worker died) is
+        replaced once.
+        """
+        from concurrent.futures.process import BrokenProcessPool
+
+        from .. import batch
+
+        def run() -> dict[int, dict[str, float]]:
+            if self._pool is None:
+                self._pool = batch.pool(self._search_workers)
+            return batch.extract_features_batch(
+                work_items, self._search_workers, progress=False, executor=self._pool
+            )
+
+        try:
+            return run()
+        except BrokenProcessPool:
+            logger.warning("the feature worker pool broke; starting a new one")
+            self._pool = None
+            return run()
 
     def glashelder_path(self, index: int) -> str | None:
         if index < 0 or index >= len(self._glashelder_paths):
@@ -306,9 +334,7 @@ class LiveSource(ClassificationSource):
             if d is not None
         ]
 
-        features_map = batch.extract_features_batch(
-            work_items, self._search_workers, progress=False
-        )
+        features_map = self._extract(work_items)
 
         confidences = batch.predict_confidences(
             self._classifier,
