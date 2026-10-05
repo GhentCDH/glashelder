@@ -9,14 +9,15 @@ from pathlib import Path
 import numpy as np
 
 from cluster.result import (
+    Annotations,
     Clustering,
     fingerprint,
     load,
+    read_annotations,
     read_labels,
-    read_names,
     save,
     status,
-    write_names,
+    write_annotations,
 )
 from embed.store import Store
 
@@ -91,42 +92,46 @@ def test_status():
         assert status(meta, store).startswith("stale")
 
 
-def test_names():
+def test_annotations():
     with tempfile.TemporaryDirectory() as directory:
         store = store_with(Path(directory) / "e.store", ["a.jpg", "b.jpg"])
         path = Path(directory) / "c.clusters"
         save(path, clustering_of(store))
-        assert read_names(path) == {}
+        assert read_annotations(path) == Annotations()
 
-        write_names(path, {2: "portraits", 0: "landscapes"})
-        assert read_names(path) == {0: "landscapes", 2: "portraits"}
-
-        # names of another clustering in the same directory do not apply
-        (path / "names.json").write_text(
-            (path / "names.json").read_text().replace("2026-01-01", "1999-01-01")
+        written = Annotations(
+            names={2: "portraits", 0: "landscapes"}, groups={"people": [2, 0]}
         )
-        assert read_names(path) == {}
+        write_annotations(path, written)
+        assert read_annotations(path) == Annotations(
+            names={0: "landscapes", 2: "portraits"}, groups={"people": [0, 2]}
+        )
+
+        # annotations of another clustering in the same directory do not apply
+        file = path / "annotations.json"
+        file.write_text(file.read_text().replace("2026-01-01", "1999-01-01"))
+        assert read_annotations(path) == Annotations()
 
 
-def test_save_over_a_result_moves_names_and_report():
+def test_save_over_a_result_moves_annotations_and_report():
     with tempfile.TemporaryDirectory() as directory:
         store = store_with(Path(directory) / "e.store", ["a.jpg", "b.jpg"])
         path = Path(directory) / "c.clusters"
         save(path, clustering_of(store))
-        write_names(path, {1: "portraits"})
+        write_annotations(path, Annotations(names={1: "portraits"}))
         (path / "report.pdf").write_bytes(b"%PDF")
 
         save(path, clustering_of(store, created="2026-02-02T00:00:00"))
         assert not (path / "report.pdf").exists()
-        assert not (path / "names.json").exists()
-        assert (path / "names-2026-01-01T000000.json").is_file()
-        assert read_names(path) == {}
+        assert not (path / "annotations.json").exists()
+        assert (path / "annotations-2026-01-01T000000.json").is_file()
+        assert read_annotations(path) == Annotations()
 
 
 if __name__ == "__main__":
     test_round_trip()
     test_refuses_other_directories()
     test_status()
-    test_names()
-    test_save_over_a_result_moves_names_and_report()
+    test_annotations()
+    test_save_over_a_result_moves_annotations_and_report()
     print("ok")

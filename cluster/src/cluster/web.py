@@ -1,4 +1,4 @@
-"""The cluster viewer: a point cloud of a clustering result, with names to give."""
+"""The cluster viewer: a point cloud of a clustering result, with names and groups."""
 
 import logging
 from collections import Counter
@@ -12,12 +12,27 @@ from common import require_auth
 from embed import rebase_paths
 
 from . import result
+from .result import Clustering
 from .thumbs import samples, thumbnail
 
-SAMPLES = 12
+SAMPLES = 24
 SIZES = range(64, 513)
 
 logger = logging.getLogger(__name__)
+
+
+def statistics(clustering: Clustering, label: int, size: int) -> dict:
+    """Cheap numbers that describe one cluster, for the viewer's detail pane."""
+    members = clustering.labels == label
+    reduced = clustering.reduced[members]
+    persistence = clustering.meta.get("persistence", [])
+    return {
+        "share": 100 * size / len(clustering.labels),
+        "persistence": persistence[label] if label < len(persistence) else None,
+        "probability": float(clustering.probabilities[members].mean()),
+        "outlier": float(np.median(clustering.outlier_scores[members])),
+        "spread": float(np.linalg.norm(reduced - reduced.mean(0), axis=1).mean()),
+    }
 
 
 def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
@@ -25,9 +40,19 @@ def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
     meta = clustering.meta
     root = image_dir if image_dir is not None else meta["root"]
     images = rebase_paths(clustering.refs, root)
-    names = result.read_names(clusters)
+    annotations = result.read_annotations(clusters)
+    names, groups = annotations.names, annotations.groups
     sizes = Counter(clustering.labels.tolist())
     noise = sizes.pop(-1, 0)
+    details = [
+        {
+            "id": label,
+            "size": size,
+            "samples": samples(clustering, label, SAMPLES),
+            "stats": statistics(clustering, label, size),
+        }
+        for label, size in sizes.most_common()
+    ]
     logger.info(
         f"Serving {len(images):,} points in {len(sizes):,} clusters from {clusters}"
     )
@@ -46,6 +71,9 @@ def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
             mimetype="application/octet-stream",
         )
 
+    def save() -> None:
+        result.write_annotations(clusters, annotations)
+
     @app.route("/")
     def index():
         return render_template("viewer.html", name=Path(clusters).name, meta=meta)
@@ -63,14 +91,9 @@ def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
         return {
             "noise": noise,
             "clusters": [
-                {
-                    "id": label,
-                    "size": size,
-                    "name": names.get(label, ""),
-                    "samples": samples(clustering, label, SAMPLES),
-                }
-                for label, size in sizes.most_common()
+                {**detail, "name": names.get(detail["id"], "")} for detail in details
             ],
+            "groups": groups,
         }
 
     @app.route("/thumb/<int:row>")
@@ -96,7 +119,31 @@ def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
             names[label] = name
         else:
             names.pop(label, None)
-        result.write_names(clusters, names)
+        save()
         return {"id": label, "name": name}
+
+    @app.route("/groups/<path:name>", methods=["PUT"])
+    def put_group(name: str):
+        """Create a group, set its clusters, or rename it with `"name"`."""
+        body = request.get_json(silent=True) or {}
+        members = body.get("clusters", groups.get(name, []))
+        new = str(body.get("name", name)).strip()
+        if not new:
+            return "A group needs a name", 400
+        if not isinstance(members, list) or any(m not in sizes for m in members):
+            return "Unknown cluster ids", 400
+        if new != name and new in groups:
+            return f"There is already a group {new!r}", 409
+        groups.pop(name, None)
+        groups[new] = sorted(set(members))
+        save()
+        return {"name": new, "clusters": groups[new]}
+
+    @app.route("/groups/<path:name>", methods=["DELETE"])
+    def delete_group(name: str):
+        if groups.pop(name, None) is None:
+            return "No such group", 404
+        save()
+        return {"name": name}
 
     return app

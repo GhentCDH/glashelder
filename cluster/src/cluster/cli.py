@@ -320,9 +320,9 @@ def serve(
     auth: bool,
     debug: bool,
 ):
-    """Show a clustering result in the browser, and give its clusters names.
+    """Show a clustering result in the browser, and give its clusters names and groups.
 
-    Names are saved in the result, in `names.json`.
+    Names and groups are saved in the result, in `annotations.json`.
     """
     from .web import create_app
 

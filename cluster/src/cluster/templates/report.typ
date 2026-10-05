@@ -79,6 +79,23 @@
   [Silhouette score], num(data.overall.silhouette_score, digits: 3),
 )
 
+#if data.groups.len() > 0 [
+  == Groups
+
+  #table(
+    columns: (5cm, 1fr, auto),
+    stroke: 1pt + luma(200),
+    table.header([*Group*], [*Clusters*], [*Images*]),
+    ..data.groups
+      .map(group => (
+        group.name,
+        group.clusters.map(((id, name)) => if name == "" { [\##id] } else { [\##id #name] }).join([, ]),
+        [#group.size],
+      ))
+      .flatten(),
+  )
+]
+
 #pagebreak(weak: true)
 
 == Most Dense Clusters
