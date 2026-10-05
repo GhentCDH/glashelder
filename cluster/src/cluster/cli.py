@@ -110,18 +110,6 @@ def cluster():
     default=30,
     help="`min_cluster_size` parameter of HDBSCAN",
 )
-@click.option(
-    "-x",
-    "--exclude",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    multiple=True,
-    help="CSV with a `pid` column, whose images are left out of the clustering. Repeatable",
-)
-@click.option(
-    "--exclude-column",
-    default="pid",
-    help="Column of the --exclude CSVs that holds the image ids",
-)
 def do_clustering(
     embeddings,
     image_dir,
@@ -132,13 +120,10 @@ def do_clustering(
     nbs,
     md,
     min_cluster_size,
-    exclude,
-    exclude_column,
 ):
     from collections import Counter
     from datetime import datetime
 
-    from common.exclude import excluded_mask
     from embed import Store, is_store, read_embeddings, rebase_paths
 
     from .cluster import create_clusterer, reduce_dimensions
@@ -156,20 +141,6 @@ def do_clustering(
     # UMAP needs all of it in memory, as float32
     vectors = data["embeddings"].float().numpy()
     logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
-
-    # the result's `rows` and `refs_hash` describe the whole store, so keep those first
-    rows, refs_hash = len(refs), fingerprint(refs, edits)
-    excluded = 0
-    if exclude:
-        drop = excluded_mask(refs, exclude, exclude_column)
-        excluded = int(drop.sum())
-        logger.info(f"Excluding {excluded:,} of {rows:,} images")
-        if excluded == rows:
-            raise click.UsageError("the --exclude CSVs cover every image")
-        keep = ~drop
-        refs = [ref for ref, kept in zip(refs, keep, strict=True) if kept]
-        image_paths = [p for p, kept in zip(image_paths, keep, strict=True) if kept]
-        vectors = vectors[keep]
 
     logger.info("Reducing dimensions")
     dimensions = 30
@@ -204,12 +175,9 @@ def do_clustering(
                 "model": data["model"],
                 "model_id": data["model_id"],
                 "root": data["root"],
-                "rows": rows,
-                "clustered": len(refs),
-                "exclude": [str(p) for p in exclude],
-                "excluded": excluded,
+                "rows": len(refs),
                 "edits": edits,
-                "refs_hash": refs_hash,
+                "refs_hash": fingerprint(refs, edits),
                 "umap": {"n_neighbors": nbs, "min_dist": md, "dimensions": dimensions},
                 "hdbscan": {"min_cluster_size": min_cluster_size},
                 "clusters": len(sizes),
@@ -295,7 +263,7 @@ def info(path: Path | None, embeddings: Path | None):
     meta = read_meta(path)
     sizes = Counter(read_labels(path).tolist())
     noise = sizes.pop(-1, 0)
-    rows = meta.get("clustered", meta["rows"])  # older results leave nothing out
+    rows = meta["rows"]
 
     store_path = embeddings or Path(meta["embeddings"])
     state = (
@@ -309,11 +277,6 @@ def info(path: Path | None, embeddings: Path | None):
         ("created", meta["created"]),
         ("model", f"{meta['model']} ({meta['model_id']})"),
         ("rows", f"{rows:,}"),
-        *(
-            [("excluded", f"{meta['excluded']:,} ({', '.join(meta['exclude'])})")]
-            if meta.get("excluded")
-            else []
-        ),
         (
             "umap",
             f"{umap['dimensions']} dims, n_neighbors {umap['n_neighbors']}, "
