@@ -20,17 +20,58 @@ Artifact locations and tuning defaults live in `glashelder.toml` at the repo roo
 so the options below are only needed when overriding it.
 
 ```bash
-# embed the reference artworks, fetching their images while the model works
-uv run glashelder embed generate-embeddings --artworks artworks.jsonl --save-path embeddings/reference.pkl
+# embed what is new in the scrape, fetching the images while the model works
+uv run glashelder embed artworks
 
 # label a starting set, then train the classifier on it
-uv run glashelder artmatcher serve --glashelder-images <dir>
+uv run glashelder artmatcher serve
 uv run glashelder artmatcher train-classifier labeling_dataset.json model.pkl --workers 48
 
 # classify the whole set
 uv run glashelder artmatcher batch-classify -o classes.json
 
 # review the results
-uv run glashelder artmatcher serve --results-json classes.json --glashelder-images <dir>
+uv run glashelder artmatcher serve --results-json classes.json
 uv run glashelder artmatcher plot-results -i classes.json -o plots/
 ```
+
+To see how a whole `batch-classify` run went, and how good it is according to your
+labels:
+
+```bash
+uv run glashelder artmatcher report classes.json --labels labeling-sessions/my-session.json
+```
+
+This writes `report.html` (one self-contained file) and prints a summary:
+- matches in total, by source and by CLIP rank, and how many images are near the threshold
+- with `--labels` (repeatable): precision among the matches, the miss rate among the
+  non-matches, and from those the estimated number of true matches and the recall,
+  with 95% intervals, per source too
+- precision and recall at other thresholds
+
+Matches and non-matches are labeled at different rates (Next Match / Next Negative), so
+each verdict is scaled by its own number of images. Only labels about the same pair the
+run chose are used. `--threshold` counts at another threshold without classifying again.
+
+To label only part of the glass plates, list them in a file (one per line, as a file
+name or a path relative to the image directory) and pass it with `--subset`:
+
+```bash
+uv run glashelder artmatcher serve --subset plates-to-label.txt
+```
+
+The full stores and the saved top-k are used as they are, so nothing is embedded or
+searched again. Images keep their number in the full set, so labels from different
+subsets can be merged.
+
+All backends share one reference store. `--source` (repeatable) matches against the
+artworks of some backends only, for example `--source wikiart --source kikirpa`.
+
+`serve` and `batch-classify` need the top-k references of every glashelder image.
+They use the result `glashelder embed neighbours` saved in the reference store, and
+only search what is new since. Without it, they search everything at start, which
+is minutes on a CPU for a million references, and say so. They also report whether
+the references went to VRAM and whether they fit in RAM.
+
+With `--source`, the saved result cannot be used (the top-k of some backends is not
+part of the top-k of all), so the references of those backends are searched at start.

@@ -1,5 +1,6 @@
 """ML-based classifier for artwork matching using Random Forest."""
 
+import io
 import json
 import logging
 import pickle
@@ -13,6 +14,7 @@ import cv2
 import imagehash
 import numpy as np
 from numpy.typing import NDArray
+from PIL import Image
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -25,12 +27,10 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from common.images import is_url
 from common.images import load as load_pil
 
-from .stitching import (
-    compute_homography,
-    load_image,
-)
+from .stitching import compute_homography
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -79,8 +79,7 @@ def _extract_orb_worker(
         # Extract distribution features first (fast)
         features = _extract_distribution_features(similarities)
 
-        # Extract ORB features
-        orb_feats = _extract_orb_features_worker(
+        orb_feats, hash_feats = _pair_features(
             glashelder_path, wikiart_path, _worker_orb, _worker_bf
         )
         features["orb_num_matches"] = float(orb_feats["num_matches"])
@@ -93,8 +92,6 @@ def _extract_orb_worker(
             else 0.0
         )
 
-        # Extract perceptual hash features
-        hash_feats = _extract_hash_features_worker(glashelder_path, wikiart_path)
         features["phash_distance"] = hash_feats["phash_distance"]
         features["dhash_distance"] = hash_feats["dhash_distance"]
         features["whash_distance"] = hash_feats["whash_distance"]
@@ -127,6 +124,15 @@ def _extract_orb_worker(
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
+
+
+def entry_artwork_path(entry: dict) -> str:
+    """The reference a labeled entry was matched to.
+
+    Labels made before `wikiart_path` became `artwork_path` still count: without
+    a path, the entry would be trained on without its ORB/hash features.
+    """
+    return entry.get("artwork_path") or entry.get("wikiart_path") or ""
 
 
 def _sanitize_features(features: dict[str, float]) -> dict[str, float]:
@@ -219,48 +225,117 @@ def _extract_distribution_features(similarities: list[float]) -> dict[str, float
     return features
 
 
-def _extract_orb_features_worker(
+NO_ORB: dict[str, float] = {
+    "num_matches": 0,
+    "num_inliers": 0,
+    "confidence": 0.0,
+    "warp_stretch": 1.0,
+}
+NO_HASH: dict[str, float] = {
+    "phash_distance": 64.0,  # max distance (no similarity)
+    "dhash_distance": 64.0,
+    "whash_distance": 64.0,
+    "ahash_distance": 64.0,
+}
+
+
+def _load_views(ref: str) -> tuple[np.ndarray, Image.Image]:
+    """One image as both views the features need: BGR for ORB, RGB for the hashes.
+
+    Read once, since a reference is a download and a glashelder image a read from
+    a network share. Each view is decoded exactly as when they were loaded
+    separately (OpenCV for files, Pillow for URLs and for the hashes), so the
+    features stay the ones the model was trained on.
+    """
+    if is_url(ref):
+        image = load_pil(ref)
+        return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR), image
+    raw = Path(ref).read_bytes()
+    bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError(f"Could not load image {ref}")
+    return bgr, Image.open(io.BytesIO(raw)).convert("RGB")
+
+
+def _pair_features(
     query_path: str, reference_path: str, orb, bf
-) -> dict[str, float]:
-    """Extract ORB features in worker process (much faster than SIFT)."""
+) -> tuple[dict[str, float], dict[str, float]]:
+    """ORB and hash features of a pair, reading each image only once."""
     try:
-        query_img = load_image(query_path)
-        ref_img = load_image(reference_path)
+        query_bgr, query_rgb = _load_views(query_path)
+        reference_bgr, reference_rgb = _load_views(reference_path)
+    except Exception:
+        return dict(NO_ORB), dict(NO_HASH)
+    return (
+        _orb_features(query_bgr, reference_bgr, orb, bf),
+        _hash_features(query_rgb, reference_rgb),
+    )
 
-        # Convert to grayscale for ORB
-        query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
-        ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
 
-        query_kp, query_des = orb.detectAndCompute(query_gray, None)
-        ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
+def _orb_matches(query_img: np.ndarray, ref_img: np.ndarray, orb, bf) -> tuple:
+    """ORB keypoints of two BGR images and the matches that pass the ratio test.
 
-        if query_des is None or ref_des is None or len(query_kp) == 0:
-            return {
-                "num_matches": 0,
-                "num_inliers": 0,
-                "confidence": 0.0,
-                "warp_stretch": 1.0,
-            }
+    Returns `(query_kp, ref_kp, good_matches)`; no matches when either image has
+    too few keypoints to match.
+    """
+    query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
+    ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
 
-        if len(query_des) < 2 or len(ref_des) < 2:
-            return {
-                "num_matches": 0,
-                "num_inliers": 0,
-                "confidence": 0.0,
-                "warp_stretch": 1.0,
-            }
+    query_kp, query_des = orb.detectAndCompute(query_gray, None)
+    ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
+    if query_des is None or ref_des is None or len(query_kp) == 0:
+        return query_kp, ref_kp, []
+    if len(query_des) < 2 or len(ref_des) < 2:
+        return query_kp, ref_kp, []
 
-        # Use knnMatch with ratio test for ORB (like SIFT)
-        matches = bf.knnMatch(query_des, ref_des, k=2)
+    # Use knnMatch with ratio test for ORB (like SIFT)
+    good_matches = []
+    for match in bf.knnMatch(query_des, ref_des, k=2):
+        if len(match) == 2:
+            m, n = match
+            # Ratio test (slightly higher threshold for binary descriptors)
+            if m.distance < 0.75 * n.distance:
+                good_matches.append(m)
+    return query_kp, ref_kp, good_matches
 
-        good_matches = []
-        for match in matches:
-            if len(match) == 2:
-                m, n = match
-                # Ratio test (slightly higher threshold for binary descriptors)
-                if m.distance < 0.75 * n.distance:
-                    good_matches.append(m)
 
+def orb_overlay(
+    query_path: str, reference_path: str, max_side: int = 1200
+) -> np.ndarray | None:
+    """The query image warped onto the reference with the ORB homography, blended
+    half and half over it, as BGR; None when ORB finds no homography.
+
+    The same matching as the ORB features, so this shows what they measured.
+    """
+    query_img, _ = _load_views(query_path)
+    ref_img, _ = _load_views(reference_path)
+    orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    query_kp, ref_kp, good_matches = _orb_matches(query_img, ref_img, orb, bf)
+    h = compute_homography(query_kp, ref_kp, good_matches)
+    if h is None:
+        return None
+
+    height, width = ref_img.shape[:2]
+    warped = cv2.warpPerspective(query_img, h, (width, height))
+    covered = cv2.warpPerspective(
+        np.full(query_img.shape[:2], 255, np.uint8), h, (width, height)
+    )
+    blended = cv2.addWeighted(ref_img, 0.5, warped, 0.5, 0)
+    # outside the warped image there is only the reference to show
+    out = np.where(covered[..., None] > 0, blended, ref_img)
+    scale = max_side / max(height, width)
+    if scale < 1:
+        out = cv2.resize(out, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    return out
+
+
+def _orb_features(
+    query_img: np.ndarray, ref_img: np.ndarray, orb, bf
+) -> dict[str, float]:
+    """ORB geometric verification of two BGR images (much faster than SIFT)."""
+    try:
+        query_kp, ref_kp, good_matches = _orb_matches(query_img, ref_img, orb, bf)
         num_matches = len(good_matches)
 
         if num_matches < 4:
@@ -329,18 +404,13 @@ def _extract_orb_features_worker(
         }
 
 
-def _extract_hash_features_worker(
-    query_path: str, reference_path: str
-) -> dict[str, float]:
-    """Extract perceptual hash features (very fast).
+def _hash_features(query_img: Image.Image, ref_img: Image.Image) -> dict[str, float]:
+    """Perceptual hash distances of two RGB images (very fast).
 
     Uses multiple hash types to capture different image properties.
     All hashes work on grayscale internally, so color differences don't affect results.
     """
     try:
-        query_img = load_pil(query_path)
-        ref_img = load_pil(reference_path)
-
         # Perceptual hash (DCT-based, good for similar images)
         q_phash = imagehash.phash(query_img)
         r_phash = imagehash.phash(ref_img)
@@ -437,24 +507,31 @@ class FeatureExtractor:
             self._bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
         return self._bf
 
-    def extract_orb_features(self, query_path: str, reference_path: str) -> ORBFeatures:
-        """Extract ORB geometric verification features between two images."""
-        found = _extract_orb_features_worker(
+    def extract_pair_features(
+        self, query_path: str, reference_path: str
+    ) -> tuple[ORBFeatures, HashFeatures]:
+        """ORB and hash features between two images, reading each image once."""
+        found, hashes = _pair_features(
             query_path, reference_path, self._get_orb(), self._get_bf()
         )
         # the worker speaks the flat float dict the feature vector wants
-        return ORBFeatures(
+        orb = ORBFeatures(
             num_matches=int(found["num_matches"]),
             num_inliers=int(found["num_inliers"]),
             confidence=found["confidence"],
             warp_stretch=found["warp_stretch"],
         )
+        return orb, HashFeatures(**hashes)
+
+    def extract_orb_features(self, query_path: str, reference_path: str) -> ORBFeatures:
+        """Extract ORB geometric verification features between two images."""
+        return self.extract_pair_features(query_path, reference_path)[0]
 
     def extract_hash_features(
         self, query_path: str, reference_path: str
     ) -> HashFeatures:
         """Extract perceptual hash features between two images."""
-        return HashFeatures(**_extract_hash_features_worker(query_path, reference_path))
+        return self.extract_pair_features(query_path, reference_path)[1]
 
     def _compute_warp_stretch(self, h: NDArray, img_shape: tuple[int, int]) -> float:
         """Compute how much a homography stretches/distorts an image.
@@ -606,8 +683,9 @@ class FeatureExtractor:
 
         # ORB and hash features (if image paths provided)
         if glashelder_path and wikiart_path:
-            # ORB features
-            orb_feats = self.extract_orb_features(glashelder_path, wikiart_path)
+            orb_feats, hash_feats = self.extract_pair_features(
+                glashelder_path, wikiart_path
+            )
             features["orb_num_matches"] = float(orb_feats.num_matches)
             features["orb_num_inliers"] = float(orb_feats.num_inliers)
             features["orb_confidence"] = orb_feats.confidence
@@ -620,8 +698,6 @@ class FeatureExtractor:
                 else 0.0
             )
 
-            # Hash features
-            hash_feats = self.extract_hash_features(glashelder_path, wikiart_path)
             features["phash_distance"] = hash_feats.phash_distance
             features["dhash_distance"] = hash_feats.dhash_distance
             features["whash_distance"] = hash_feats.whash_distance
@@ -879,7 +955,7 @@ class MLClassifier:
                 (
                     idx,
                     entry.get("glashelder_path", ""),
-                    entry.get("wikiart_path", ""),
+                    entry_artwork_path(entry),
                     entry.get("similarities", []),
                     label,
                 )
@@ -943,10 +1019,10 @@ class MLClassifier:
         glashelder_path = (
             entry.get("glashelder_path") if extract_image_features else None
         )
-        wikiart_path = entry.get("wikiart_path") if extract_image_features else None
+        artwork_path = entry_artwork_path(entry) if extract_image_features else None
 
         return self._feature_extractor.extract_all_features(
-            similarities, glashelder_path, wikiart_path
+            similarities, glashelder_path, artwork_path
         )
 
     def classify(

@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from common.throttle import Throttle
+
 USER_AGENT = "glashelder-artscraper/0.1 (sysadmin.ghentcdh@ugent.be)"
 MAX_ATTEMPTS = 3
 INITIAL_BACKOFF = 1.0
@@ -75,32 +77,6 @@ class Stats:
         self.last_latency = latency
         self.latency_total += latency
         self.recent.append(time.monotonic())
-
-
-class Throttle:
-    """Cap both in-flight requests and requests per second.
-
-    One per backend, so a slow source cannot starve a fast one.
-    """
-
-    def __init__(self, concurrency: int, rate: float):
-        self._sem = asyncio.Semaphore(concurrency)
-        self._interval = 1.0 / rate if rate > 0 else 0.0
-        self._lock = asyncio.Lock()
-        self._next = 0.0
-
-    async def __aenter__(self) -> None:
-        await self._sem.acquire()
-        if self._interval:
-            async with self._lock:
-                now = time.monotonic()
-                wait = self._next - now
-                self._next = max(now, self._next) + self._interval
-            if wait > 0:
-                await asyncio.sleep(wait)
-
-    async def __aexit__(self, *_exc) -> None:
-        self._sem.release()
 
 
 def make_client(concurrency: int) -> httpx.AsyncClient:

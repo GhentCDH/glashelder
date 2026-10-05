@@ -129,9 +129,35 @@ uv run glashelder --help
 # lists which commands are available in that workspaces
 uv run glashelder embed --help
 
-# shows which CLI options are available for the `generate-embeddings` command
-uv run glashelder embed generate-embeddings --help
+# shows which CLI options are available for the `artworks` command
+uv run glashelder embed artworks --help
 ```
+
+### From a scrape to matches
+
+Every path below comes from `glashelder.toml`, so the commands need no arguments:
+
+```sh
+# 1. scrape every backend into one file (paths.artworks, a .json.zst)
+uv run glashelder artscraper scrape
+
+# 2. embed the scraped artworks into the reference store (paths.embeddings.reference).
+#    Only images that are not in the store yet are fetched, so this is cheap to run
+#    again after the next scrape. Run it on a machine with a GPU.
+uv run glashelder embed artworks
+
+# 3. find the top-k references for every glashelder image, and save them in the
+#    reference store. Later runs only search what is new. Also best on the GPU.
+uv run glashelder embed neighbours
+
+# 4. label matches against the stored embeddings; starts at once thanks to step 3
+uv run glashelder artmatcher serve
+```
+
+Embeddings live in a *store*: a directory with a memory-mapped matrix, so a set larger
+than RAM still works. `uv run glashelder embed info <store>` shows what one holds and
+whether it fits in RAM or VRAM on this machine. Old `.pkl` embeddings still load, and
+`uv run glashelder embed convert old.pkl new.store` turns one into a store.
 
 ## Adding a new experiment
 
