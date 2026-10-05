@@ -75,7 +75,7 @@
       <div id="loading" class="absolute inset-0 flex items-center justify-center text-neutral-400">loading points…</div>
       <div id="tooltip" class="hidden absolute z-10 pointer-events-none bg-white rounded shadow p-1 text-xs"></div>
 
-      <section id="pane" class="hidden absolute inset-x-0 bottom-0 h-64 max-h-[40%] flex flex-col bg-white border-t border-neutral-300">
+      <section id="pane" class="hidden absolute inset-x-0 bottom-0 h-80 max-h-[55%] flex flex-col bg-white border-t border-neutral-300">
         <div class="flex items-center gap-3 px-3 py-2 border-b border-neutral-200">
           <span id="pane-swatch" class="w-3 h-3 rounded-full shrink-0"></span>
           <span id="pane-kind" class="text-sm font-mono text-neutral-500"></span>
@@ -85,7 +85,18 @@
           <button id="deselect" class="shrink-0 whitespace-nowrap px-2 py-1 text-sm rounded border border-neutral-300">deselect</button>
         </div>
         <div id="pane-facts" class="flex flex-wrap gap-x-5 gap-y-1 items-center px-3 py-2 text-xs text-neutral-600"></div>
-        <div id="pane-samples" class="flex-1 min-h-0 flex gap-2 overflow-x-auto px-3 pb-3"></div>
+        <!-- nothing in front of the slider changes size, so it stays under the pointer -->
+        <div id="pane-soft" class="hidden flex items-center gap-2 px-3 pb-2 text-xs text-neutral-600">
+          <span class="shrink-0">soft threshold</span>
+          <input id="pane-soft-slider" type="range" min="0" max="1" step="0.01" class="w-48 shrink-0" />
+          <span id="pane-soft-value" class="w-24 shrink-0 font-medium text-neutral-900 tabular-nums"></span>
+          <button id="pane-soft-reset" class="w-20 shrink-0 text-left underline hover:text-neutral-900">use global</button>
+        </div>
+        <div id="pane-samples" class="flex-1 min-h-0 flex gap-2 overflow-x-auto px-3 pb-2"></div>
+        <div id="pane-joined" class="hidden flex-1 min-h-0 flex flex-col px-3 pb-2">
+          <p id="pane-joined-caption" class="text-xs text-neutral-500 pb-1"></p>
+          <div id="pane-joined-samples" class="flex-1 min-h-0 flex gap-2 overflow-x-auto"></div>
+        </div>
       </section>
     </main>
 
@@ -810,47 +821,74 @@
       }
 
       const sampleClass = "h-full max-h-40 aspect-square object-cover rounded";
+      const hardIn = (ids) => ids.reduce((sum, id) => sum + (clusters.get(id)?.size ?? 0), 0);
 
-      // kept up to date by counts() while a soft threshold moves
-      let paneImages = null;
-      let paneSoft = null;
+      // the soft threshold of the focused cluster: its own, or the global one
+      const paneSoft = document.getElementById("pane-soft");
+      const paneSlider = document.getElementById("pane-soft-slider");
+      const paneSoftValue = document.getElementById("pane-soft-value");
+      const paneSoftReset = document.getElementById("pane-soft-reset");
 
-      // the soft threshold of one cluster: its own, or the global one
-      function softControl(id) {
-        const node = element("span", "inline-flex items-center gap-2");
-        const slider = element("input", "w-32 align-middle");
-        Object.assign(slider, { type: "range", min: 0, max: 1, step: 0.01 });
-        slider.value = thresholdOf(id) ?? 0.5;
-        const value = element("span", "font-medium text-neutral-900 tabular-nums");
-        const reset = element("button", "underline hover:text-neutral-900", "use global");
-        paneSoft = () => {
-          const own = soft.clusters[id];
-          value.textContent =
-            own !== undefined
-              ? number(own)
-              : soft.threshold === null
-                ? "global (off)"
-                : `global (${number(soft.threshold)})`;
-          reset.classList.toggle("hidden", own === undefined);
-        };
-        slider.addEventListener("input", () => {
-          soft.clusters[id] = Number(slider.value);
-          applySoft();
-        });
-        slider.addEventListener("change", saveSoft);
-        reset.addEventListener("click", () => {
-          delete soft.clusters[id];
-          slider.value = soft.threshold ?? 0.5;
-          applySoft();
-          saveSoft();
-        });
-        paneSoft();
-        node.append(element("span", "", "soft threshold"), slider, value, reset);
-        return node;
+      function showPaneSoft() {
+        const id = focus?.cluster;
+        if (id === undefined) return;
+        const own = soft.clusters[id];
+        paneSoftValue.textContent =
+          own !== undefined
+            ? number(own)
+            : soft.threshold === null
+              ? "global (off)"
+              : `global (${number(soft.threshold)})`;
+        // invisible, not gone: the row keeps its size
+        paneSoftReset.classList.toggle("invisible", own === undefined);
       }
 
+      paneSlider.addEventListener("input", () => {
+        soft.clusters[focus.cluster] = Number(paneSlider.value);
+        applySoft();
+      });
+      paneSlider.addEventListener("change", saveSoft);
+      paneSoftReset.addEventListener("click", () => {
+        delete soft.clusters[focus.cluster];
+        paneSlider.value = soft.threshold ?? 0.5;
+        applySoft();
+        saveSoft();
+      });
+
+      // the images soft thresholding added, the ones added last (lowest score) first
+      const paneJoined = document.getElementById("pane-joined");
+      const paneJoinedCaption = document.getElementById("pane-joined-caption");
+      const paneJoinedSamples = document.getElementById("pane-joined-samples");
+      let joinedFrame = null;
+
+      function renderJoined() {
+        joinedFrame = null;
+        const ids = focusIds();
+        const rows = [];
+        if (ids !== null && softLabels !== null) {
+          for (let i = 0; i < n; i++) if (joined[i] && ids.has(assigned[i])) rows.push(i);
+        }
+        paneJoined.classList.toggle("hidden", rows.length === 0);
+        if (!rows.length) return;
+        rows.sort((a, b) => softScores[a] - softScores[b]);
+        paneJoinedCaption.textContent =
+          `+${rows.length.toLocaleString()} added from noise by soft thresholding, ` +
+          "lowest score first";
+        paneJoinedSamples.replaceChildren(
+          ...rows.slice(0, PANE_SAMPLES).map((row) => {
+            const link = thumbnailLink(row, sampleClass);
+            link.title = `score ${number(softScores[row])}`;
+            return link;
+          }),
+        );
+      }
+
+      // at most once a frame, while a slider moves
+      const scheduleJoined = () => {
+        joinedFrame ??= requestAnimationFrame(renderJoined);
+      };
+
       function renderPane() {
-        paneImages = paneSoft = null;
         const open = focus !== null;
         const wasOpen = !pane.classList.contains("hidden");
         pane.classList.toggle("hidden", !open);
@@ -866,11 +904,11 @@
           paneName.value = cluster.name;
           paneName.placeholder = "unnamed";
           deleteButton.classList.add("hidden");
-          const images = fact("images", countText(cluster.id));
-          paneImages = images.lastChild;
+          paneSoft.classList.toggle("hidden", !info.has_soft);
+          paneSlider.value = thresholdOf(cluster.id) ?? 0.5;
+          showPaneSoft();
           paneFacts.replaceChildren(
-            images,
-            ...(info.has_soft ? [softControl(cluster.id)] : []),
+            fact("images", cluster.size.toLocaleString()),
             fact("share", `${number(stats.share, 1)} %`),
             fact("persistence", number(stats.persistence)),
             fact("mean probability", number(stats.probability)),
@@ -891,11 +929,10 @@
           paneName.value = name;
           paneName.placeholder = "group name";
           deleteButton.classList.remove("hidden");
-          const images = fact("images", imagesIn(members).toLocaleString());
-          paneImages = images.lastChild;
+          paneSoft.classList.add("hidden");
           paneFacts.replaceChildren(
             fact("clusters", members.length.toString()),
-            images,
+            fact("images", hardIn(members).toLocaleString()),
             ...members.map((id) =>
               chip(
                 label(id),
@@ -909,19 +946,15 @@
             ...rows.slice(0, PANE_SAMPLES).map((row) => thumbnailLink(row, sampleClass)),
           );
         }
+        renderJoined();
       }
 
       // soft assignment: apply the thresholds, show the result, save on release
       function counts() {
         items.forEach((item, id) => (item.querySelector(".size").textContent = countText(id)));
         noiseCount.textContent = noiseLeft().toLocaleString();
-        if (paneImages && focus) {
-          paneImages.textContent =
-            "cluster" in focus
-              ? countText(focus.cluster)
-              : imagesIn(groups[focus.group] ?? []).toLocaleString();
-        }
-        paneSoft?.();
+        showPaneSoft();
+        if (focus) scheduleJoined();
         renderGroups();
       }
 
