@@ -61,6 +61,10 @@
   [Created], meta.created,
   [UMAP], [#meta.umap.dimensions dimensions, n_neighbors #meta.umap.n_neighbors, min_dist #meta.umap.min_dist],
   [Minimum cluster size], [#meta.hdbscan.min_cluster_size],
+  [Minimum samples], {
+    let samples = meta.hdbscan.at("min_samples", default: none)
+    if samples == none { [unset] } else { [#samples] }
+  },
 )
 
 #grid(

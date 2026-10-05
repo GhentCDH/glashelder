@@ -124,11 +124,14 @@ def cli_defaults() -> dict:
     return {
         "artscraper": {"scrape": given(output=paths.artworks)},
         "cluster": {
-            "cluster": given(
-                embeddings=paths.embeddings.glashelder,
-                image_dir=paths.images.glashelder,
-                output=paths.clusters,
-            ),
+            "cluster": {
+                **defaults_for(settings.cluster),
+                **given(
+                    embeddings=paths.embeddings.glashelder,
+                    image_dir=paths.images.glashelder,
+                    output=paths.clusters,
+                ),
+            },
             "info": given(path=paths.clusters),
             "serve": given(clusters=paths.clusters, image_dir=paths.images.glashelder),
             "report": given(path=paths.clusters, image_dir=paths.images.glashelder),
