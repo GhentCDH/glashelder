@@ -6,6 +6,7 @@ from pathlib import Path
 
 # installed packages
 import click
+import numpy as np
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -16,7 +17,7 @@ from embed import get_device
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
-CLUSTERS_JSON = "clusters.json"
+CLUSTERS_PATH = "glashelder.clusters"
 PACKAGE_ROOT = PROJECT_ROOT / "cluster"
 EMBEDDINGS_PATH = PROJECT_ROOT / "embed" / "embeddings.pkl"
 
@@ -72,7 +73,11 @@ def cluster():
     help="Directory the embedded images live in on this machine",
 )
 @click.option(
-    "-s", "--save", default=CLUSTERS_JSON, help="Path where the clusters are written to"
+    "-s",
+    "--output",
+    type=click.Path(path_type=Path),
+    default=CLUSTERS_PATH,
+    help="Directory the clustering result is saved in",
 )
 @click.option(
     "-o",
@@ -99,113 +104,126 @@ def cluster():
     default=0.0,
     help="`min_dist` parameter of UMAP dimensionality reduction",
 )
-def do_clustering(embeddings, image_dir, save, output_files, count, reduce, nbs, md):
-    import json
+@click.option(
+    "-m",
+    "--min-cluster-size",
+    default=30,
+    help="`min_cluster_size` parameter of HDBSCAN",
+)
+def do_clustering(
+    embeddings,
+    image_dir,
+    output,
+    output_files,
+    count,
+    reduce,
+    nbs,
+    md,
+    min_cluster_size,
+):
+    from collections import Counter
+    from datetime import datetime
 
-    from embed import (
-        load_embeddings,
-    )
+    from embed import Store, is_store, read_embeddings, rebase_paths
 
     from .cluster import create_clusterer, reduce_dimensions
+    from .result import Clustering, fingerprint, save
     from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
-
-    device = get_device()
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
     logger.info("Loading embeddings")
-    data = load_embeddings(embeddings, root=image_dir)
-    image_paths: list[str] = data["images"]
+    data = read_embeddings(embeddings)
+    refs: list[str] = data["images"]
+    root = image_dir if image_dir is not None else data["root"]
+    image_paths = rebase_paths(refs, root)
+    edits = Store.open(embeddings).edits if is_store(embeddings) else None
     # UMAP needs all of it in memory, as float32
-    embeddings = data["embeddings"].float().to(device)
+    vectors = data["embeddings"].float().numpy()
     logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
 
     logger.info("Reducing dimensions")
-    # reduced_embeddings = embeddings.cpu().numpy()
-    reduced_embeddings = reduce_dimensions(embeddings.cpu().numpy(), 30, nbs, md)
+    dimensions = 30
+    reduced_embeddings = reduce_dimensions(vectors, dimensions, nbs, md)
     visualization_embeddings = reduce_dimensions(reduced_embeddings, 3, nbs, md)
 
     if reduce:
         log_reduced(visualization_embeddings, count=20000)
         return
 
+    flat_embeddings = reduce_dimensions(reduced_embeddings, 2, nbs, md)
+
     logger.info("cluster points")
-    clusterer = create_clusterer(reduced_embeddings)
+    clusterer = create_clusterer(reduced_embeddings, min_cluster_size)
+    labels = clusterer.labels_
+    sizes = Counter(int(label) for label in labels)
+    noise = sizes.pop(-1, 0)
+
+    save(
+        output,
+        Clustering(
+            refs=refs,
+            labels=labels,
+            probabilities=clusterer.probabilities_,
+            outlier_scores=clusterer.outlier_scores_,
+            coords2d=flat_embeddings,
+            coords3d=visualization_embeddings,
+            reduced=reduced_embeddings,
+            meta={
+                "created": datetime.now().isoformat(timespec="seconds"),
+                "embeddings": str(Path(embeddings).resolve()),
+                "model": data["model"],
+                "model_id": data["model_id"],
+                "root": data["root"],
+                "rows": len(refs),
+                "edits": edits,
+                "refs_hash": fingerprint(refs, edits),
+                "umap": {"n_neighbors": nbs, "min_dist": md, "dimensions": dimensions},
+                "hdbscan": {"min_cluster_size": min_cluster_size},
+                "clusters": len(sizes),
+                "noise": noise,
+            },
+        ),
+    )
+    logger.info(f"Saved the clustering to {output}")
 
     # log to rerun
     logger.info("logging clustered points to rerun")
-    log_clustered_points(visualization_embeddings, clusterer.labels_, count=count)
+    log_clustered_points(visualization_embeddings, labels, count=count)
     log_images_3d(visualization_embeddings, image_paths, 500)
 
-    # Get cluster labels
-    labels = [int(x) for x in clusterer.labels_]
-
-    # Print cluster statistics
-    unique_labels = set(labels)
-    logger.info(
-        f"Number of clusters: {len(unique_labels) - (1 if -1 in unique_labels else 0)}"
-    )
-    logger.info(
-        f"Number of noise points: {sum(label for label in labels if label == -1)}"
-    )
+    logger.info(f"Number of clusters: {len(sizes)}")
+    logger.info(f"Number of noise points: {noise}")
     logger.info("Cluster sizes:")
-    for label in sorted(unique_labels):
-        if label == -1:
-            logger.info(f"  Noise: {sum(la for la in labels if la == label)} points")
-        else:
-            logger.info(
-                f"  Cluster {label}: {sum(la for la in labels if la == label)} points"
-            )
-
-    # Get unique clusters (excluding noise)
-    unique_clusters: list[int] = sorted([label for label in set(labels) if label != -1])
-
-    if output_files:
-        # Create output directory
-        output_dir = Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
-        output_dir.mkdir(exist_ok=True)
-
-    # save the clusters to a json file
-    clusters_json = {}
-
-    # For each cluster, copy up to 4 sample images
-    for cluster_id in unique_clusters:
-        # Get indices of images in this cluster
-        cluster_indices = [i for i, label in enumerate(labels) if label == cluster_id]
-
-        clusters_json[cluster_id] = [image_paths[idx] for idx in cluster_indices]
-
-        if output_files:
-            # Create cluster directory
-            cluster_dir = output_dir / f"cluster_{cluster_id}"
-            # remove the directory if it already exists
-            shutil.rmtree(cluster_dir)
-            cluster_dir.mkdir(exist_ok=True)
-
-            # Select up to 4 samples
-            sample_indices = cluster_indices[:4]
-
-            # Copy and resize images
-            for idx in sample_indices:
-                src_path = image_paths[idx]
-                filename = Path(src_path).name
-                dst_path = cluster_dir / filename
-                resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
-
-            print(
-                f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
-            )
-
-    # save the json
-    with open(save, "w", encoding="utf-8") as f:
-        json.dump(clusters_json, f, ensure_ascii=False)
+    for label, size in sorted(sizes.items()):
+        logger.info(f"  Cluster {label}: {size} points")
 
     if not output_files:
         return
 
+    output_dir = Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
+    output_dir.mkdir(exist_ok=True)
+
+    # For each cluster, copy up to 4 sample images
+    for cluster_id in sorted(sizes):
+        cluster_indices = np.flatnonzero(labels == cluster_id)
+        cluster_dir = output_dir / f"cluster_{cluster_id}"
+        shutil.rmtree(cluster_dir, ignore_errors=True)
+        cluster_dir.mkdir()
+
+        sample_indices = cluster_indices[:4]
+        for idx in sample_indices:
+            src_path = image_paths[idx]
+            dst_path = cluster_dir / Path(src_path).name
+            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+
+        print(
+            f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
+        )
+
     # Optionally handle noise points
-    noise_indices = [i for i, label in enumerate(labels) if label == -1]
-    if noise_indices:
+    noise_indices = np.flatnonzero(labels == -1)
+    if len(noise_indices):
         noise_dir = output_dir / "noise"
         noise_dir.mkdir(exist_ok=True)
 
@@ -221,6 +239,58 @@ def do_clustering(embeddings, image_dir, save, output_files, count, reduce, nbs,
         )
 
     print(f"\nSamples saved to: {output_dir}")
+
+
+@cluster.command()
+@click.argument("path", type=click.Path(exists=True, path_type=Path), required=False)
+@click.option(
+    "--embeddings",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Embedding store to check against (default: the one it was made from)",
+)
+def info(path: Path | None, embeddings: Path | None):
+    """Show what a saved clustering holds, and whether it still matches its embeddings."""
+    from collections import Counter
+
+    from embed import Store, is_store
+
+    from .result import read_labels, read_meta, status
+
+    if path is None:
+        raise click.UsageError("give a clustering result, or set paths.clusters")
+    meta = read_meta(path)
+    sizes = Counter(read_labels(path).tolist())
+    noise = sizes.pop(-1, 0)
+    rows = meta["rows"]
+
+    store_path = embeddings or Path(meta["embeddings"])
+    state = (
+        f"{status(meta, Store.open(store_path))} ({store_path})"
+        if is_store(store_path)
+        else f"unknown, {store_path} is not an embedding store here"
+    )
+    umap, hdbscan = meta["umap"], meta["hdbscan"]
+    for name, value in (
+        ("path", path),
+        ("created", meta["created"]),
+        ("model", f"{meta['model']} ({meta['model_id']})"),
+        ("rows", f"{rows:,}"),
+        (
+            "umap",
+            f"{umap['dimensions']} dims, n_neighbors {umap['n_neighbors']}, "
+            f"min_dist {umap['min_dist']}",
+        ),
+        ("hdbscan", f"min_cluster_size {hdbscan['min_cluster_size']}"),
+        ("clusters", f"{len(sizes):,}"),
+        ("noise", f"{noise:,} ({noise / rows:.1%})" if rows else "0"),
+        (
+            "largest",
+            ", ".join(f"{label} ({n:,})" for label, n in sizes.most_common(10)) or "-",
+        ),
+        ("status", state),
+    ):
+        click.echo(f"{name + ':':10}{value}")
 
 
 @cluster.command()
