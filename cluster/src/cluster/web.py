@@ -86,6 +86,23 @@ def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
     def labels():
         return binary(clustering.labels, "<i4")
 
+    # only the strongest cluster of each point: that is all the viewer needs
+    @app.route("/soft-labels")
+    def soft_labels():
+        if clustering.soft_labels is None:
+            return "This result has no soft clustering", 404
+        return binary(clustering.soft_labels[:, 0], "<i4")
+
+    @app.route("/soft-scores")
+    def soft_scores():
+        if clustering.soft_scores is None:
+            return "This result has no soft clustering", 404
+        return binary(clustering.soft_scores[:, 0], "<f4")
+
+    def soft_json() -> dict:
+        soft = annotations.soft
+        return {"threshold": soft.threshold, "clusters": soft.clusters}
+
     @app.route("/clusters")
     def cluster_list():
         return {
@@ -94,7 +111,29 @@ def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
                 {**detail, "name": names.get(detail["id"], "")} for detail in details
             ],
             "groups": groups,
+            "has_soft": clustering.soft_labels is not None,
+            "soft": soft_json(),
         }
+
+    @app.route("/soft", methods=["PUT"])
+    def put_soft():
+        body = request.get_json(silent=True) or {}
+        threshold = body.get("threshold")
+        try:
+            own = {int(k): float(v) for k, v in (body.get("clusters") or {}).items()}
+        except (TypeError, ValueError):
+            return "Thresholds must be numbers", 400
+        values = [*own.values(), *([threshold] if threshold is not None else [])]
+        if not all(isinstance(v, int | float) and 0 <= v <= 1 for v in values):
+            return "Thresholds must be between 0 and 1", 400
+        if any(label not in sizes for label in own):
+            return "Unknown cluster ids", 400
+        annotations.soft = result.SoftThresholds(
+            threshold=float(threshold) if threshold is not None else None,
+            clusters=own,
+        )
+        save()
+        return soft_json()
 
     @app.route("/thumb/<int:row>")
     def thumb(row: int):

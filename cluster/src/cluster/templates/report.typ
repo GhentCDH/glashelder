@@ -33,7 +33,7 @@
   #grid(
     columns: (1fr, auto),
     [=== #title(cluster)],
-    [#cluster.size images (#num(cluster.percentage, digits: 1) %)],
+    [#cluster.size images (#num(cluster.percentage, digits: 1) %)#if cluster.soft > 0 [ +#cluster.soft soft]],
   )
 
   #if stats {

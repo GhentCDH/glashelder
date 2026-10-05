@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import tempfile
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -41,6 +42,9 @@ def build(path: Path, image_dir: str | None, *, count: int = 4) -> Path:
         clustering.refs, image_dir if image_dir is not None else meta["root"]
     )
     persistence = meta.get("persistence", [])
+    # images each cluster gets from noise with the thresholds saved in the viewer
+    assigned = result.assign(clustering, annotations.soft)
+    joined = Counter(assigned[(clustering.labels == -1) & (assigned >= 0)].tolist())
 
     logger.info("Calculating cluster statistics")
     stats = calculate_cluster_statistics(clustering.reduced, clustering.labels, None)
@@ -85,6 +89,7 @@ def build(path: Path, image_dir: str | None, *, count: int = 4) -> Path:
                 "id": label,
                 "name": names.get(label, ""),
                 "persistence": persistence[label] if label < len(persistence) else None,
+                "soft": joined.get(label, 0),
                 "samples": [file for file in files if file is not None],
             }
 

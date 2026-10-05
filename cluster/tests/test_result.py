@@ -11,6 +11,8 @@ import numpy as np
 from cluster.result import (
     Annotations,
     Clustering,
+    SoftThresholds,
+    assign,
     fingerprint,
     load,
     read_annotations,
@@ -128,10 +130,58 @@ def test_save_over_a_result_moves_annotations_and_report():
         assert read_annotations(path) == Annotations()
 
 
+def test_soft_round_trip():
+    with tempfile.TemporaryDirectory() as directory:
+        store = store_with(Path(directory) / "e.store", ["a.jpg", "b.jpg", "c.jpg"])
+        path = Path(directory) / "c.clusters"
+        saved = clustering_of(store)
+        assert load_saved(path, saved).soft_labels is None
+
+        saved.soft_labels = np.array([[0, 1], [1, 0], [2, -1]], np.int32)
+        saved.soft_scores = np.array([[0.9, 0.1], [0.6, 0.3], [0.2, 0]], np.float32)
+        loaded = load_saved(path, saved)
+        assert loaded.soft_labels is not None and loaded.soft_scores is not None
+        assert np.array_equal(loaded.soft_labels, saved.soft_labels)
+        assert np.allclose(loaded.soft_scores, saved.soft_scores)
+
+
+def load_saved(path: Path, clustering: Clustering) -> Clustering:
+    save(path, clustering)
+    return load(path)
+
+
+def test_assign():
+    with tempfile.TemporaryDirectory() as directory:
+        store = store_with(Path(directory) / "e.store", ["a", "b", "c", "d"])
+        clustering = clustering_of(store)
+        clustering.labels = np.array([0, -1, -1, -1])
+        clustering.soft_labels = np.array([[1], [0], [1], [-1]], np.int32)
+        clustering.soft_scores = np.array([[0.9], [0.6], [0.3], [0.0]], np.float32)
+
+        def labels(**soft) -> list[int]:
+            return assign(clustering, SoftThresholds(**soft)).tolist()
+
+        # no threshold: the hard labels
+        assert labels() == [0, -1, -1, -1]
+        # a point in a cluster stays there, even with a stronger soft cluster
+        assert labels(threshold=0.5) == [0, 0, -1, -1]
+        assert labels(threshold=0.2) == [0, 0, 1, -1]
+        # a cluster's own threshold beats the global one, either way
+        assert labels(threshold=0.5, clusters={1: 0.2}) == [0, 0, 1, -1]
+        assert labels(threshold=0.2, clusters={0: 0.7}) == [0, -1, 1, -1]
+        # without a global threshold, only clusters with their own take points
+        assert labels(clusters={1: 0.1}) == [0, -1, 1, -1]
+        # without soft data, nothing changes
+        clustering.soft_labels = clustering.soft_scores = None
+        assert labels(threshold=0.0) == [0, -1, -1, -1]
+
+
 if __name__ == "__main__":
     test_round_trip()
     test_refuses_other_directories()
     test_status()
     test_annotations()
     test_save_over_a_result_moves_annotations_and_report()
+    test_soft_round_trip()
+    test_assign()
     print("ok")
