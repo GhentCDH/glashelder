@@ -1,14 +1,26 @@
-"""Looking artworks back up by the reference an embedding or a match refers to."""
+"""Reading scrapes back, and looking artworks up by the reference an embedding or a match refers to."""
 
 import json
 from pathlib import Path
+from typing import IO
+
+import zstandard as zstd
 
 from .model import Artwork
 
 
+def open_text(path: str | Path, mode: str = "r") -> IO[str]:
+    """Open a text file, (de)compressing on the fly when it ends in `.zst`."""
+    path = Path(path)
+    if path.suffix.lower() == ".zst":
+        return zstd.open(path, f"{mode}t", encoding="utf-8")
+    return path.open(mode, encoding="utf-8")
+
+
 def read(path: str | Path) -> list[Artwork]:
-    """Read artworks from a scrape, accepting either the JSONL or the JSON list."""
-    text = Path(path).read_text()
+    """Read artworks from a scrape: the JSONL or the JSON list, optionally zstd compressed."""
+    with open_text(path) as file:
+        text = file.read()
     if text.lstrip().startswith("["):
         return [Artwork(**row) for row in json.loads(text)]
     return [Artwork(**json.loads(line)) for line in text.splitlines() if line.strip()]

@@ -3,8 +3,8 @@
 #   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
 
 [paths]
-artworks = "artworks.jsonl" # artscraper output, doubles as the metadata index
-ml_model = "model.pkl"
+artworks = "artworks.json.zst"                              # artscraper output, doubles as the metadata index
+ml_model = "/mnt/ghentcdh/glashelder/models/artmatcher.pkl"
 
 [paths.images]
 glashelder = "/mnt/ghentcdh/glashelder/assets-crop"
@@ -12,14 +12,26 @@ glashelder = "/mnt/ghentcdh/glashelder/assets-crop"
 cache = ".image-cache" # only used when image caching is on
 
 [paths.embeddings]
-glashelder = "/mnt/ghentcdh/glashelder/embeddings/glashelder-clip.pkl"
-reference = "/mnt/ghentcdh/glashelder/embeddings/artworks-clip.pkl"
+glashelder = "/mnt/ghentcdh/glashelder/embeddings/glashelder-clip.store"
+reference = "/mnt/ghentcdh/glashelder/embeddings/artworks-clip.store"
 
 [images]
-concurrency = 16 # image fetches in flight
+concurrency = 16 # image fetches in flight, over all hosts
+per_host = 4     # image fetches in flight to one host
+rate = 5.0       # requests per second to one host, 0 for no limit
 cache = false    # a full reference set on disk is tens of gigabytes
+
+# limits for one host, where it can take more (or less) than the defaults above
+# [images.hosts."uploads.wikiart.org"]
+# per_host = 8
+# rate = 20.0
+
+[embed]
+model = "clip"
+batch_size = 64
 
 [artmatcher]
 workers = 45
 threshold = 0.82
 top_k = 10
+candidates = 3

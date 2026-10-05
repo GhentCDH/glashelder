@@ -6,13 +6,12 @@ import json
 import logging
 import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -25,6 +24,8 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+
+from artscraper import Artwork
 
 from .ml_classifier import (
     MLClassifier,
@@ -42,13 +43,15 @@ class BatchClassifyResult:
 
     glashelder_path: str
     glashelder_index: int
-    wikiart_path: str
-    wikiart_index: int
+    artwork_path: str
+    artwork_index: int
     similarities: list[float]
     is_match: bool
     confidence: float
     threshold: float
     features: dict[str, float] = field(default_factory=dict)
+    rank: int = 0
+    """Which of the CLIP top matches this is (0 = the best), see `candidates`."""
 
 
 @dataclass
@@ -145,33 +148,6 @@ class FeatureCache:
         return True
 
 
-def compute_embedding_similarities(
-    glashelder_emb: torch.Tensor,
-    wikiart_emb: torch.Tensor,
-    top_k: int,
-    chunk_size: int = 2 ^ 15,
-) -> tuple[np.ndarray, np.ndarray]:
-    glashelder_norm = glashelder_emb / glashelder_emb.norm(dim=-1, keepdim=True)
-    wikiart_norm = wikiart_emb / wikiart_emb.norm(dim=-1, keepdim=True)
-
-    actual_k = min(top_k, wikiart_emb.shape[0])
-    all_indices = []
-    all_values = []
-
-    for i in range(0, glashelder_norm.shape[0], chunk_size):
-        chunk = glashelder_norm[i : i + chunk_size]
-        sim = chunk @ wikiart_norm.T  # (chunk_size x M)
-        values, indices = torch.topk(sim, actual_k, dim=1)
-        all_indices.append(indices.cpu())
-        all_values.append(values.cpu())
-        del sim
-
-    return (
-        torch.cat(all_indices).numpy(),
-        torch.cat(all_values).numpy(),
-    )
-
-
 def _get_default_features(similarities: list[float]) -> dict[str, float]:
     """Return default features when extraction fails."""
     from .ml_classifier import _extract_distribution_features
@@ -201,6 +177,11 @@ class _NullProgress:
         pass
 
 
+def pool(workers: int) -> ProcessPoolExecutor:
+    """Worker processes for ORB/hash extraction, each with its own detector."""
+    return ProcessPoolExecutor(max_workers=workers, initializer=_init_orb_worker)
+
+
 def extract_features_batch(
     work_items: list[tuple[int, str, str, list[float], int]],
     workers: int,
@@ -208,6 +189,7 @@ def extract_features_batch(
     timeout_per_item: float = 30.0,
     cache_save_interval: int = 100,
     progress: bool = True,
+    executor: ProcessPoolExecutor | None = None,
 ) -> dict[int, dict[str, float]]:
     """Extract ORB/hash features for a batch of image pairs in parallel.
 
@@ -218,6 +200,9 @@ def extract_features_batch(
         timeout_per_item: Timeout in seconds per item (default 30s)
         cache_save_interval: Save cache to disk every N items (default 100)
         progress: If False, suppress the progress bar and all console output
+        executor: A pool to use and leave running, for callers that extract
+            often (one per call costs a fork of every worker each time). Made
+            from `pool(workers)` and shut down here when not given.
 
     Returns:
         Dict mapping index to feature dict
@@ -267,9 +252,9 @@ def extract_features_batch(
             total=len(uncached_items),
         )
 
-        executor = ProcessPoolExecutor(
-            max_workers=workers, initializer=_init_orb_worker
-        )
+        owned = executor is None
+        if executor is None:
+            executor = pool(workers)
 
         try:
             future_to_item = {
@@ -329,7 +314,8 @@ def extract_features_batch(
             if cache:
                 cache.save()
         finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+            if owned:
+                executor.shutdown(wait=False, cancel_futures=True)
 
     if n_failed > 0 and progress:
         console.print(
@@ -355,11 +341,87 @@ def predict_confidences(
     return all_proba[:, 1].astype(float).tolist()
 
 
-def batch_classify(
-    glashelder_emb: torch.Tensor,
+Tried = list[tuple[float, dict[str, float]]]
+"""Confidence and features of each candidate tried for an image, in CLIP order."""
+
+
+def shifted(similarities, rank: int) -> list[float]:
+    """The similarities the classifier sees for the candidate at `rank`.
+
+    The list from that candidate on, padded with the last value back to the full
+    length: to the classifier, candidate `rank` is the top match, and only the
+    ones ranked below it are the competition.
+    """
+    values = [float(s) for s in similarities]
+    return values[rank:] + values[-1:] * rank
+
+
+def needs_more(tried: Tried, threshold: float, candidates: int, available: int) -> bool:
+    """Whether another candidate has to be tried: none matched yet, and N not reached."""
+    if len(tried) >= min(candidates, available):
+        return False
+    return all(confidence <= threshold for confidence, _ in tried)
+
+
+def choose(tried: Tried, threshold: float, candidates: int) -> int:
+    """The rank to go with: the most confident of the candidates tried at this
+    threshold, which stops at the first match (so that one, if there is one)."""
+    considered = tried[:candidates]
+    for rank, (confidence, _) in enumerate(considered):
+        if confidence > threshold:
+            considered = considered[: rank + 1]
+            break
+    return max(range(len(considered)), key=lambda rank: considered[rank][0])
+
+
+def score_round(
+    tried: dict[int, Tried],
+    images,
+    *,
+    threshold: float,
+    candidates: int,
     glashelder_paths: list[str],
-    wikiart_emb: torch.Tensor,
-    wikiart_paths: list[str],
+    artwork_paths: list[str],
+    top_indices,
+    top_similarities,
+    classifier: MLClassifier,
+    extract,
+) -> bool:
+    """Score the next candidate of every image in `images` that needs one.
+
+    `tried` is updated in place; `extract(work_items)` computes the ORB/hash
+    features. Returns whether there was anything left to score, so callers run
+    rounds until it says no.
+    """
+    need = [
+        image
+        for image in images
+        if needs_more(
+            tried.get(image, []), threshold, candidates, len(top_indices[image])
+        )
+    ]
+    if not need:
+        return False
+
+    work_items = []
+    for n, image in enumerate(need):
+        rank = len(tried.get(image, []))
+        reference = artwork_paths[int(top_indices[image][rank])]
+        sims = shifted(top_similarities[image], rank)
+        work_items.append((n, glashelder_paths[image], reference, sims, 0))
+
+    features = extract(work_items)
+    confidences = predict_confidences(classifier, features, list(range(len(need))))
+    for n, image in enumerate(need):
+        tried.setdefault(image, []).append((confidences[n], features[n]))
+    return True
+
+
+def batch_classify(
+    glashelder_paths: list[str],
+    artwork_paths: list[str],
+    top_indices: np.ndarray,
+    top_similarities: np.ndarray,
     classifier: MLClassifier,
     top_k: int = 10,
     threshold: float = 0.5,
@@ -368,90 +430,90 @@ def batch_classify(
     cache: FeatureCache | None = None,
     timeout_per_item: float = 30.0,
     cache_save_interval: int = 100,
+    candidates: int = 1,
 ) -> BatchClassifyOutput:
-    """Batch classify all glashelder images against wikiart.
+    """Batch classify all glashelder images against the reference artworks.
 
     Args:
-        glashelder_emb: Glashelder embeddings tensor
         glashelder_paths: List of glashelder image paths
-        wikiart_emb: Wikiart embeddings tensor
-        wikiart_paths: List of wikiart image paths
+        artwork_paths: List of reference artwork paths or URLs
+        top_indices: `(glashelder, k)` best references per image, from
+            `loading.top_matches`
+        top_similarities: their similarities
         classifier: Trained ML classifier
-        top_k: Number of top wikiart matches to consider
+        top_k: Number of top artwork matches to consider
         threshold: Confidence threshold for is_match
         workers: Number of parallel workers for feature extraction
         min_confidence: Only include results above this confidence (None = include all)
         cache: Optional feature cache
         timeout_per_item: Timeout in seconds per item for feature extraction
         cache_save_interval: Save cache to disk every N items (0 to disable)
+        candidates: How many of the top matches to classify while the ones
+            before them are no match; the most confident one is kept
 
     Returns:
         BatchClassifyOutput with metadata, summary, and results
     """
     start_time = datetime.now()
     n_glashelder = len(glashelder_paths)
-    n_wikiart = len(wikiart_paths)
+    n_artworks = len(artwork_paths)
 
     console.print("[bold cyan]Batch Classification[/bold cyan]")
     console.print(f"  Glashelder images: {n_glashelder}")
-    console.print(f"  Wikiart images: {n_wikiart}")
+    console.print(f"  Artwork images: {n_artworks}")
     console.print(f"  Top-k matches: {top_k}")
     console.print(f"  Threshold: {threshold}")
+    console.print(f"  Candidates: {candidates}")
     console.print(f"  Workers: {workers}")
 
-    # Phase 1: Compute embedding similarities
-    console.print("\n[cyan]Phase 1: Computing embedding similarities...[/cyan]")
-    top_indices, top_sims = compute_embedding_similarities(
-        glashelder_emb, wikiart_emb, top_k
-    )
-    console.print(f"[green]Computed similarities for {n_glashelder} images[/green]")
-
-    # Phase 2: Prepare work items for ORB/hash extraction
-    console.print("\n[cyan]Phase 2: Extracting ORB/hash features...[/cyan]")
-    work_items = []
-    for i in range(n_glashelder):
-        glashelder_path = glashelder_paths[i]
-        wikiart_idx = int(top_indices[i, 0])
-        wikiart_path = wikiart_paths[wikiart_idx]
-        similarities = top_sims[i].tolist()
-        work_items.append((i, glashelder_path, wikiart_path, similarities, 0))
-
-    # Extract features in parallel
-    features_map = extract_features_batch(
-        work_items, workers, cache, timeout_per_item, cache_save_interval
-    )
-
-    # Phase 3: ML Classification (vectorized batch prediction)
-    console.print("\n[cyan]Phase 3: Running ML classification...[/cyan]")
+    # ORB/hash features and classification, one candidate rank per round: the
+    # first round does every image's top match, later ones only the images
+    # that have no match yet
     classifier.threshold = threshold
-
-    # Batch predict all at once - much faster than one-by-one
-    confidences = predict_confidences(
-        classifier, features_map, list(range(n_glashelder))
-    )
-    is_match_arr = np.asarray(confidences) > threshold
-    n_matches = int(is_match_arr.sum())
+    tried: dict[int, Tried] = {}
+    rounds = 0
+    while score_round(
+        tried,
+        range(n_glashelder),
+        threshold=threshold,
+        candidates=candidates,
+        glashelder_paths=glashelder_paths,
+        artwork_paths=artwork_paths,
+        top_indices=top_indices,
+        top_similarities=top_similarities,
+        classifier=classifier,
+        extract=lambda work_items: extract_features_batch(
+            work_items, workers, cache, timeout_per_item, cache_save_interval
+        ),
+    ):
+        rounds += 1
+        console.print(f"[green]Scored candidate {rounds} where still needed[/green]")
 
     # Build results list
     results: list[BatchClassifyResult] = []
+    n_matches = 0
     for i in range(n_glashelder):
-        confidence = confidences[i]
+        rank = choose(tried[i], threshold, candidates)
+        confidence, features = tried[i][rank]
+        is_match = confidence > threshold
+        n_matches += is_match
 
         # Apply min_confidence filter
         if min_confidence is not None and confidence < min_confidence:
             continue
 
-        wikiart_idx = int(top_indices[i, 0])
+        artwork_idx = int(top_indices[i, rank])
         result = BatchClassifyResult(
             glashelder_path=glashelder_paths[i],
             glashelder_index=i,
-            wikiart_path=wikiart_paths[wikiart_idx],
-            wikiart_index=wikiart_idx,
-            similarities=top_sims[i].tolist(),
-            is_match=bool(is_match_arr[i]),
+            artwork_path=artwork_paths[artwork_idx],
+            artwork_index=artwork_idx,
+            similarities=shifted(top_similarities[i], rank),
+            is_match=is_match,
             confidence=float(confidence),
             threshold=threshold,
-            features=features_map[i],
+            features=features,
+            rank=rank,
         )
         results.append(result)
 
@@ -465,9 +527,10 @@ def batch_classify(
         "timestamp": start_time.isoformat(),
         "duration_seconds": duration,
         "glashelder_count": n_glashelder,
-        "wikiart_count": n_wikiart,
+        "artwork_count": n_artworks,
         "top_k": top_k,
         "threshold": threshold,
+        "candidates": candidates,
         "workers": workers,
         "min_confidence": min_confidence,
     }
@@ -492,28 +555,21 @@ def batch_classify(
     )
 
 
-def artwork_of(reference: str, artworks: dict | None) -> dict | None:
+def artwork_of(reference: str, artworks: dict[str, Artwork] | None) -> Artwork | None:
     """The scraped record a matched reference describes, if we have it.
 
     The reference is the join key: a URL for scraped artworks, a path for local
     files (looked up by name, since the directory may differ per machine).
     """
-    if not artworks:
+    if not artworks or not reference:
         return None
-    artwork = artworks.get(reference) or artworks.get(Path(reference).name)
-    if artwork is None:
-        return None
-    return {
-        "source": artwork.source,
-        "url": artwork.url,
-        "title": artwork.title,
-        "artist": artwork.artist,
-        "year": artwork.year,
-    }
+    return artworks.get(reference) or artworks.get(Path(reference).name)
 
 
 def write_json_output(
-    output: BatchClassifyOutput, path: str | Path, artworks: dict | None = None
+    output: BatchClassifyOutput,
+    path: str | Path,
+    artworks: dict[str, Artwork] | None = None,
 ) -> None:
     """Write batch classification output to JSON file.
 
@@ -529,14 +585,17 @@ def write_json_output(
             {
                 "glashelder_path": r.glashelder_path,
                 "glashelder_index": r.glashelder_index,
-                "wikiart_path": r.wikiart_path,
-                "wikiart_index": r.wikiart_index,
+                "artwork_path": r.artwork_path,
+                "artwork_index": r.artwork_index,
                 "similarities": r.similarities,
+                "rank": r.rank,
                 "is_match": r.is_match,
                 "confidence": r.confidence,
                 "threshold": r.threshold,
                 "features": r.features,
-                "artwork": artwork_of(r.wikiart_path, artworks),
+                "artwork": asdict(a)
+                if (a := artwork_of(r.artwork_path, artworks))
+                else None,
             }
             for r in output.results
         ],
@@ -549,7 +608,9 @@ def write_json_output(
 
 
 def write_csv_output(
-    output: BatchClassifyOutput, path: str | Path, artworks: dict | None = None
+    output: BatchClassifyOutput,
+    path: str | Path,
+    artworks: dict[str, Artwork] | None = None,
 ) -> None:
     """Write batch classification output to CSV file.
 
@@ -569,8 +630,9 @@ def write_csv_output(
     header = [
         "glashelder_path",
         "glashelder_index",
-        "wikiart_path",
-        "wikiart_index",
+        "artwork_path",
+        "artwork_index",
+        "rank",
         "is_match",
         "confidence",
         "threshold",
@@ -590,19 +652,20 @@ def write_csv_output(
         writer.writerow(header)
 
         for r in output.results:
-            artwork = artwork_of(r.wikiart_path, artworks) or {}
+            artwork = artwork_of(r.artwork_path, artworks)
             row = [
                 r.glashelder_path,
                 r.glashelder_index,
-                r.wikiart_path,
-                r.wikiart_index,
+                r.artwork_path,
+                r.artwork_index,
+                r.rank,
                 r.is_match,
                 r.confidence,
                 r.threshold,
-                artwork.get("title"),
-                artwork.get("artist"),
-                artwork.get("year"),
-                artwork.get("url"),
+                artwork and artwork.title,
+                artwork and artwork.artist,
+                artwork and artwork.year,
+                artwork and artwork.url,
             ]
             row.extend(r.similarities)
             row.extend([r.features.get(fn, 0.0) for fn in feature_names])

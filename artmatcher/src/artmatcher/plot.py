@@ -626,40 +626,9 @@ def plot_statistical_analysis(d: dict, outdir: Path):
         ax.set_title("z-score distribution by class", fontsize=11, color=TEXT_DIM)
         ax.legend()
 
-    # (f) precision-recall style: match rate vs confidence threshold
-    ax = axes[1, 2]
-    thresholds = np.linspace(0, 1, 200)
-    precisions = []
-    recalls = []
-    total_matches = matches.sum()
-    for t in thresholds:
-        predicted = conf >= t
-        tp = (predicted & matches).sum()
-        fp = (predicted & ~matches).sum()
-        prec = tp / (tp + fp) if (tp + fp) > 0 else 1.0
-        rec = tp / total_matches if total_matches > 0 else 0.0
-        precisions.append(prec)
-        recalls.append(rec)
-    ax.plot(thresholds, precisions, color=ACCENT, lw=1.5, label="precision")
-    ax.plot(thresholds, recalls, color=ACCENT2, lw=1.5, label="recall")
-    # F1
-    prec_arr = np.array(precisions)
-    rec_arr = np.array(recalls)
-    f1 = 2 * prec_arr * rec_arr / (prec_arr + rec_arr + 1e-10)
-    ax.plot(thresholds, f1, color=ACCENT3, lw=1.5, ls="--", label="F1")
-    best_f1_idx = np.argmax(f1)
-    ax.axvline(thresholds[best_f1_idx], color=ACCENT4, ls=":", lw=1, alpha=0.7)
-    ax.text(
-        thresholds[best_f1_idx] + 0.02,
-        0.5,
-        f"best F1={f1[best_f1_idx]:.3f}\n@ t={thresholds[best_f1_idx]:.3f}",
-        fontsize=8,
-        color=ACCENT4,
-    )
-    ax.set_xlabel("confidence threshold")
-    ax.set_ylabel("score")
-    ax.set_title("precision / recall / F1 vs threshold", fontsize=11, color=TEXT_DIM)
-    ax.legend(loc="center left")
+    # precision and recall need ground truth, which this file does not have:
+    # `artmatcher report --labels` measures them against labeled sessions
+    fig.delaxes(axes[1, 2])
 
     fig.tight_layout(rect=(0, 0.02, 1, 0.94))
     add_watermark(fig)

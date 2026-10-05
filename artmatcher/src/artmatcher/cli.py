@@ -7,13 +7,14 @@ from typing import Literal
 
 import click
 
+from artscraper import Artwork
 from common import ASSETS_DIR
-from common.config import config, defaults_for
+from common.config import config
 
 logger = logging.getLogger(__name__)
 
 
-def load_artworks(path: str | Path | None) -> dict:
+def load_artworks(path: str | Path | None) -> dict[str, Artwork]:
     """The artwork records a scrape produced, keyed by the reference they describe."""
     if path is None or not Path(path).is_file():
         if path is not None:
@@ -27,28 +28,47 @@ def load_artworks(path: str | Path | None) -> dict:
     return found
 
 
+def resolve_subset(path: Path, source, root: str | Path | None) -> list[int]:
+    """The glashelder indices of the images a `--subset` file lists.
+
+    A line matches an image by its path relative to `root`, by its full path, or
+    by its file name, in that order. Lines that match nothing are reported, so a
+    typo or a list for another image directory does not go unnoticed.
+    """
+    by_key: dict[str, int] = {}
+    for index in range(source.total_images):
+        image = Path(source.glashelder_path(index) or "")
+        by_key.setdefault(image.name, index)
+        by_key[str(image)] = index
+        if root is not None and image.is_relative_to(root):
+            by_key[str(image.relative_to(root))] = index
+
+    lines = [line.split("#", 1)[0].strip() for line in path.read_text().splitlines()]
+    wanted = [line for line in lines if line]
+    found = {by_key[line] for line in wanted if line in by_key}
+    missing = [line for line in wanted if line not in by_key]
+
+    if not found:
+        raise click.ClickException(
+            f"none of the {len(wanted):,} images in {path} are among the "
+            f"{source.total_images:,} glashelder images being served"
+        )
+    logger.info(f"labeling a subset: {len(found):,} images from {path}")
+    if missing:
+        logger.warning(
+            f"{len(missing):,} lines in {path} match no glashelder image, "
+            f"for example {missing[:3]}"
+        )
+    return sorted(found)
+
+
 @click.group()
-@click.pass_context
-def artmatcher(ctx: click.Context):
+def artmatcher():
     """Match glass plate photos to known artworks using feature matching and ML.
 
     Artifact locations and tuning defaults come from `glashelder.toml`, so the
     options below only need to be given when overriding it.
     """
-    settings = config()
-    paths = {
-        "artworks": settings.paths.artworks,
-        "image_dir": settings.paths.images.glashelder,
-        "glashelder_embeddings": settings.paths.embeddings.glashelder,
-        "wikiart_embeddings": settings.paths.embeddings.reference,
-        "ml_model": settings.paths.ml_model,
-    }
-    # an unset path must not shadow the default declared on the command itself
-    supplied = {
-        **defaults_for(settings.artmatcher),
-        **{name: str(value) for name, value in paths.items() if value is not None},
-    }
-    ctx.default_map = dict.fromkeys(("serve", "batch-classify"), supplied)
 
 
 @artmatcher.command()
@@ -124,20 +144,46 @@ def train_classifier(
     classifier.save(output_model)
 
 
+def reference_options(command):
+    """Where the references come from, shared by `serve` and `batch-classify`."""
+    options = [
+        click.option(
+            "--reference-embeddings",
+            "-e",
+            type=click.Path(exists=True),
+            default=None,
+            help="Store (or legacy pickle) of the reference artworks' embeddings, "
+            "all backends together",
+        ),
+        click.option(
+            "--source",
+            "sources",
+            multiple=True,
+            help="Only match against artworks from this backend, repeatable. "
+            "Needs --artworks to know where each reference came from.",
+        ),
+        click.option(
+            "--glashelder-images",
+            "-i",
+            type=click.Path(exists=True, file_okay=False),
+            default=ASSETS_DIR,
+            help="Directory the glashelder images live in on this machine",
+        ),
+    ]
+    for option in reversed(options):
+        command = option(command)
+    return command
+
+
 @artmatcher.command()
-@click.option(
-    "--wikiart-embeddings",
-    "-w",
-    type=str,
-    default=None,
-    help="Path to the wikiart embeddings '.pkl' file (not needed with --results-json)",
-)
+@reference_options
 @click.option(
     "--glashelder-embeddings",
     "-g",
     type=str,
     default=None,
-    help="Path to pre-calculated glashelder embeddings '.pkl' file (optional)",
+    help="Store (or legacy pickle) of the glashelder embeddings; "
+    "made on the fly when not given",
 )
 @click.option(
     "--model",
@@ -145,16 +191,17 @@ def train_classifier(
     type=click.Choice(["clip", "dinov2", "qwen3vl"]),
     help="Embedding model to use",
 )
-@click.option(
-    "--image-dir",
-    "-i",
-    type=str,
-    default=ASSETS_DIR,
-    help="Path to the Glashelder images",
-)
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=5000, help="Port to bind to")
 @click.option("--top-k", default=10, help="Number of top matches to consider")
+@click.option(
+    "--candidates",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help="With --ml-model: how many of the top CLIP matches to classify while "
+    "the ones before them are no match; the most confident one is shown",
+)
 @click.option(
     "--threshold", default=0.2, help="Diff threshold for match classification"
 )
@@ -187,12 +234,6 @@ def train_classifier(
     help="Path to pre-computed batch_classify JSON output. Skips on-the-fly computation.",
 )
 @click.option(
-    "--glashelder-images",
-    type=click.Path(exists=True, dir_okay=True, file_okay=False),
-    default=None,
-    help="Path of the directory where the glashelder images live",
-)
-@click.option(
     "--reference-images",
     type=click.Path(exists=True, dir_okay=True, file_okay=False),
     default=None,
@@ -219,25 +260,35 @@ def train_classifier(
     show_default=True,
     help="Directory where labeling sessions are stored (one JSON file each)",
 )
+@click.option(
+    "--subset",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Only label the glashelder images listed in this file: one per line, as "
+    "a file name or a path relative to --glashelder-images ('#' starts a "
+    "comment). Uses the same stores and saved top-k as the full set.",
+)
 def serve(
-    wikiart_embeddings: str,
+    reference_embeddings: str | None,
+    sources: tuple[str, ...],
+    glashelder_images: str | None,
     glashelder_embeddings: str | None,
     model: Literal["clip", "dinov2", "qwen3vl"],
-    image_dir: str,
     host: str,
     port: int,
     top_k: int,
+    candidates: int,
     threshold: float,
     ml_model: str | None,
     search_workers: int,
     search_batch_size: int,
     results_json: str | None,
-    glashelder_images: Path | None,
     reference_images: Path | None,
     artworks: str | None,
     auth: bool,
     debug: bool,
     session_dir: str,
+    subset: Path | None,
 ):
     """Start a web interface for labeling artwork matches.
 
@@ -251,16 +302,14 @@ def serve(
     Use --search-workers to parallelize ORB/hash extraction during search.
     """
     if glashelder_images is None:
-        logger.error(
-            "!! You need to set the `--glashelder-images` argument to the directory where the glashelder images are on your system"
+        raise click.UsageError(
+            "no glashelder images: pass --glashelder-images or set "
+            "paths.images.glashelder"
         )
-        return
-    else:
-        glashelder_images = Path(glashelder_images)
-
     # references scraped as URLs need no local directory
     reference_images = Path(reference_images) if reference_images is not None else None
 
+    logger.info(f"Loading artworks from {artworks}...")
     artwork_index = load_artworks(artworks)
 
     from .web.app import create_app
@@ -283,20 +332,28 @@ def serve(
         from .loading import load_classifier, load_matching_inputs
         from .web.source import LiveSource
 
+        if reference_embeddings is None:
+            raise click.UsageError(
+                "no references: pass --reference-embeddings or set "
+                "paths.embeddings.reference (or use --results-json)"
+            )
         # `None` when ml_model isn't given
         ml_classifier_instance = load_classifier(ml_model, threshold)
         try:
             inputs = load_matching_inputs(
                 glashelder_embeddings=glashelder_embeddings,
-                wikiart_embeddings=wikiart_embeddings,
+                wikiart_embeddings=reference_embeddings,
                 model=model,
-                image_dir=image_dir,
+                image_dir=glashelder_images,
                 wikiart_root=reference_images,
                 glashelder_root=glashelder_images,
+                artworks=artwork_index,
+                sources=sources,
             )
         except ValueError as e:
-            click.echo(f"Error: {e}", err=True)
-            return
+            raise click.ClickException(str(e)) from e
+
+        logger.info("Creating live source from inputs")
 
         source = LiveSource(
             inputs,
@@ -305,9 +362,19 @@ def serve(
             search_workers=search_workers,
             search_batch_size=search_batch_size,
             artworks=artwork_index,
+            candidates=candidates,
         )
+        # the source kept only the top-k: let the matrices go (and free the VRAM)
+        del inputs
 
-    app = create_app(source, threshold=threshold, auth=auth, session_dir=session_dir)
+    chosen = (
+        resolve_subset(subset, source, glashelder_images)
+        if subset is not None
+        else None
+    )
+    app = create_app(
+        source, threshold=threshold, auth=auth, session_dir=session_dir, subset=chosen
+    )
 
     logger.info(f"Starting Flask server on {host}:{port}...")
     logger.info(f"Open http://localhost:{port} in your browser")
@@ -315,13 +382,7 @@ def serve(
 
 
 @artmatcher.command()
-@click.option(
-    "--wikiart-embeddings",
-    "-w",
-    type=click.Path(exists=True),
-    required=True,
-    help="Path to wikiart embeddings pickle file",
-)
+@reference_options
 @click.option(
     "--ml-model",
     type=click.Path(exists=True),
@@ -343,13 +404,6 @@ def serve(
     help="Pre-computed glashelder embeddings (generates if not provided)",
 )
 @click.option(
-    "--image-dir",
-    "-i",
-    type=str,
-    default=ASSETS_DIR,
-    help="Path to glashelder images",
-)
-@click.option(
     "--output-format",
     type=click.Choice(["json", "csv", "both"]),
     default="json",
@@ -369,6 +423,14 @@ def serve(
     default=10,
     show_default=True,
     help="Top wikiart matches to consider",
+)
+@click.option(
+    "--candidates",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help="How many of the top CLIP matches to classify while the ones before "
+    "them are no match; the most confident one is kept",
 )
 @click.option(
     "--threshold",
@@ -423,14 +485,16 @@ def serve(
     "carry their title, artist and source link",
 )
 def batch_classify(
-    wikiart_embeddings: str,
+    reference_embeddings: str | None,
+    sources: tuple[str, ...],
+    glashelder_images: str | None,
     ml_model: str,
     output: str,
     glashelder_embeddings: str | None,
-    image_dir: str,
     output_format: Literal["json", "csv", "both"],
     workers: int,
     top_k: int,
+    candidates: int,
     threshold: float,
     min_confidence: float | None,
     cache_features: bool,
@@ -448,11 +512,16 @@ def batch_classify(
 
     Example:
         glashelder artmatcher batch-classify \\
-            -w wikiart.pkl \\
+            -e artworks-clip.store \\
             --ml-model model.pkl \\
             -o results.json \\
             --workers 32
     """
+    if reference_embeddings is None:
+        raise click.UsageError(
+            "no references: pass --reference-embeddings or set "
+            "paths.embeddings.reference"
+        )
     from .batch import (
         FeatureCache,
         write_csv_output,
@@ -461,33 +530,35 @@ def batch_classify(
     from .batch import (
         batch_classify as do_batch_classify,
     )
-    from .loading import load_classifier, load_matching_inputs
+    from .loading import load_classifier, load_matching_inputs, top_matches
 
     classifier = load_classifier(ml_model, threshold)
     assert classifier is not None
     artwork_index = load_artworks(artworks)
     try:
         inputs = load_matching_inputs(
-            wikiart_embeddings=wikiart_embeddings,
+            wikiart_embeddings=reference_embeddings,
             glashelder_embeddings=glashelder_embeddings,
             model=model,
-            image_dir=image_dir,
+            image_dir=glashelder_images,
             wikiart_root=config().paths.images.reference,
-            glashelder_root=image_dir,
+            glashelder_root=glashelder_images,
+            artworks=artwork_index,
+            sources=sources,
         )
     except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        return
+        raise click.ClickException(str(e)) from e
 
     # Setup feature cache
     cache = FeatureCache(cache_path) if cache_features else None
 
     # Run batch classification
+    similarities, indices = top_matches(inputs, top_k)
     result = do_batch_classify(
-        glashelder_emb=inputs.glashelder_emb,
         glashelder_paths=inputs.glashelder_paths,
-        wikiart_emb=inputs.wikiart_emb,
-        wikiart_paths=inputs.wikiart_paths,
+        artwork_paths=inputs.artwork_paths,
+        top_indices=indices,
+        top_similarities=similarities,
         classifier=classifier,
         top_k=top_k,
         threshold=threshold,
@@ -496,6 +567,7 @@ def batch_classify(
         cache=cache,
         timeout_per_item=timeout,
         cache_save_interval=cache_save_interval,
+        candidates=candidates,
     )
 
     # Write output
@@ -566,3 +638,72 @@ def plot_results(input, output_dir):
     plot_hash_orb(d, output_dir)
     plot_statistical_analysis(d, output_dir)
     logger.info("Done!")
+
+
+@artmatcher.command()
+@click.argument("results", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--labels",
+    "label_files",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="A labeling session (or a downloaded dataset) to measure accuracy "
+    "against, repeatable. A later label of the same image replaces an earlier one.",
+)
+@click.option(
+    "--threshold",
+    type=float,
+    default=None,
+    help="Count matches at this confidence instead of the run's threshold",
+)
+@click.option(
+    "--artworks",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Scraped artworks, to find the source of results written without "
+    "artwork metadata",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=Path("report.html"),
+    show_default=True,
+    help="Where to write the HTML report",
+)
+def report(
+    results: Path,
+    label_files: tuple[Path, ...],
+    threshold: float | None,
+    artworks: str | None,
+    output: Path,
+):
+    """Report how matching went over a whole `batch-classify` run.
+
+    RESULTS is the JSON `batch-classify` wrote. The report counts the matches,
+    by source and by CLIP rank, and with --labels estimates how many of them are
+    right and how many true matches the run missed. It is one self-contained
+    HTML file; a summary is printed here too.
+    """
+    from .report import build, render, summary_lines
+    from .web.store import normalize_dataset
+
+    data = json.loads(results.read_text())
+    labels = []
+    for path in label_files:
+        try:
+            labels.append(normalize_dataset(json.loads(path.read_text())))
+        except (ValueError, json.JSONDecodeError) as e:
+            raise click.ClickException(f"{path} is not a labeling session: {e}") from e
+
+    # only needed when the run did not join the artwork metadata itself
+    unjoined = any(not r.get("artwork") for r in data.get("results", []))
+    artwork_index = load_artworks(artworks) if unjoined else None
+
+    found = build(
+        data, labels, threshold=threshold, artworks=artwork_index, source=str(results)
+    )
+    output.write_text(render(found))
+    for line in summary_lines(found):
+        click.echo(line)
+    click.echo(f"-> {output}")

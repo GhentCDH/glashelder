@@ -29,7 +29,14 @@ def create_app(
     threshold: float,
     auth: bool,
     session_dir: str | Path = "labeling-sessions",
+    subset: list[int] | None = None,
 ) -> Flask:
+    """The labeling web app over `source`.
+
+    With `subset` (glashelder indices), every session only walks through those
+    images; they keep their indices in the full set, so labels stay compatible.
+    """
+    sample = sorted(set(subset)) if subset is not None else range(source.total_images)
     app = Flask(
         __name__,
         template_folder=Path(__file__).parent.parent / "templates",
@@ -46,7 +53,7 @@ def create_app(
 
     def _traversal_order(session_id: str) -> list[int]:
         """Shuffled order, derived from the session id so a resume matches."""
-        order = list(range(source.total_images))
+        order = list(sample)
         random.Random(session_id).shuffle(order)
         return order
 
@@ -134,6 +141,15 @@ def create_app(
             return None
         return _session(session_id)
 
+    def _queue(session: LabelSession) -> dict:
+        """Where the session is in its (random, fixed) order, for the arrow."""
+        position = (
+            session.scan_position
+            if session.scan_position is not None
+            else session.queue_position
+        )
+        return {"queue_position": position, "queue_size": len(session.order)}
+
     def _context(session: LabelSession, item: MatchItem | None) -> dict:
         base = {
             "session_id": session.session_id,
@@ -141,6 +157,8 @@ def create_app(
             "total_images": source.total_images,
             "labeled_count": session.labeled_count,
             "remaining": session.remaining,
+            "labeled_indices": session.labeled,
+            **_queue(session),
         }
         if item is None:
             return {
@@ -148,9 +166,10 @@ def create_app(
                 "error": "No images found.",
                 "current_index": 0,
                 "glashelder_path": "",
-                "wikiart_path": "",
+                "artwork_path": "",
                 "top_match_index": 0,
                 "artwork": None,
+                "alternatives": [],
                 "similarities": [],
                 "is_match": False,
                 "diff": 0.0,
@@ -160,15 +179,31 @@ def create_app(
                 "features": {},
             }
 
-        wikiart_idx = item.top_indices[0]
+        artwork_idx = item.best_index
+        # the other top matches, in CLIP order, for a look at what else came close
+        alternatives = [
+            {
+                "index": index,
+                "rank": rank + 1,
+                "similarity": similarity,
+                "artwork_path": source.artwork_path(index),
+                "artwork": source.artwork(index),
+            }
+            for rank, (index, similarity) in enumerate(
+                zip(item.top_indices, item.top_similarities, strict=False)
+            )
+            if rank != item.rank
+        ][:4]
         return {
             **base,
             "error": None,
             "current_index": item.glashelder_index,
             "glashelder_path": item.glashelder_path,
-            "wikiart_path": source.wikiart_path(wikiart_idx),
-            "top_match_index": wikiart_idx,
-            "artwork": source.artwork(wikiart_idx),
+            "artwork_path": source.artwork_path(artwork_idx),
+            "top_match_index": artwork_idx,
+            "artwork": source.artwork(artwork_idx),
+            "alternatives": alternatives,
+            "match_rank": item.rank + 1,
             "similarities": item.similarities,
             "is_match": item.is_match,
             "diff": item.diff,
@@ -201,7 +236,7 @@ def create_app(
             "session_progress.html",
             oob=True,
             labeled_count=session.labeled_count,
-            total_images=source.total_images,
+            queue_size=session.total_images,
             remaining=session.remaining,
         )
 
@@ -217,6 +252,7 @@ def create_app(
                 total_images=source.total_images,
                 labeled_count=session.labeled_count,
                 remaining=session.remaining,
+                **_queue(session),
             )
         else:
             body = render_template("content.html", **_context(session, item))
@@ -251,30 +287,36 @@ def create_app(
             return None
 
         batch_size = max(1, source.batch_size)
-        for start in range(0, len(candidates), batch_size):
-            # A newer click has taken over: stop burning CPU on a result whose
-            # response the browser has already thrown away.
-            if not session.is_current(seq):
-                logger.info(
-                    f"Abandoning {'match' if want_match else 'negative'} search in "
-                    f"{session.session_id}: superseded by a newer request"
-                )
-                return None
+        try:
+            for start in range(0, len(candidates), batch_size):
+                # A newer click has taken over: stop burning CPU on a result whose
+                # response the browser has already thrown away.
+                if not session.is_current(seq):
+                    logger.info(
+                        f"Abandoning {'match' if want_match else 'negative'} search in "
+                        f"{session.session_id}: superseded by a newer request"
+                    )
+                    return None
 
-            chunk_positions = candidates[start : start + batch_size]
-            chunk_indices = [session.order[pos] for pos in chunk_positions]
-            items = source.classify_many(chunk_indices, session.threshold)
-            for pos, item in zip(chunk_positions, items, strict=True):
-                if item is not None and item.is_match == want_match:
-                    # Only the newest request may move the cursor.
-                    if session.is_current(seq):
-                        session.queue_position = pos
-                        session.current_item = item
-                    return item
+                chunk_positions = candidates[start : start + batch_size]
+                # for the arrow on the page, which polls this while we search
+                session.scan_position = chunk_positions[0]
+                chunk_indices = [session.order[pos] for pos in chunk_positions]
+                items = source.classify_many(chunk_indices, session.threshold)
+                for pos, item in zip(chunk_positions, items, strict=True):
+                    if item is not None and item.is_match == want_match:
+                        # Only the newest request may move the cursor.
+                        if session.is_current(seq):
+                            session.queue_position = pos
+                            session.current_item = item
+                        return item
 
-        if session.is_current(seq):
-            session.note_exhausted(want_match)
-        return None
+            if session.is_current(seq):
+                session.note_exhausted(want_match)
+            return None
+        finally:
+            if session.is_current(seq):
+                session.scan_position = None
 
     def _advance(session: LabelSession, seq: int | None = None) -> MatchItem | None:
         """Next image of the kind being worked on, falling back to the other.
@@ -293,12 +335,15 @@ def create_app(
         # the search for the next image afterwards is abandonable.
         item = cast("MatchItem | None", session.current_item)
         if item is not None:
-            wikiart_idx = item.top_indices[0]
+            artwork_idx = item.best_index
             entry = {
                 "glashelder_index": item.glashelder_index,
                 "glashelder_path": item.glashelder_path,
-                "wikiart_index": wikiart_idx,
-                "wikiart_path": source.wikiart_path(wikiart_idx),
+                "artwork_idx": artwork_idx,
+                "artwork_path": source.artwork_path(artwork_idx),
+                # which CLIP match was labeled (0 = the best); its similarities
+                # below are the ones the classifier saw for it
+                "rank": item.rank,
                 "diff": item.diff,
                 # the threshold this verdict was decided at, and the verdict itself
                 "threshold": item.threshold,
@@ -306,6 +351,19 @@ def create_app(
                 "classifier_type": item.classifier_type,
                 "similarities": item.similarities,
             }
+            # an image opened again by its number replaces its label, rather than
+            # adding a second one that would weigh double in training
+            for bucket in (
+                session.dataset.positives,
+                session.dataset.negatives,
+                session.dataset.false_positives,
+                session.dataset.false_negatives,
+            ):
+                bucket[:] = [
+                    old
+                    for old in bucket
+                    if old.get("glashelder_index") != item.glashelder_index
+                ]
             if is_correct:
                 if item.is_match:
                     session.dataset.positives.append(entry)
@@ -339,7 +397,7 @@ def create_app(
             return render_template(
                 "start.html",
                 sessions=store.list_sessions(),
-                total_images=source.total_images,
+                total_images=len(sample),
                 error=request.args.get("error"),
             )
 
@@ -447,7 +505,16 @@ def create_app(
             total_images=source.total_images,
             labeled_count=session.labeled_count,
             remaining=session.remaining,
+            **_queue(session),
         ) + _progress_oob(session)
+
+    @app.route("/queue-position")
+    def queue_position():
+        """Where the session is in its order, polled by the page during a search."""
+        session = _requested_session()
+        if session is None:
+            return {"error": "no labeling session given"}, 400
+        return _queue(session)
 
     @app.route("/sessions")
     def list_sessions():
@@ -514,6 +581,35 @@ def create_app(
         store.save(session)
         return _render_content(session, _find_next(session, False, seq), False)
 
+    @app.route("/go-to-image", methods=["POST"])
+    def go_to_image():
+        """Match one image chosen by its number, and continue from there.
+
+        The cursor moves to that image's place in the session's order, so the
+        next search (and the arrow under the dataset row) carry on from it.
+        """
+        session = _requested_session()
+        if session is None:
+            return _missing_session()
+        seq = session.begin_request()
+
+        number = request.form.get("index", type=int)
+        if number is None or not 1 <= number <= source.total_images:
+            return _render_content_with_error(
+                session, f"There is no image {number}: pick 1 to {source.total_images}."
+            )
+
+        index = number - 1
+        if not session.includes(index):
+            return _render_content_with_error(
+                session, f"Image {number} is not part of the subset this server labels."
+            )
+        item = source.classify(index, session.threshold)
+        if session.is_current(seq):
+            session.queue_position = session.order.index(index)
+            session.current_item = item
+        return _render_content(session, item, session.want_match)
+
     @app.route("/set-threshold", methods=["POST"])
     def set_threshold():
         session = _requested_session()
@@ -574,9 +670,36 @@ def create_app(
             return "Image not found", 404
         return send_file(path)
 
-    @app.route("/wikiart-image/<int:index>")
-    def serve_wikiart_image(index: int):
-        reference = source.wikiart_path(index)
+    @app.route("/orb-overlay/<int:index>/<int:artwork_index>")
+    def serve_orb_overlay(index: int, artwork_index: int):
+        """The glashelder image warped onto the artwork, half transparent.
+
+        Computed on request (only when the labeler opens it), with the same ORB
+        matching the features use.
+        """
+        import cv2
+
+        from ..ml_classifier import orb_overlay
+
+        query, reference = (
+            source.glashelder_path(index),
+            source.artwork_path(artwork_index),
+        )
+        if not query or not reference:
+            return "Image not found", 404
+        try:
+            image = orb_overlay(query, reference)
+        except Exception as e:
+            logger.warning(f"ORB overlay of {query} on {reference} failed: {e}")
+            return f"Could not load the images ({e})", 502
+        if image is None:
+            return "ORB found no homography between these images", 404
+        _, jpeg = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return Response(jpeg.tobytes(), mimetype="image/jpeg")
+
+    @app.route("/artwork-image/<int:index>")
+    def serve_artwork_image(index: int):
+        reference = source.artwork_path(index)
         if not reference:
             return "Image not found", 404
         if is_url(reference):

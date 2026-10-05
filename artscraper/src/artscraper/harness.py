@@ -5,11 +5,15 @@ import json
 import logging
 import sys
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import asdict
 from pathlib import Path
 
+from common.throttle import Throttle
+
 from .backends import Context, registry
-from .client import Stats, Throttle, make_client
+from .client import Stats, make_client
+from .index import open_text, read
 from .model import Artwork
 
 logger = logging.getLogger(__name__)
@@ -31,22 +35,16 @@ def scraped_urls(path: Path) -> dict[str, set[str]]:
     return done
 
 
-def write_json(jsonl: Path, path: Path | None) -> None:
-    """Turn the JSONL sink into one JSON list, a line at a time."""
-    out = path.open("w") if path else sys.stdout
-    count = 0
-    try:
-        out.write("[\n")
-        with jsonl.open() as file:
-            for line in file:
-                if line.strip():
-                    out.write(f"{',\n' if count else ''} {line.strip()}")
-                    count += 1
-        out.write("\n]\n")
-    finally:
-        if path:
-            out.close()
-            logger.info("wrote %d artworks to %s", count, path)
+def combine_files(*sources: Path, path: Path | None) -> None:
+    """Join JSON, JSONL or `.zst` scrapes into one JSON list, compressed if `path` ends in `.zst`.
+
+    Without a `path` the list goes to stdout.
+    """
+    joined = [asdict(artwork) for source in sources for artwork in read(source)]
+    with open_text(path, "w") if path else nullcontext(sys.stdout) as out:
+        json.dump(joined, out, ensure_ascii=False, indent=2)
+    if path:
+        logger.info("wrote %d artworks to %s", len(joined), path)
 
 
 async def scrape(

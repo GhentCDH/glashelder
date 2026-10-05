@@ -34,7 +34,7 @@ def write(text: str) -> Path:
 
 def test_defaults() -> None:
     config = Config()
-    assert config.paths.artworks == Path("artworks.jsonl")
+    assert config.paths.artworks == Path("artworks.json.zst")
     assert config.images.concurrency == 16
     assert config.paths.images.glashelder is None
 
@@ -72,6 +72,30 @@ def test_env_beats_the_file() -> None:
     assert config.images.cache is False
 
 
+def test_host_limits() -> None:
+    config = Config.load(
+        write(
+            TOML
+            + '\n[images.hosts."uploads.wikiart.org"]\nrate = 20\n'
+            + '\n[images.hosts."slow.example"]\nper_host = 1\n'
+        )
+    )
+    images = config.images
+    assert images.hosts["uploads.wikiart.org"].rate == 20.0
+    # a host's own table wins, then the given defaults, then `[images]`
+    assert images.limits("uploads.wikiart.org") == (4, 20.0)
+    assert images.limits("uploads.wikiart.org", per_host=2, rate=1.0) == (2, 20.0)
+    assert images.limits("slow.example", rate=1.0) == (1, 1.0)
+    assert images.limits("other.host") == (4, 5.0)
+
+    try:
+        Config.load(write('[images.hosts."a.b"]\nrat = 1\n'))
+    except ValueError as e:
+        assert "rat" in str(e) and "images.hosts.a.b" in str(e)
+    else:
+        raise AssertionError("a misspelled host key should not be ignored")
+
+
 def test_unknown_key_raises() -> None:
     try:
         Config.load(write("[artmatcher]\nthreshhold = 0.5\n"))
@@ -87,6 +111,7 @@ def test_click_defaults() -> None:
         "workers": 8,
         "threshold": 0.9,
         "top_k": 10,
+        "candidates": 1,
     }
     # nested sections and unset values are left out
     assert "images" not in defaults_for(config.paths)
@@ -97,6 +122,7 @@ if __name__ == "__main__":
     test_defaults()
     test_toml_reaches_the_right_fields()
     test_env_beats_the_file()
+    test_host_limits()
     test_unknown_key_raises()
     test_click_defaults()
     print("ok")
