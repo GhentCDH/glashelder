@@ -130,6 +130,8 @@ def cli_defaults() -> dict:
                 output=paths.clusters,
             ),
             "info": given(path=paths.clusters),
+            "serve": given(clusters=paths.clusters, image_dir=paths.images.glashelder),
+            "report": given(path=paths.clusters, image_dir=paths.images.glashelder),
         },
         "embed": {
             "artworks": {

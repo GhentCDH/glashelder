@@ -29,6 +29,7 @@ dependencies = [
   "rerun-sdk[notebook]>=0.27.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
   "qwen-vl-utils>=0.0.14",
   "pyarrow>=23.0.0",
+  "typst>=0.15.0",
 ]
 
 [tool.uv.sources]
