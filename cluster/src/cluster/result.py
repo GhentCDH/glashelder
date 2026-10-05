@@ -5,7 +5,8 @@ A result is a directory:
     meta.json       what was clustered (the embedding store, its row count, its
                     `edits` and a fingerprint of its refs) and with which parameters
     points.parquet  one row per embedding row: ref, label, scores and coordinates
-    annotations.json  optional: cluster names and groups, from `cluster serve`
+    annotations.json  optional: cluster names, groups and soft thresholds, from
+                      `cluster serve`
     report.pdf      optional: from `cluster report`
 
 A new clustering in the same directory drops the report and moves the annotations
@@ -55,6 +56,11 @@ class Clustering:
     reduced: np.ndarray
     """`(n, d)` the UMAP reduction HDBSCAN ran on."""
     meta: dict
+    soft_labels: np.ndarray | None = None
+    """`(n, top)` the strongest clusters of each point by soft clustering, best
+    first, -1 where there are fewer clusters. None when it was not computed."""
+    soft_scores: np.ndarray | None = None
+    """`(n, top)` the membership score of each of those clusters."""
 
 
 def fingerprint(refs: list[str], edits: int | None) -> str:
@@ -115,7 +121,14 @@ def load(path: str | Path) -> Clustering:
     def columns(*names: str) -> np.ndarray:
         return np.column_stack([table[name].to_numpy() for name in names])
 
-    reduced = table["reduced"].combine_chunks()
+    def matrix(name: str) -> np.ndarray | None:
+        if name not in table.column_names:
+            return None
+        column = table[name].combine_chunks()
+        return column.flatten().to_numpy().reshape(len(table), column.type.list_size)
+
+    reduced = matrix("reduced")
+    assert reduced is not None
     return Clustering(
         refs=table["ref"].to_pylist(),
         labels=table["label"].to_numpy(),
@@ -123,11 +136,24 @@ def load(path: str | Path) -> Clustering:
         outlier_scores=table["outlier_score"].to_numpy(),
         coords2d=columns("x2", "y2"),
         coords3d=columns("x3", "y3", "z3"),
-        reduced=reduced.flatten()
-        .to_numpy()
-        .reshape(len(table), reduced.type.list_size),
+        reduced=reduced,
         meta=meta,
+        soft_labels=matrix("soft_labels"),
+        soft_scores=matrix("soft_scores"),
     )
+
+
+@dataclass
+class SoftThresholds:
+    """When a noise point joins its strongest cluster by soft clustering."""
+
+    threshold: float | None = None
+    """For every cluster without its own: the score a point needs. None: none join."""
+    clusters: dict[int, float] = field(default_factory=dict)
+    """Thresholds of single clusters, by cluster id."""
+
+    def of(self, label: int) -> float | None:
+        return self.clusters.get(label, self.threshold)
 
 
 @dataclass
@@ -138,6 +164,26 @@ class Annotations:
     """Human names of clusters, by cluster id."""
     groups: dict[str, list[int]] = field(default_factory=dict)
     """Named groups of cluster ids. A cluster can be in more than one group."""
+    soft: SoftThresholds = field(default_factory=SoftThresholds)
+
+
+def assign(clustering: Clustering, soft: SoftThresholds) -> np.ndarray:
+    """The labels, with noise points moved into their strongest cluster where its
+    score reaches that cluster's threshold. Points already in a cluster stay there."""
+    labels = clustering.labels.copy()
+    if clustering.soft_labels is None or clustering.soft_scores is None:
+        return labels
+    strongest = clustering.soft_labels[:, 0]
+    scores = clustering.soft_scores[:, 0]
+    # a threshold per cluster id, inf where there is none
+    count = int(max(labels.max(), strongest.max())) + 1
+    thresholds = np.array(
+        [t if (t := soft.of(label)) is not None else np.inf for label in range(count)]
+    )
+    joins = (labels == -1) & (strongest >= 0)
+    joins[joins] = scores[joins] >= thresholds[strongest[joins]]
+    labels[joins] = strongest[joins]
+    return labels
 
 
 def identity(meta: dict) -> str:
@@ -155,15 +201,20 @@ def read_annotations(path: str | Path) -> Annotations:
             f"{path / ANNOTATIONS} belongs to another clustering, ignoring it"
         )
         return Annotations()
+    soft = saved.get("soft", {})
     return Annotations(
         names={int(label): name for label, name in saved.get("names", {}).items()},
         groups=saved.get("groups", {}),
+        soft=SoftThresholds(
+            threshold=soft.get("threshold"),
+            clusters={int(k): v for k, v in soft.get("clusters", {}).items()},
+        ),
     )
 
 
 def write_annotations(path: str | Path, annotations: Annotations) -> None:
     path = Path(path)
-    names, groups = annotations.names, annotations.groups
+    names, groups, soft = annotations.names, annotations.groups, annotations.soft
     temporary = path / f"{ANNOTATIONS}.tmp"
     temporary.write_text(
         json.dumps(
@@ -171,6 +222,12 @@ def write_annotations(path: str | Path, annotations: Annotations) -> None:
                 "clustering": identity(read_meta(path)),
                 "names": {str(label): names[label] for label in sorted(names)},
                 "groups": {name: sorted(groups[name]) for name in sorted(groups)},
+                "soft": {
+                    "threshold": soft.threshold,
+                    "clusters": {
+                        str(k): soft.clusters[k] for k in sorted(soft.clusters)
+                    },
+                },
             },
             indent=2,
             ensure_ascii=False,
@@ -201,22 +258,27 @@ def _table(clustering: Clustering) -> pa.Table:
     def column(values: np.ndarray, dtype=np.float32) -> pa.Array:
         return pa.array(np.ascontiguousarray(values, dtype=dtype))
 
-    reduced = np.ascontiguousarray(clustering.reduced, dtype=np.float32)
+    def matrix(values: np.ndarray, dtype=np.float32) -> pa.Array:
+        values = np.ascontiguousarray(values, dtype=dtype)
+        return pa.FixedSizeListArray.from_arrays(
+            pa.array(values.ravel()), values.shape[1]
+        )
+
     coords2d, coords3d = clustering.coords2d, clustering.coords3d
-    return pa.table(
-        {
-            "row": column(np.arange(len(clustering.refs)), np.int64),
-            "ref": pa.array(clustering.refs, pa.string()),
-            "label": column(clustering.labels, np.int32),
-            "probability": column(clustering.probabilities),
-            "outlier_score": column(clustering.outlier_scores),
-            "x2": column(coords2d[:, 0]),
-            "y2": column(coords2d[:, 1]),
-            "x3": column(coords3d[:, 0]),
-            "y3": column(coords3d[:, 1]),
-            "z3": column(coords3d[:, 2]),
-            "reduced": pa.FixedSizeListArray.from_arrays(
-                pa.array(reduced.ravel()), reduced.shape[1]
-            ),
-        }
-    )
+    columns = {
+        "row": column(np.arange(len(clustering.refs)), np.int64),
+        "ref": pa.array(clustering.refs, pa.string()),
+        "label": column(clustering.labels, np.int32),
+        "probability": column(clustering.probabilities),
+        "outlier_score": column(clustering.outlier_scores),
+        "x2": column(coords2d[:, 0]),
+        "y2": column(coords2d[:, 1]),
+        "x3": column(coords3d[:, 0]),
+        "y3": column(coords3d[:, 1]),
+        "z3": column(coords3d[:, 2]),
+        "reduced": matrix(clustering.reduced),
+    }
+    if clustering.soft_labels is not None and clustering.soft_scores is not None:
+        columns["soft_labels"] = matrix(clustering.soft_labels, np.int32)
+        columns["soft_scores"] = matrix(clustering.soft_scores)
+    return pa.table(columns)

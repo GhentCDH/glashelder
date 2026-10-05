@@ -113,6 +113,10 @@ class Cluster:
     """HDBSCAN `min_cluster_size`: the smallest group of images that counts as a cluster."""
     min_samples: int | None = None
     """HDBSCAN `min_samples`: higher makes more images noise. Unset means `min_cluster_size`."""
+    soft: bool = True
+    """Also save HDBSCAN's soft clustering, so `cluster serve` can move noise into clusters."""
+    soft_top: int = 3
+    """How many of its strongest clusters to save per image, with their scores."""
 
 
 @dataclass(slots=True)

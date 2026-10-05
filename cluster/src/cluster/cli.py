@@ -126,6 +126,18 @@ def cluster():
     default=None,
     help="HDBSCAN `min_samples`: higher makes more noise [default: min-cluster-size]",
 )
+@click.option(
+    "--soft/--no-soft",
+    default=True,
+    show_default=True,
+    help="Also save soft clustering, so `cluster serve` can move noise into clusters",
+)
+@click.option(
+    "--soft-top",
+    default=3,
+    show_default=True,
+    help="Strongest clusters saved per image, with their scores",
+)
 def do_clustering(
     embeddings,
     image_dir,
@@ -138,13 +150,15 @@ def do_clustering(
     dimensions,
     min_cluster_size,
     min_samples,
+    soft,
+    soft_top,
 ):
     from collections import Counter
     from datetime import datetime
 
     from embed import Store, is_store, read_embeddings, rebase_paths
 
-    from .cluster import create_clusterer, reduce_dimensions
+    from .cluster import create_clusterer, reduce_dimensions, soft_memberships
     from .result import Clustering, fingerprint, save
     from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
 
@@ -173,8 +187,15 @@ def do_clustering(
     flat_embeddings = reduce_dimensions(reduced_embeddings, 2, n_neighbors, min_dist)
 
     logger.info("cluster points")
-    clusterer = create_clusterer(reduced_embeddings, min_cluster_size, min_samples)
+    clusterer = create_clusterer(
+        reduced_embeddings, min_cluster_size, min_samples, prediction_data=soft
+    )
     labels = clusterer.labels_
+    if soft:
+        logger.info("Computing soft cluster memberships")
+        soft_labels, soft_scores = soft_memberships(clusterer, soft_top)
+    else:
+        soft_labels = soft_scores = None
     sizes = Counter(int(label) for label in labels)
     noise = sizes.pop(-1, 0)
 
@@ -188,6 +209,8 @@ def do_clustering(
             coords2d=flat_embeddings,
             coords3d=visualization_embeddings,
             reduced=reduced_embeddings,
+            soft_labels=soft_labels,
+            soft_scores=soft_scores,
             meta={
                 "created": datetime.now().isoformat(timespec="seconds"),
                 "embeddings": str(Path(embeddings).resolve()),
@@ -209,6 +232,7 @@ def do_clustering(
                 "clusters": len(sizes),
                 "noise": noise,
                 "persistence": [float(p) for p in clusterer.cluster_persistence_],
+                "soft": {"top": soft_top} if soft else None,
             },
         ),
     )
@@ -312,6 +336,10 @@ def info(path: Path | None, embeddings: Path | None):
             "hdbscan",
             f"min_cluster_size {hdbscan['min_cluster_size']}, "
             f"min_samples {hdbscan.get('min_samples') or 'unset'}",
+        ),
+        (
+            "soft",
+            f"top {soft['top']} per image" if (soft := meta.get("soft")) else "off",
         ),
         ("clusters", f"{len(sizes):,}"),
         ("noise", f"{noise:,} ({noise / rows:.1%})" if rows else "0"),

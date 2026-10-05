@@ -32,6 +32,15 @@
         <div class="flex gap-4 text-sm">
           <label class="flex gap-1 items-center"><input type="checkbox" id="show-images" /> images</label>
         </div>
+        <div id="soft-controls" class="hidden text-sm">
+          <label class="flex gap-1 items-center" title="move noise images into their strongest cluster when its score is high enough">
+            <input type="checkbox" id="soft-on" /> soft assignment
+          </label>
+          <div class="flex items-center gap-2">
+            <input type="range" id="soft-threshold" min="0" max="1" step="0.01" value="0.5" class="flex-1" />
+            <span id="soft-value" class="w-10 text-xs text-right tabular-nums text-neutral-600"></span>
+          </div>
+        </div>
         <input id="filter" type="search" placeholder="filter clusters and groups"
           class="w-full border border-neutral-300 rounded px-2 py-1 text-sm" />
       </header>
@@ -151,6 +160,46 @@
       const colours = new Map(info.clusters.map((c) => [c.id, colourOf(c.id)]));
       const groups = info.groups; // name -> cluster ids
 
+      // soft clustering: the strongest cluster of each point, and its score
+      const [softLabels, softScores] = info.has_soft
+        ? await Promise.all([
+            binary("soft-labels", Int32Array),
+            binary("soft-scores", Float32Array),
+          ])
+        : [null, null];
+      const soft = info.soft; // {threshold, clusters: {id: threshold}}, as saved
+      const SOFT_SCALE = 0.65; // size of points that joined a cluster from noise
+
+      // the labels that are shown: noise points join their strongest cluster when
+      // its score reaches that cluster's threshold; points in a cluster stay put
+      const assigned = new Int32Array(labels);
+      const joined = new Uint8Array(n);
+      const extra = new Map(); // cluster id -> points that joined it
+      const thresholdOf = (id) => soft.clusters[id] ?? soft.threshold;
+
+      function assign() {
+        extra.clear();
+        for (let i = 0; i < n; i++) {
+          assigned[i] = labels[i];
+          joined[i] = 0;
+          if (labels[i] >= 0 || softLabels === null) continue;
+          const strongest = softLabels[i];
+          const threshold = strongest >= 0 ? thresholdOf(strongest) : null;
+          if (threshold === null || threshold === undefined) continue;
+          if (softScores[i] < threshold) continue;
+          assigned[i] = strongest;
+          joined[i] = 1;
+          extra.set(strongest, (extra.get(strongest) ?? 0) + 1);
+        }
+      }
+      const sizeOf = (id) => (clusters.get(id)?.size ?? 0) + (extra.get(id) ?? 0);
+      const noiseLeft = () => info.noise - [...extra.values()].reduce((a, b) => a + b, 0);
+      const countText = (id) => {
+        const more = extra.get(id);
+        const size = clusters.get(id).size.toLocaleString();
+        return more ? `${size} +${more.toLocaleString()}` : size;
+      };
+
       let focus = null; // null, {cluster: id} or {group: name}
       const hidden = new Set(); // cluster ids not drawn, -1 is noise
       let showImages = false;
@@ -182,6 +231,7 @@
       for (const name of ["colorFrom", "colorTo"]) {
         geometry.setAttribute(name, new THREE.BufferAttribute(new Uint8Array(n * 3), 3, true));
       }
+      geometry.setAttribute("scale", new THREE.BufferAttribute(new Float32Array(n).fill(1), 1));
       geometry.computeBoundingSphere();
       const whole = geometry.boundingSphere.clone();
 
@@ -202,13 +252,14 @@
           uniform float fade;
           attribute vec3 colorFrom;
           attribute vec3 colorTo;
+          attribute float scale;
           varying vec3 vColor;
           #include <fog_pars_vertex>
           void main() {
             vColor = mix(colorFrom, colorTo, fade);
             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
             gl_Position = projectionMatrix * mvPosition;
-            gl_PointSize = max(2.0, size * projectionMatrix[1][1] * viewportHeight * 0.5 / -mvPosition.z);
+            gl_PointSize = max(2.0, scale * size * projectionMatrix[1][1] * viewportHeight * 0.5 / -mvPosition.z);
             #include <fog_vertex>
           }`,
         fragmentShader: `
@@ -320,7 +371,7 @@
         const center = new THREE.Vector3();
         let count = 0;
         for (let i = 0; i < n; i++) {
-          if (!ids.has(labels[i])) continue;
+          if (!ids.has(assigned[i])) continue;
           center.x += positions[i * 3];
           center.y += positions[i * 3 + 1];
           center.z += positions[i * 3 + 2];
@@ -331,7 +382,7 @@
         let radius = 0;
         const point = new THREE.Vector3();
         for (let i = 0; i < n; i++) {
-          if (!ids.has(labels[i])) continue;
+          if (!ids.has(assigned[i])) continue;
           radius = Math.max(radius, point.fromArray(positions, i * 3).distanceTo(center));
         }
         return new THREE.Sphere(center, radius);
@@ -348,7 +399,7 @@
         const k = pointsMaterial.uniforms.fade.value;
         for (let i = 0; i < n * 3; i++) from[i] = from[i] + (to[i] - from[i]) * k;
         for (let i = 0; i < n; i++) {
-          const label = labels[i];
+          const label = assigned[i];
           const colour =
             label < 0 ? NOISE : ids === null || ids.has(label) ? colours.get(label) : DIM;
           to.set(colour, i * 3);
@@ -361,7 +412,7 @@
 
       function reindex() {
         const rows = [];
-        for (let i = 0; i < n; i++) if (!hidden.has(labels[i])) rows.push(i);
+        for (let i = 0; i < n; i++) if (!hidden.has(assigned[i])) rows.push(i);
         geometry.setIndex(rows);
       }
 
@@ -487,7 +538,7 @@
 
       const groupNames = () => Object.keys(groups).sort((a, b) => a.localeCompare(b));
       const groupsOf = (id) => groupNames().filter((name) => groups[name].includes(id));
-      const imagesIn = (ids) => ids.reduce((sum, id) => sum + (clusters.get(id)?.size ?? 0), 0);
+      const imagesIn = (ids) => ids.reduce((sum, id) => sum + sizeOf(id), 0);
       const label = (id) => {
         const name = clusters.get(id)?.name;
         return name ? `#${id} ${name}` : `#${id}`;
@@ -557,6 +608,7 @@
       const list = document.getElementById("clusters");
       const template = document.getElementById("cluster-item");
       const items = new Map();
+      const noiseCount = element("span", "text-xs tabular-nums");
       if (info.noise) {
         const item = element("li", "px-3 py-2 flex items-center gap-2 text-sm text-neutral-500");
         const button = element("button", "eye shrink-0 text-neutral-500 hover:text-neutral-900");
@@ -569,7 +621,7 @@
           button,
           swatch,
           element("span", "flex-1", "noise"),
-          element("span", "text-xs tabular-nums", info.noise.toLocaleString()),
+          noiseCount,
         );
         eye(button, -1, item);
         list.append(item);
@@ -579,7 +631,6 @@
         eye(item.querySelector(".eye"), cluster.id, item);
         item.querySelector(".swatch").style.background = css(colours.get(cluster.id));
         item.querySelector(".id").textContent = `#${cluster.id}`;
-        item.querySelector(".size").textContent = cluster.size.toLocaleString();
         item.querySelector(".select").addEventListener("click", () =>
           setFocus(focus?.cluster === cluster.id ? null : { cluster: cluster.id }),
         );
@@ -760,7 +811,46 @@
 
       const sampleClass = "h-full max-h-40 aspect-square object-cover rounded";
 
+      // kept up to date by counts() while a soft threshold moves
+      let paneImages = null;
+      let paneSoft = null;
+
+      // the soft threshold of one cluster: its own, or the global one
+      function softControl(id) {
+        const node = element("span", "inline-flex items-center gap-2");
+        const slider = element("input", "w-32 align-middle");
+        Object.assign(slider, { type: "range", min: 0, max: 1, step: 0.01 });
+        slider.value = thresholdOf(id) ?? 0.5;
+        const value = element("span", "font-medium text-neutral-900 tabular-nums");
+        const reset = element("button", "underline hover:text-neutral-900", "use global");
+        paneSoft = () => {
+          const own = soft.clusters[id];
+          value.textContent =
+            own !== undefined
+              ? number(own)
+              : soft.threshold === null
+                ? "global (off)"
+                : `global (${number(soft.threshold)})`;
+          reset.classList.toggle("hidden", own === undefined);
+        };
+        slider.addEventListener("input", () => {
+          soft.clusters[id] = Number(slider.value);
+          applySoft();
+        });
+        slider.addEventListener("change", saveSoft);
+        reset.addEventListener("click", () => {
+          delete soft.clusters[id];
+          slider.value = soft.threshold ?? 0.5;
+          applySoft();
+          saveSoft();
+        });
+        paneSoft();
+        node.append(element("span", "", "soft threshold"), slider, value, reset);
+        return node;
+      }
+
       function renderPane() {
+        paneImages = paneSoft = null;
         const open = focus !== null;
         const wasOpen = !pane.classList.contains("hidden");
         pane.classList.toggle("hidden", !open);
@@ -776,8 +866,11 @@
           paneName.value = cluster.name;
           paneName.placeholder = "unnamed";
           deleteButton.classList.add("hidden");
+          const images = fact("images", countText(cluster.id));
+          paneImages = images.lastChild;
           paneFacts.replaceChildren(
-            fact("images", cluster.size.toLocaleString()),
+            images,
+            ...(info.has_soft ? [softControl(cluster.id)] : []),
             fact("share", `${number(stats.share, 1)} %`),
             fact("persistence", number(stats.persistence)),
             fact("mean probability", number(stats.probability)),
@@ -798,9 +891,11 @@
           paneName.value = name;
           paneName.placeholder = "group name";
           deleteButton.classList.remove("hidden");
+          const images = fact("images", imagesIn(members).toLocaleString());
+          paneImages = images.lastChild;
           paneFacts.replaceChildren(
             fact("clusters", members.length.toString()),
-            fact("images", imagesIn(members).toLocaleString()),
+            images,
             ...members.map((id) =>
               chip(
                 label(id),
@@ -814,6 +909,65 @@
             ...rows.slice(0, PANE_SAMPLES).map((row) => thumbnailLink(row, sampleClass)),
           );
         }
+      }
+
+      // soft assignment: apply the thresholds, show the result, save on release
+      function counts() {
+        items.forEach((item, id) => (item.querySelector(".size").textContent = countText(id)));
+        noiseCount.textContent = noiseLeft().toLocaleString();
+        if (paneImages && focus) {
+          paneImages.textContent =
+            "cluster" in focus
+              ? countText(focus.cluster)
+              : imagesIn(groups[focus.group] ?? []).toLocaleString();
+        }
+        paneSoft?.();
+        renderGroups();
+      }
+
+      function applySoft() {
+        assign();
+        const scale = geometry.attributes.scale.array;
+        for (let i = 0; i < n; i++) scale[i] = joined[i] ? SOFT_SCALE : 1;
+        geometry.attributes.scale.needsUpdate = true;
+        recolour();
+        reindex();
+        counts();
+      }
+
+      async function saveSoft() {
+        const response = await fetch("soft", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(soft),
+        });
+        if (!response.ok) alert(`Could not save the soft thresholds: ${await response.text()}`);
+      }
+
+      if (info.has_soft) {
+        const on = document.getElementById("soft-on");
+        const slider = document.getElementById("soft-threshold");
+        const value = document.getElementById("soft-value");
+        document.getElementById("soft-controls").classList.remove("hidden");
+        if (soft.threshold !== null) slider.value = soft.threshold;
+        const show = () => {
+          on.checked = soft.threshold !== null;
+          slider.disabled = !on.checked;
+          value.textContent = on.checked ? number(soft.threshold) : "off";
+        };
+        on.addEventListener("change", () => {
+          soft.threshold = on.checked ? Number(slider.value) : null;
+          show();
+          applySoft();
+          saveSoft();
+        });
+        slider.addEventListener("input", () => {
+          soft.threshold = Number(slider.value);
+          show();
+          applySoft();
+        });
+        slider.addEventListener("change", saveSoft);
+        show();
       }
 
       // everything that depends on the focus or the groups
@@ -884,7 +1038,13 @@
             image.src = `thumb/${row}?size=256`;
             tooltip.replaceChildren(
               image,
-              element("div", "mt-1", labels[row] < 0 ? "noise" : label(labels[row])),
+              element(
+                "div",
+                "mt-1",
+                assigned[row] < 0
+                  ? "noise"
+                  : `${label(assigned[row])}${joined[row] ? ` · soft (${number(softScores[row])})` : ""}`,
+              ),
             );
           }
           const box = view.getBoundingClientRect();
@@ -905,11 +1065,11 @@
         pressed = null;
         if (moved > 4) return;
         const row = rowAt(event);
-        if (row === null || labels[row] < 0) return;
-        setFocus({ cluster: labels[row] });
+        if (row === null || assigned[row] < 0) return;
+        setFocus({ cluster: assigned[row] });
       });
 
-      reindex();
+      applySoft();
       refresh();
     </script>
     {% endraw %}
