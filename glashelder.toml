@@ -5,6 +5,7 @@
 [paths]
 artworks = "artworks.json.zst"                              # artscraper output, doubles as the metadata index
 ml_model = "/mnt/ghentcdh/glashelder/models/artmatcher.pkl"
+clusters = "/mnt/ghentcdh/glashelder/clusters/glashelder-clip.clusters"  # cluster cluster output
 
 [paths.images]
 glashelder = "/mnt/ghentcdh/glashelder/assets-crop"

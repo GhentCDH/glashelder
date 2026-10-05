@@ -55,6 +55,8 @@ class Paths:
     embeddings: EmbeddingPaths = field(default_factory=EmbeddingPaths)
     artworks: Path = Path("artworks.json.zst")
     """Artscraper output, which doubles as the artwork metadata index."""
+    clusters: Path | None = None
+    """Clustering result of the glashelder embeddings, see `cluster cluster`."""
     ml_model: Path | None = None
 
 
