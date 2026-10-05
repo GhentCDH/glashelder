@@ -35,7 +35,8 @@ def build(path: Path, image_dir: str | None, *, count: int = 4) -> Path:
 
     clustering = result.load(path)
     meta = clustering.meta
-    names = result.read_names(path)
+    annotations = result.read_annotations(path)
+    names = annotations.names
     images = rebase_paths(
         clustering.refs, image_dir if image_dir is not None else meta["root"]
     )
@@ -88,9 +89,23 @@ def build(path: Path, image_dir: str | None, *, count: int = 4) -> Path:
             }
 
         clusters = [entry(c) for c in stats["clusters"]]
+        size = {c["id"]: c["size"] for c in clusters}
+        groups = [
+            {
+                "name": name,
+                "clusters": [(m, names.get(m, "")) for m in members],
+                "size": sum(size.get(m, 0) for m in members),
+            }
+            for name, members in sorted(annotations.groups.items())
+        ]
         (work / "data.json").write_text(
             json.dumps(
-                {"meta": meta, "overall": stats["overall"], "clusters": clusters},
+                {
+                    "meta": meta,
+                    "overall": stats["overall"],
+                    "clusters": clusters,
+                    "groups": groups,
+                },
                 ensure_ascii=False,
             ),
             encoding="utf-8",
