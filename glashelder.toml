@@ -31,6 +31,13 @@ cache = false    # a full reference set on disk is tens of gigabytes
 model = "clip"
 batch_size = 64
 
+[cluster]
+n_neighbors = 30     # UMAP: higher keeps more global structure
+min_dist = 0.0       # UMAP: 0 packs similar images tightly
+dimensions = 30      # UMAP output that HDBSCAN clusters
+min_cluster_size = 30
+# min_samples = 10   # HDBSCAN: higher makes more noise, unset means min_cluster_size
+
 [artmatcher]
 workers = 45
 threshold = 0.82

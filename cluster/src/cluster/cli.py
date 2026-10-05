@@ -62,7 +62,8 @@ def cluster():
 
 @cluster.command(
     name="cluster",
-    help="Cluster images using UMAP dimensionality reduction and HDBSCAN.",
+    help="Cluster images using UMAP dimensionality reduction and HDBSCAN. "
+    "The defaults of the UMAP and HDBSCAN options come from [cluster] in glashelder.toml.",
 )
 @click.option(
     "--embeddings", default=EMBEDDINGS_PATH, help="Path of the embeddings pkl file"
@@ -94,21 +95,36 @@ def cluster():
 )
 @click.option(
     "-n",
-    "--nbs",
+    "--n-neighbors",
     default=30,
-    help="`n_neighbors` parameter of UMAP dimensionality reduction",
+    show_default=True,
+    help="UMAP `n_neighbors`: higher keeps more global structure",
 )
 @click.option(
     "-d",
-    "--md",
+    "--min-dist",
     default=0.0,
-    help="`min_dist` parameter of UMAP dimensionality reduction",
+    show_default=True,
+    help="UMAP `min_dist`: 0 packs similar images tightly",
+)
+@click.option(
+    "--dimensions",
+    default=30,
+    show_default=True,
+    help="Dimensions UMAP reduces to, for HDBSCAN",
 )
 @click.option(
     "-m",
     "--min-cluster-size",
     default=30,
-    help="`min_cluster_size` parameter of HDBSCAN",
+    show_default=True,
+    help="HDBSCAN `min_cluster_size`: smallest group that counts as a cluster",
+)
+@click.option(
+    "--min-samples",
+    type=int,
+    default=None,
+    help="HDBSCAN `min_samples`: higher makes more noise [default: min-cluster-size]",
 )
 def do_clustering(
     embeddings,
@@ -117,9 +133,11 @@ def do_clustering(
     output_files,
     count,
     reduce,
-    nbs,
-    md,
+    n_neighbors,
+    min_dist,
+    dimensions,
     min_cluster_size,
+    min_samples,
 ):
     from collections import Counter
     from datetime import datetime
@@ -143,18 +161,19 @@ def do_clustering(
     logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
 
     logger.info("Reducing dimensions")
-    dimensions = 30
-    reduced_embeddings = reduce_dimensions(vectors, dimensions, nbs, md)
-    visualization_embeddings = reduce_dimensions(reduced_embeddings, 3, nbs, md)
+    reduced_embeddings = reduce_dimensions(vectors, dimensions, n_neighbors, min_dist)
+    visualization_embeddings = reduce_dimensions(
+        reduced_embeddings, 3, n_neighbors, min_dist
+    )
 
     if reduce:
         log_reduced(visualization_embeddings, count=20000)
         return
 
-    flat_embeddings = reduce_dimensions(reduced_embeddings, 2, nbs, md)
+    flat_embeddings = reduce_dimensions(reduced_embeddings, 2, n_neighbors, min_dist)
 
     logger.info("cluster points")
-    clusterer = create_clusterer(reduced_embeddings, min_cluster_size)
+    clusterer = create_clusterer(reduced_embeddings, min_cluster_size, min_samples)
     labels = clusterer.labels_
     sizes = Counter(int(label) for label in labels)
     noise = sizes.pop(-1, 0)
@@ -178,8 +197,15 @@ def do_clustering(
                 "rows": len(refs),
                 "edits": edits,
                 "refs_hash": fingerprint(refs, edits),
-                "umap": {"n_neighbors": nbs, "min_dist": md, "dimensions": dimensions},
-                "hdbscan": {"min_cluster_size": min_cluster_size},
+                "umap": {
+                    "n_neighbors": n_neighbors,
+                    "min_dist": min_dist,
+                    "dimensions": dimensions,
+                },
+                "hdbscan": {
+                    "min_cluster_size": min_cluster_size,
+                    "min_samples": min_samples,
+                },
                 "clusters": len(sizes),
                 "noise": noise,
                 "persistence": [float(p) for p in clusterer.cluster_persistence_],
@@ -282,7 +308,11 @@ def info(path: Path | None, embeddings: Path | None):
             f"{umap['dimensions']} dims, n_neighbors {umap['n_neighbors']}, "
             f"min_dist {umap['min_dist']}",
         ),
-        ("hdbscan", f"min_cluster_size {hdbscan['min_cluster_size']}"),
+        (
+            "hdbscan",
+            f"min_cluster_size {hdbscan['min_cluster_size']}, "
+            f"min_samples {hdbscan.get('min_samples') or 'unset'}",
+        ),
         ("clusters", f"{len(sizes):,}"),
         ("noise", f"{noise:,} ({noise / rows:.1%})" if rows else "0"),
         (

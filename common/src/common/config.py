@@ -100,6 +100,22 @@ class Embed:
 
 
 @dataclass(slots=True)
+class Cluster:
+    """Parameters of `cluster cluster`: UMAP, then HDBSCAN on its output."""
+
+    n_neighbors: int = 30
+    """UMAP `n_neighbors`: higher keeps more of the global structure."""
+    min_dist: float = 0.0
+    """UMAP `min_dist`: 0 packs similar images tightly, which HDBSCAN likes."""
+    dimensions: int = 30
+    """Dimensions UMAP reduces to before HDBSCAN (the 2D and 3D views come from these)."""
+    min_cluster_size: int = 30
+    """HDBSCAN `min_cluster_size`: the smallest group of images that counts as a cluster."""
+    min_samples: int | None = None
+    """HDBSCAN `min_samples`: higher makes more images noise. Unset means `min_cluster_size`."""
+
+
+@dataclass(slots=True)
 class Artmatcher:
     workers: int = 8
     threshold: float = 0.5
@@ -115,6 +131,7 @@ class Config:
     paths: Paths = field(default_factory=Paths)
     images: Images = field(default_factory=Images)
     embed: Embed = field(default_factory=Embed)
+    cluster: Cluster = field(default_factory=Cluster)
     artmatcher: Artmatcher = field(default_factory=Artmatcher)
 
     @classmethod

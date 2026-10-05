@@ -37,8 +37,10 @@ def reduce_dimensions(
     return umap_model.fit_transform(embeddings)
 
 
-def create_clusterer(latent, min_cluster_size: int = 30):
-    clusterer = HDBSCAN(min_cluster_size=min_cluster_size)
+def create_clusterer(
+    latent, min_cluster_size: int = 30, min_samples: int | None = None
+):
+    clusterer = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples)
     clusterer.fit(latent)
 
     return clusterer
