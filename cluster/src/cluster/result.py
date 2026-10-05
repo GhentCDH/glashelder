@@ -5,6 +5,11 @@ A result is a directory:
     meta.json       what was clustered (the embedding store, its row count, its
                     `edits` and a fingerprint of its refs) and with which parameters
     points.parquet  one row per embedding row: ref, label, scores and coordinates
+    names.json      optional: human names for clusters, from `cluster serve`
+    report.pdf      optional: from `cluster report`
+
+A new clustering in the same directory drops the report and moves the names aside
+(to `names-<created>.json`), because both refer to the old cluster ids.
 
 Parquet, so anything reads it (polars, pandas, DuckDB, a browser) without this
 package. Refs are kept as the embedding store has them: relative to its image
@@ -16,6 +21,7 @@ Rows changed in place or removed (the store's `edits`) make it stale.
 """
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,8 +33,10 @@ import pyarrow.parquet as pq
 from embed.neighbours import queries_hash
 from embed.store import Store
 
-META, POINTS = "meta.json", "points.parquet"
+META, POINTS, NAMES, REPORT = "meta.json", "points.parquet", "names.json", "report.pdf"
 VERSION = 1
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -63,6 +71,14 @@ def save(path: str | Path, clustering: Clustering) -> None:
         if path.is_file() or any(path.iterdir()):
             raise ValueError(f"{path} exists and is not a clustering result")
     path.mkdir(parents=True, exist_ok=True)
+
+    if is_clustering(path):
+        # names and the report belong to the old cluster ids
+        old = read_meta(path)
+        if (path / NAMES).is_file():
+            stamp = old["created"].replace(":", "")
+            os.replace(path / NAMES, path / f"names-{stamp}.json")
+        (path / REPORT).unlink(missing_ok=True)
 
     # meta goes first and comes back last: without it, the directory is no result
     (path / META).unlink(missing_ok=True)
@@ -111,6 +127,40 @@ def load(path: str | Path) -> Clustering:
         .reshape(len(table), reduced.type.list_size),
         meta=meta,
     )
+
+
+def identity(meta: dict) -> str:
+    """Which clustering a names file belongs to: a new run of the same data differs."""
+    return f"{meta['refs_hash']}:{meta['created']}"
+
+
+def read_names(path: str | Path) -> dict[int, str]:
+    """The human names given to clusters, by cluster id."""
+    path = Path(path)
+    if not (path / NAMES).is_file():
+        return {}
+    saved = json.loads((path / NAMES).read_text(encoding="utf-8"))
+    if saved.get("clustering") != identity(read_meta(path)):
+        logger.warning(f"{path / NAMES} belongs to another clustering, ignoring it")
+        return {}
+    return {int(label): name for label, name in saved["names"].items()}
+
+
+def write_names(path: str | Path, names: dict[int, str]) -> None:
+    path = Path(path)
+    temporary = path / f"{NAMES}.tmp"
+    temporary.write_text(
+        json.dumps(
+            {
+                "clustering": identity(read_meta(path)),
+                "names": {str(label): names[label] for label in sorted(names)},
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path / NAMES)
 
 
 def status(meta: dict, store: Store) -> str:

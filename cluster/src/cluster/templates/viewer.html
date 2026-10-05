@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clusters · {{ name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      #tooltip img { max-width: 160px; max-height: 160px; }
+      details > summary { list-style: none; }
+      details > summary::-webkit-details-marker { display: none; }
+      details[open] > summary .chevron { transform: rotate(90deg); }
+    </style>
+  </head>
+  <body class="h-screen flex overflow-hidden bg-neutral-100 text-neutral-900">
+    <main id="view" class="relative flex-1 bg-neutral-900">
+      <div class="absolute top-3 left-3 flex gap-4 items-center text-sm text-neutral-200 bg-neutral-800/80 rounded px-3 py-2">
+        <label class="flex gap-1 items-center"><input type="checkbox" id="show-noise" checked /> noise</label>
+        <label class="flex gap-1 items-center"><input type="checkbox" id="show-images" /> images</label>
+        <button id="show-all" class="hidden underline">show all clusters</button>
+      </div>
+      <div id="loading" class="absolute inset-0 flex items-center justify-center text-neutral-400">loading points…</div>
+      <div id="tooltip" class="hidden absolute pointer-events-none bg-white rounded shadow p-1 text-xs"></div>
+    </main>
+
+    <aside class="w-96 flex flex-col border-l border-neutral-300 bg-white">
+      <header class="p-3 border-b border-neutral-200">
+        <h1 class="font-semibold truncate" title="{{ name }}">{{ name }}</h1>
+        <p id="summary" class="text-xs text-neutral-500">
+          {{ meta.model }} · {{ "{:,}".format(meta.rows) }} images · {{ meta.created }}
+        </p>
+        <input id="filter" type="search" placeholder="filter by id or name"
+          class="mt-2 w-full border border-neutral-300 rounded px-2 py-1 text-sm" />
+      </header>
+      <ul id="clusters" class="flex-1 overflow-y-auto divide-y divide-neutral-100"></ul>
+    </aside>
+
+    <template id="cluster-item">
+      <li class="px-3 py-2">
+        <div class="select flex items-center gap-2 cursor-pointer">
+          <span class="swatch w-3 h-3 rounded-full shrink-0"></span>
+          <span class="id w-10 text-sm font-mono text-neutral-500"></span>
+          <input class="name flex-1 min-w-0 bg-transparent border border-transparent hover:border-neutral-300 focus:border-neutral-400 rounded px-1 text-sm"
+            placeholder="unnamed" />
+          <span class="state w-4 text-xs"></span>
+          <span class="size text-xs text-neutral-500 tabular-nums"></span>
+        </div>
+        <details class="mt-1">
+          <summary class="text-xs text-neutral-500 cursor-pointer select-none">
+            <span class="chevron inline-block transition-transform">▸</span> samples
+          </summary>
+          <div class="samples grid grid-cols-4 gap-1 mt-1"></div>
+        </details>
+      </li>
+    </template>
+
+    {% raw %}
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      const GOLDEN = 0.618033988749895;
+      const NOISE = [110, 110, 110];
+      const DIM = [55, 55, 55];
+      const MAX_SPRITES = 300;
+
+      // colours are used as they are, so a point matches its swatch in the list
+      THREE.ColorManagement.enabled = false;
+
+      function hsl(h, s, l) {
+        const a = s * Math.min(l, 1 - l);
+        const f = (n) => {
+          const k = (n + h * 12) % 12;
+          return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+        };
+        return [f(0), f(8), f(4)].map((v) => Math.round(v * 255));
+      }
+      const colourOf = (id) => hsl((id * GOLDEN) % 1, 0.7, 0.55);
+      const css = ([r, g, b]) => `rgb(${r} ${g} ${b})`;
+
+      const binary = (url, Type) =>
+        fetch(url).then((r) => r.arrayBuffer()).then((b) => new Type(b));
+      const [positions, labels, info] = await Promise.all([
+        binary("points", Float32Array),
+        binary("labels", Int32Array),
+        fetch("clusters").then((r) => r.json()),
+      ]);
+      const n = labels.length;
+      const clusters = new Map(info.clusters.map((c) => [c.id, c]));
+      const colours = new Map(info.clusters.map((c) => [c.id, colourOf(c.id)]));
+
+      let selected = null;
+      let showNoise = true;
+      let showImages = false;
+
+      // scene
+      const view = document.getElementById("view");
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      view.prepend(renderer.domElement);
+      document.getElementById("loading").remove();
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x171717);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute(
+        "color",
+        new THREE.BufferAttribute(new Uint8Array(n * 3), 3, true),
+      );
+      geometry.computeBoundingSphere();
+      const { center, radius } = geometry.boundingSphere;
+
+      const pointSize = radius / 200;
+      const cloud = new THREE.Points(
+        geometry,
+        new THREE.PointsMaterial({ size: pointSize, vertexColors: true }),
+      );
+      scene.add(cloud);
+      const sprites = new THREE.Group();
+      scene.add(sprites);
+
+      const camera = new THREE.PerspectiveCamera(50, 1, radius / 100, radius * 20);
+      camera.position.copy(center).add(new THREE.Vector3(0, 0, radius * 2.2));
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.copy(center);
+      controls.enableDamping = true;
+
+      new ResizeObserver(() => {
+        renderer.setSize(view.clientWidth, view.clientHeight);
+        camera.aspect = view.clientWidth / view.clientHeight;
+        camera.updateProjectionMatrix();
+      }).observe(view);
+
+      renderer.setAnimationLoop(() => {
+        controls.update();
+        renderer.render(scene, camera);
+      });
+
+      // what is shown
+      function recolour() {
+        const array = geometry.attributes.color.array;
+        for (let i = 0; i < n; i++) {
+          const label = labels[i];
+          const colour =
+            label < 0
+              ? NOISE
+              : selected === null || label === selected
+                ? colours.get(label)
+                : DIM;
+          array.set(colour, i * 3);
+        }
+        geometry.attributes.color.needsUpdate = true;
+      }
+
+      function reindex() {
+        const rows = [];
+        for (let i = 0; i < n; i++) if (showNoise || labels[i] >= 0) rows.push(i);
+        geometry.setIndex(rows);
+      }
+
+      const loader = new THREE.TextureLoader();
+      const textures = new Map();
+      function texture(row) {
+        if (!textures.has(row)) {
+          const waiting = [];
+          const map = loader.load(`thumb/${row}?size=128`, () =>
+            waiting.splice(0).forEach((done) => done()),
+          );
+          map.userData.waiting = waiting;
+          textures.set(row, map);
+        }
+        return textures.get(row);
+      }
+
+      function pick(pool, count) {
+        const rows = pool.slice();
+        const kept = Math.min(count, rows.length);
+        for (let i = 0; i < kept; i++) {
+          const j = i + Math.floor(Math.random() * (rows.length - i));
+          [rows[i], rows[j]] = [rows[j], rows[i]];
+        }
+        return rows.slice(0, kept);
+      }
+
+      function placeSprites() {
+        sprites.children.forEach((sprite) => sprite.material.dispose());
+        sprites.clear();
+        if (!showImages) return;
+        const pool = [];
+        for (let i = 0; i < n; i++) {
+          const label = labels[i];
+          if (selected === null ? label >= 0 : label === selected) pool.push(i);
+        }
+        const scale = radius / 30;
+        for (const row of pick(pool, MAX_SPRITES)) {
+          const map = texture(row);
+          const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map }));
+          const fit = () => {
+            const { width, height } = map.image;
+            sprite.scale.set((scale * width) / height, scale, 1);
+          };
+          sprite.scale.set(scale, scale, 1);
+          if (map.image) fit();
+          else map.userData.waiting.push(fit);
+          sprite.position.fromArray(positions, row * 3);
+          sprites.add(sprite);
+        }
+      }
+
+      const items = new Map();
+      const showAll = document.getElementById("show-all");
+      function select(id) {
+        selected = id === selected ? null : id;
+        items.forEach((item, key) =>
+          item.classList.toggle("bg-amber-50", key === selected),
+        );
+        showAll.classList.toggle("hidden", selected === null);
+        recolour();
+        placeSprites();
+      }
+
+      // the cluster list
+      const list = document.getElementById("clusters");
+      const template = document.getElementById("cluster-item");
+      for (const cluster of info.clusters) {
+        const item = template.content.firstElementChild.cloneNode(true);
+        item.querySelector(".swatch").style.background = css(colours.get(cluster.id));
+        item.querySelector(".id").textContent = `#${cluster.id}`;
+        item.querySelector(".size").textContent = cluster.size.toLocaleString();
+        item.querySelector(".select").addEventListener("click", () => select(cluster.id));
+
+        const name = item.querySelector(".name");
+        const state = item.querySelector(".state");
+        name.value = cluster.name;
+        name.addEventListener("click", (event) => event.stopPropagation());
+        name.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") name.blur();
+        });
+        name.addEventListener("change", async () => {
+          state.textContent = "…";
+          const response = await fetch(`clusters/${cluster.id}/name`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name.value }),
+          });
+          if (response.ok) {
+            cluster.name = (await response.json()).name;
+            name.value = cluster.name;
+            state.textContent = "✓";
+            state.className = "state w-4 text-xs text-green-600";
+            setTimeout(() => (state.textContent = ""), 1500);
+          } else {
+            state.textContent = "!";
+            state.className = "state w-4 text-xs text-red-600";
+            state.title = await response.text();
+          }
+        });
+
+        const details = item.querySelector("details");
+        details.addEventListener("toggle", () => {
+          const grid = item.querySelector(".samples");
+          if (!details.open || grid.childElementCount) return;
+          for (const row of cluster.samples) {
+            const link = document.createElement("a");
+            link.href = `thumb/${row}?size=512`;
+            link.target = "_blank";
+            const image = document.createElement("img");
+            image.src = `thumb/${row}?size=128`;
+            image.loading = "lazy";
+            image.className = "w-full aspect-square object-cover rounded";
+            link.append(image);
+            grid.append(link);
+          }
+        });
+
+        items.set(cluster.id, item);
+        list.append(item);
+      }
+      if (info.noise) {
+        const item = document.createElement("li");
+        item.className = "px-3 py-2 text-sm text-neutral-500";
+        item.textContent = `noise: ${info.noise.toLocaleString()} images`;
+        list.append(item);
+      }
+
+      document.getElementById("filter").addEventListener("input", (event) => {
+        const query = event.target.value.trim().toLowerCase();
+        items.forEach((item, id) => {
+          const name = clusters.get(id).name.toLowerCase();
+          const shown = !query || `#${id}`.includes(query) || name.includes(query);
+          item.classList.toggle("hidden", !shown);
+        });
+      });
+
+      // controls
+      document.getElementById("show-noise").addEventListener("change", (event) => {
+        showNoise = event.target.checked;
+        reindex();
+      });
+      document.getElementById("show-images").addEventListener("change", (event) => {
+        showImages = event.target.checked;
+        placeSprites();
+      });
+      showAll.addEventListener("click", () => select(null));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && document.activeElement.tagName !== "INPUT") {
+          select(null);
+        }
+      });
+
+      // hover and click on points
+      const tooltip = document.getElementById("tooltip");
+      const raycaster = new THREE.Raycaster();
+      raycaster.params.Points.threshold = pointSize;
+      const pointer = new THREE.Vector2();
+      let hovered = null;
+      let pending = false;
+      let pressed = null;
+
+      function rowAt(event) {
+        const box = renderer.domElement.getBoundingClientRect();
+        pointer.set(
+          ((event.clientX - box.left) / box.width) * 2 - 1,
+          -((event.clientY - box.top) / box.height) * 2 + 1,
+        );
+        raycaster.setFromCamera(pointer, camera);
+        const hit = raycaster.intersectObject(cloud)[0];
+        return hit ? hit.index : null;
+      }
+
+      renderer.domElement.addEventListener("pointermove", (event) => {
+        if (pending || event.buttons) return;
+        pending = true;
+        requestAnimationFrame(() => {
+          pending = false;
+          const row = rowAt(event);
+          if (row === null) {
+            tooltip.classList.add("hidden");
+            hovered = null;
+            return;
+          }
+          if (row !== hovered) {
+            hovered = row;
+            const label = labels[row];
+            const name = label >= 0 ? clusters.get(label).name : "";
+            tooltip.replaceChildren();
+            const image = document.createElement("img");
+            image.src = `thumb/${row}?size=256`;
+            const caption = document.createElement("div");
+            caption.className = "mt-1";
+            caption.textContent =
+              label < 0 ? "noise" : `#${label}${name ? ` · ${name}` : ""}`;
+            tooltip.append(image, caption);
+          }
+          const box = view.getBoundingClientRect();
+          tooltip.style.left = `${event.clientX - box.left + 14}px`;
+          tooltip.style.top = `${event.clientY - box.top + 14}px`;
+          tooltip.classList.remove("hidden");
+        });
+      });
+      renderer.domElement.addEventListener("pointerleave", () =>
+        tooltip.classList.add("hidden"),
+      );
+      renderer.domElement.addEventListener("pointerdown", (event) => {
+        pressed = [event.clientX, event.clientY];
+      });
+      renderer.domElement.addEventListener("pointerup", (event) => {
+        if (!pressed) return;
+        const moved = Math.hypot(event.clientX - pressed[0], event.clientY - pressed[1]);
+        pressed = null;
+        if (moved > 4) return;
+        const row = rowAt(event);
+        if (row === null || labels[row] < 0) return;
+        select(labels[row]);
+        items.get(labels[row]).scrollIntoView({ block: "nearest" });
+      });
+
+      recolour();
+      reindex();
+    </script>
+    {% endraw %}
+  </body>
+</html>

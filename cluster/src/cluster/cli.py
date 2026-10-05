@@ -182,6 +182,7 @@ def do_clustering(
                 "hdbscan": {"min_cluster_size": min_cluster_size},
                 "clusters": len(sizes),
                 "noise": noise,
+                "persistence": [float(p) for p in clusterer.cluster_persistence_],
             },
         ),
     )
@@ -291,6 +292,65 @@ def info(path: Path | None, embeddings: Path | None):
         ("status", state),
     ):
         click.echo(f"{name + ':':10}{value}")
+
+
+@cluster.command()
+@click.option(
+    "--clusters",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Clustering result to show (default: paths.clusters)",
+)
+@click.option(
+    "--image-dir",
+    default=None,
+    help="Directory the clustered images live in on this machine",
+)
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", default=5001, help="Port to bind to")
+@click.option(
+    "--auth", is_flag=True, help="Enable secret url parameter based authentication."
+)
+@click.option("--debug", is_flag=True, help="Run Flask in debug mode")
+def serve(
+    clusters: Path | None,
+    image_dir: str | None,
+    host: str,
+    port: int,
+    auth: bool,
+    debug: bool,
+):
+    """Show a clustering result in the browser, and give its clusters names.
+
+    Names are saved in the result, in `names.json`.
+    """
+    from .web import create_app
+
+    if clusters is None:
+        raise click.UsageError("give --clusters, or set paths.clusters")
+    app = create_app(clusters, image_dir, auth=auth)
+    app.run(host=host, port=port, debug=debug)
+
+
+@cluster.command()
+@click.argument("path", type=click.Path(exists=True, path_type=Path), required=False)
+@click.option(
+    "--image-dir",
+    default=None,
+    help="Directory the clustered images live in on this machine",
+)
+@click.option("--samples", default=4, help="Sample images per cluster")
+@click.option("--open", "open_", is_flag=True, help="Open the PDF when it is done")
+def report(path: Path | None, image_dir: str | None, samples: int, open_: bool):
+    """Write a PDF report of a clustering result into it, as `report.pdf`."""
+    from .report import build
+
+    if path is None:
+        raise click.UsageError("give a clustering result, or set paths.clusters")
+    pdf = build(path, image_dir, count=samples)
+    logger.info(f"Saved the report to {pdf}")
+    if open_:
+        click.launch(str(pdf))
 
 
 @cluster.command()
