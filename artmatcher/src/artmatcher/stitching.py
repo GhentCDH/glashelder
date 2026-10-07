@@ -34,20 +34,25 @@ def find_matches(des1, des2, bf) -> list:
     return good_matches
 
 
-def compute_homography(kp1, kp2, matches) -> np.ndarray | None:
-    """Compute homography matrix from matched keypoints."""
+def find_homography(kp1, kp2, matches) -> tuple[np.ndarray | None, int]:
+    """Homography from matched keypoints and its RANSAC inlier count.
+
+    `(None, 0)` when there are fewer than 4 matches or 4 inliers.
+    """
     if len(matches) < 4:
-        return None
+        return None, 0
     src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)  # type:ignore
     dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)  # type:ignore
     h, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-    if h is None:
-        return None
-    # Count inliers
-    inliers = mask.ravel().sum() if mask is not None else 0
-    if inliers < 4:
-        return None
-    return h
+    inliers = int(mask.sum()) if mask is not None else 0
+    if h is None or inliers < 4:
+        return None, 0
+    return h, inliers
+
+
+def compute_homography(kp1, kp2, matches) -> np.ndarray | None:
+    """Compute homography matrix from matched keypoints."""
+    return find_homography(kp1, kp2, matches)[0]
 
 
 def load_image(ref: str) -> np.ndarray:

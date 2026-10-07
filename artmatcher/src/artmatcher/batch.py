@@ -28,7 +28,9 @@ from rich.progress import (
 from artscraper import Artwork
 
 from .ml_classifier import (
+    NO_IMAGE_FEATURES,
     MLClassifier,
+    _extract_distribution_features,
     _extract_orb_worker,
     _init_orb_worker,
 )
@@ -91,10 +93,12 @@ class FeatureCache:
             wikiart_path: Path to wikiart image
 
         Returns:
-            Feature dict if cached, None otherwise
+            Feature dict if cached with every current image feature, None otherwise
         """
-        key = self._make_key(glashelder_path, wikiart_path)
-        return self._cache.get(key)
+        features = self._cache.get(self._make_key(glashelder_path, wikiart_path))
+        if features is None or not NO_IMAGE_FEATURES.keys() <= features.keys():
+            return None
+        return features
 
     def set(
         self, glashelder_path: str, wikiart_path: str, features: dict[str, float]
@@ -150,21 +154,7 @@ class FeatureCache:
 
 def _get_default_features(similarities: list[float]) -> dict[str, float]:
     """Return default features when extraction fails."""
-    from .ml_classifier import _extract_distribution_features
-
-    features = _extract_distribution_features(similarities)
-    # Add default ORB features
-    features["orb_num_matches"] = 0.0
-    features["orb_num_inliers"] = 0.0
-    features["orb_confidence"] = 0.0
-    features["orb_warp_stretch"] = 1.0
-    features["inlier_match_ratio"] = 0.0
-    # Add default hash features (max distance = no similarity)
-    features["phash_distance"] = 64.0
-    features["dhash_distance"] = 64.0
-    features["whash_distance"] = 64.0
-    features["ahash_distance"] = 64.0
-    return features
+    return _extract_distribution_features(similarities) | NO_IMAGE_FEATURES
 
 
 class _NullProgress:
