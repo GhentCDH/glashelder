@@ -3,12 +3,13 @@
 import io
 import json
 import logging
+import math
 import pickle
 import signal
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Self
 
 import cv2
 import imagehash
@@ -30,7 +31,7 @@ from rich.progress import (
 from common.images import is_url
 from common.images import load as load_pil
 
-from .stitching import compute_homography
+from .stitching import find_homography
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -76,50 +77,18 @@ def _extract_orb_worker(
         if _worker_bf is None:
             _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
-        # Extract distribution features first (fast)
-        features = _extract_distribution_features(similarities)
-
-        orb_feats, hash_feats = _pair_features(
-            glashelder_path, wikiart_path, _worker_orb, _worker_bf
+        features = (
+            _extract_distribution_features(similarities)
+            | _pair_features(
+                glashelder_path, wikiart_path, _worker_orb, _worker_bf
+            ).as_dict()
         )
-        features["orb_num_matches"] = float(orb_feats["num_matches"])
-        features["orb_num_inliers"] = float(orb_feats["num_inliers"])
-        features["orb_confidence"] = orb_feats["confidence"]
-        features["orb_warp_stretch"] = orb_feats["warp_stretch"]
-        features["inlier_match_ratio"] = (
-            orb_feats["num_inliers"] / orb_feats["num_matches"]
-            if orb_feats["num_matches"] > 0
-            else 0.0
-        )
-
-        features["phash_distance"] = hash_feats["phash_distance"]
-        features["dhash_distance"] = hash_feats["dhash_distance"]
-        features["whash_distance"] = hash_feats["whash_distance"]
-        features["ahash_distance"] = hash_feats["ahash_distance"]
-
-        # Sanitize to remove NaN/Inf values
-        features = _sanitize_features(features)
-
-        return (idx, features, label)
+        return (idx, _sanitize_features(features), label)
 
     except TimeoutError:
         idx, glashelder_path, _, similarities, label = args
         logger.warning(f"Worker timeout for {glashelder_path}")
-        features = _extract_distribution_features(similarities)
-        # Fill in defaults for image-based features
-        features.update(
-            {
-                "orb_num_matches": 0.0,
-                "orb_num_inliers": 0.0,
-                "orb_confidence": 0.0,
-                "orb_warp_stretch": 1.0,
-                "inlier_match_ratio": 0.0,
-                "phash_distance": 64.0,
-                "dhash_distance": 64.0,
-                "whash_distance": 64.0,
-                "ahash_distance": 64.0,
-            }
-        )
+        features = _extract_distribution_features(similarities) | NO_IMAGE_FEATURES
         return (idx, _sanitize_features(features), label)
     finally:
         signal.alarm(0)
@@ -225,18 +194,97 @@ def _extract_distribution_features(similarities: list[float]) -> dict[str, float
     return features
 
 
-NO_ORB: dict[str, float] = {
-    "num_matches": 0,
-    "num_inliers": 0,
-    "confidence": 0.0,
-    "warp_stretch": 1.0,
-}
-NO_HASH: dict[str, float] = {
-    "phash_distance": 64.0,  # max distance (no similarity)
-    "dhash_distance": 64.0,
-    "whash_distance": 64.0,
-    "ahash_distance": 64.0,
-}
+MIN_ALIGN_INLIERS = 15
+"""ORB inliers a homography needs before the pair is aligned and compared."""
+MIN_ALIGN_SIDE = 32
+"""Smallest side, in reference pixels, of an overlap worth comparing."""
+ALIGN_SIZE = 256
+"""Longest side of the aligned crops."""
+ALIGN_MARGIN = 0.02
+"""Part of the overlap cut from each side, so warp borders stay out of the crops."""
+
+
+@dataclass(frozen=True, slots=True)
+class HashDistances:
+    """Perceptual hash distances of a pair; the defaults mean no similarity."""
+
+    phash: float = 64.0
+    dhash: float = 64.0
+    whash: float = 64.0
+    ahash: float = 64.0
+
+    @classmethod
+    def between(cls, a: Image.Image, b: Image.Image) -> Self:
+        """All hashes work on grayscale internally, so color does not count."""
+        try:
+            return cls(
+                phash=float(imagehash.phash(a) - imagehash.phash(b)),
+                dhash=float(imagehash.dhash(a) - imagehash.dhash(b)),
+                whash=float(imagehash.whash(a) - imagehash.whash(b)),
+                ahash=float(imagehash.average_hash(a) - imagehash.average_hash(b)),
+            )
+        except Exception:
+            return cls()
+
+    def as_dict(self, prefix: str = "") -> dict[str, float]:
+        return {
+            f"{prefix}{f.name}_distance": getattr(self, f.name) for f in fields(self)
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class OrbFeatures:
+    """ORB geometric verification of a pair."""
+
+    num_matches: int = 0
+    num_inliers: int = 0
+    confidence: float = 0.0
+    warp_stretch: float = 1.0
+
+    @property
+    def inlier_match_ratio(self) -> float:
+        return self.num_inliers / self.num_matches if self.num_matches else 0.0
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "orb_num_matches": float(self.num_matches),
+            "orb_num_inliers": float(self.num_inliers),
+            "orb_confidence": self.confidence,
+            "orb_warp_stretch": self.warp_stretch,
+            "inlier_match_ratio": self.inlier_match_ratio,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AlignedFeatures:
+    """Comparison of the overlap of a pair after the ORB homography aligned it;
+    the defaults are for pairs that could not be aligned."""
+
+    hashes: HashDistances = HashDistances()
+    ncc: float = 0.0
+    ssim: float = 0.0
+
+    def as_dict(self) -> dict[str, float]:
+        return self.hashes.as_dict("aligned_") | {
+            "aligned_ncc": self.ncc,
+            "aligned_ssim": self.ssim,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ImageFeatures:
+    """Everything the classifier computes from the images of a pair."""
+
+    orb: OrbFeatures = OrbFeatures()
+    hashes: HashDistances = HashDistances()
+    aligned: AlignedFeatures = AlignedFeatures()
+
+    def as_dict(self) -> dict[str, float]:
+        return self.orb.as_dict() | self.hashes.as_dict() | self.aligned.as_dict()
+
+
+NO_IMAGE_FEATURES = ImageFeatures().as_dict()
+"""Image features of a pair whose images could not be compared."""
 
 
 def _load_views(ref: str) -> tuple[np.ndarray, Image.Image]:
@@ -257,30 +305,29 @@ def _load_views(ref: str) -> tuple[np.ndarray, Image.Image]:
     return bgr, Image.open(io.BytesIO(raw)).convert("RGB")
 
 
-def _pair_features(
-    query_path: str, reference_path: str, orb, bf
-) -> tuple[dict[str, float], dict[str, float]]:
-    """ORB and hash features of a pair, reading each image only once."""
+def _pair_features(query_path: str, reference_path: str, orb, bf) -> ImageFeatures:
+    """Image features of a pair, reading each image only once."""
     try:
         query_bgr, query_rgb = _load_views(query_path)
         reference_bgr, reference_rgb = _load_views(reference_path)
     except Exception:
-        return dict(NO_ORB), dict(NO_HASH)
-    return (
-        _orb_features(query_bgr, reference_bgr, orb, bf),
-        _hash_features(query_rgb, reference_rgb),
+        return ImageFeatures()
+    query_gray = cv2.cvtColor(query_bgr, cv2.COLOR_BGR2GRAY)
+    ref_gray = cv2.cvtColor(reference_bgr, cv2.COLOR_BGR2GRAY)
+    orb_feats, h = _orb_features(query_gray, ref_gray, orb, bf)
+    return ImageFeatures(
+        orb=orb_feats,
+        hashes=HashDistances.between(query_rgb, reference_rgb),
+        aligned=_aligned_features(query_gray, ref_gray, h, orb_feats.num_inliers),
     )
 
 
-def _orb_matches(query_img: np.ndarray, ref_img: np.ndarray, orb, bf) -> tuple:
-    """ORB keypoints of two BGR images and the matches that pass the ratio test.
+def _orb_matches(query_gray: np.ndarray, ref_gray: np.ndarray, orb, bf) -> tuple:
+    """ORB keypoints of two grayscale images and the matches that pass the ratio test.
 
     Returns `(query_kp, ref_kp, good_matches)`; no matches when either image has
     too few keypoints to match.
     """
-    query_gray = cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY)
-    ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
-
     query_kp, query_des = orb.detectAndCompute(query_gray, None)
     ref_kp, ref_des = orb.detectAndCompute(ref_gray, None)
     if query_des is None or ref_des is None or len(query_kp) == 0:
@@ -311,8 +358,13 @@ def orb_overlay(
     ref_img, _ = _load_views(reference_path)
     orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-    query_kp, ref_kp, good_matches = _orb_matches(query_img, ref_img, orb, bf)
-    h = compute_homography(query_kp, ref_kp, good_matches)
+    query_kp, ref_kp, good_matches = _orb_matches(
+        cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY),
+        cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY),
+        orb,
+        bf,
+    )
+    h, _ = find_homography(query_kp, ref_kp, good_matches)
     if h is None:
         return None
 
@@ -330,152 +382,168 @@ def orb_overlay(
     return out
 
 
+def _query_corners(query_gray: np.ndarray, h: np.ndarray) -> np.ndarray:
+    """Corners of the query (TL, TR, BR, BL) in reference coordinates, as (4, 2)."""
+    img_h, img_w = query_gray.shape[:2]
+    corners = np.array(
+        [[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]], dtype=np.float32
+    )
+    return cv2.perspectiveTransform(corners.reshape(-1, 1, 2), h).reshape(-1, 2)
+
+
+def _warp_stretch(query_gray: np.ndarray, corners: np.ndarray) -> float:
+    """Largest factor by which the homography stretches or shrinks a query edge."""
+    img_h, img_w = query_gray.shape[:2]
+    warped_edges = np.linalg.norm(np.roll(corners, -1, axis=0) - corners, axis=1)
+    with np.errstate(divide="ignore"):
+        ratios = warped_edges / np.array([img_w, img_h, img_w, img_h])
+        return float(np.maximum(ratios, 1 / ratios).max())
+
+
 def _orb_features(
-    query_img: np.ndarray, ref_img: np.ndarray, orb, bf
-) -> dict[str, float]:
-    """ORB geometric verification of two BGR images (much faster than SIFT)."""
+    query_gray: np.ndarray, ref_gray: np.ndarray, orb, bf
+) -> tuple[OrbFeatures, np.ndarray | None]:
+    """ORB geometric verification of two grayscale images (much faster than SIFT),
+    with the homography from the query onto the reference when there is one."""
     try:
-        query_kp, ref_kp, good_matches = _orb_matches(query_img, ref_img, orb, bf)
-        num_matches = len(good_matches)
-
-        if num_matches < 4:
-            return {
-                "num_matches": num_matches,
-                "num_inliers": 0,
-                "confidence": 0.0,
-                "warp_stretch": 1.0,
-            }
-
-        h = compute_homography(query_kp, ref_kp, good_matches)
-
+        query_kp, ref_kp, good_matches = _orb_matches(query_gray, ref_gray, orb, bf)
+        h, num_inliers = find_homography(query_kp, ref_kp, good_matches)
         if h is None:
-            return {
-                "num_matches": num_matches,
-                "num_inliers": 0,
-                "confidence": 0.0,
-                "warp_stretch": 1.0,
-            }
-
-        src_pts = np.array(
-            [query_kp[m.queryIdx].pt for m in good_matches], dtype=np.float32
-        ).reshape(-1, 1, 2)
-        dst_pts = np.array(
-            [ref_kp[m.trainIdx].pt for m in good_matches], dtype=np.float32
-        ).reshape(-1, 1, 2)
-        _, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-        num_inliers = int(mask.ravel().sum()) if mask is not None else 0
-
-        confidence = num_inliers / len(query_kp) if len(query_kp) > 0 else 0.0
-
-        # Compute warp stretch
-        img_h, img_w = query_img.shape[:2]
-        corners = np.array(
-            [[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]], dtype=np.float32
-        ).reshape(-1, 1, 2)
-        try:
-            warped = cv2.perspectiveTransform(corners, h).reshape(-1, 2)
-            orig_edges = [img_w, img_h, img_w, img_h]
-            warped_edges = []
-            for i in range(4):
-                p1 = warped[i]
-                p2 = warped[(i + 1) % 4]
-                warped_edges.append(np.linalg.norm(p2 - p1))
-            ratios = []
-            for orig, warped_len in zip(orig_edges, warped_edges, strict=True):
-                if orig > 0:
-                    ratios.append(max(warped_len / orig, orig / warped_len))
-            warp_stretch = max(ratios) if ratios else 1.0
-        except cv2.error:
-            warp_stretch = 1.0
-
-        return {
-            "num_matches": num_matches,
-            "num_inliers": num_inliers,
-            "confidence": confidence,
-            "warp_stretch": warp_stretch,
-        }
-
-    except Exception:
-        return {
-            "num_matches": 0,
-            "num_inliers": 0,
-            "confidence": 0.0,
-            "warp_stretch": 1.0,
-        }
-
-
-def _hash_features(query_img: Image.Image, ref_img: Image.Image) -> dict[str, float]:
-    """Perceptual hash distances of two RGB images (very fast).
-
-    Uses multiple hash types to capture different image properties.
-    All hashes work on grayscale internally, so color differences don't affect results.
-    """
-    try:
-        # Perceptual hash (DCT-based, good for similar images)
-        q_phash = imagehash.phash(query_img)
-        r_phash = imagehash.phash(ref_img)
-
-        # Difference hash (gradient-based, captures structure)
-        q_dhash = imagehash.dhash(query_img)
-        r_dhash = imagehash.dhash(ref_img)
-
-        # Wavelet hash (multi-resolution, good for scaled images)
-        q_whash = imagehash.whash(query_img)
-        r_whash = imagehash.whash(ref_img)
-
-        # Average hash (simple but fast)
-        q_ahash = imagehash.average_hash(query_img)
-        r_ahash = imagehash.average_hash(ref_img)
-
-        return {
-            "phash_distance": float(q_phash - r_phash),
-            "dhash_distance": float(q_dhash - r_dhash),
-            "whash_distance": float(q_whash - r_whash),
-            "ahash_distance": float(q_ahash - r_ahash),
-        }
-
-    except Exception:
-        return {
-            "phash_distance": 64.0,  # Max distance (no similarity)
-            "dhash_distance": 64.0,
-            "whash_distance": 64.0,
-            "ahash_distance": 64.0,
-        }
-
-
-@dataclass
-class ORBFeatures:
-    """ORB geometric verification features for a single image pair."""
-
-    num_matches: int
-    num_inliers: int
-    confidence: float
-    warp_stretch: float
-
-    @classmethod
-    def empty(cls) -> "ORBFeatures":
-        """Return empty ORB features (when extraction fails)."""
-        return cls(num_matches=0, num_inliers=0, confidence=0.0, warp_stretch=1.0)
-
-
-@dataclass
-class HashFeatures:
-    """Perceptual hash features for a single image pair."""
-
-    phash_distance: float
-    dhash_distance: float
-    whash_distance: float
-    ahash_distance: float
-
-    @classmethod
-    def empty(cls) -> "HashFeatures":
-        """Return empty hash features (max distance = no similarity)."""
-        return cls(
-            phash_distance=64.0,
-            dhash_distance=64.0,
-            whash_distance=64.0,
-            ahash_distance=64.0,
+            return OrbFeatures(num_matches=len(good_matches)), None
+        orb_feats = OrbFeatures(
+            num_matches=len(good_matches),
+            num_inliers=num_inliers,
+            confidence=num_inliers / len(query_kp),
+            warp_stretch=_warp_stretch(query_gray, _query_corners(query_gray, h)),
         )
+        return orb_feats, h
+    except Exception:
+        return OrbFeatures(), None
+
+
+def _aligned_pair(
+    query_gray: np.ndarray, ref_gray: np.ndarray, h: np.ndarray
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """The overlap of a pair as two grayscale crops of the same size, the query
+    warped onto the reference with `h`; None when the warp folds the query or
+    the overlap is too small.
+
+    The overlap is the axis-aligned rectangle inside the warped query, so no crop
+    holds pixels from outside its image (the hashes cannot mask them out).
+    """
+    corners = _query_corners(query_gray, h)
+    if not cv2.isContourConvex(corners):
+        return None
+    tl, tr, br, bl = corners
+    ref_h, ref_w = ref_gray.shape[:2]
+    x0, x1 = max(tl[0], bl[0], 0.0), min(tr[0], br[0], float(ref_w))
+    y0, y1 = max(tl[1], tr[1], 0.0), min(bl[1], br[1], float(ref_h))
+    margin_x, margin_y = (x1 - x0) * ALIGN_MARGIN, (y1 - y0) * ALIGN_MARGIN
+    left, top = math.ceil(x0 + margin_x), math.ceil(y0 + margin_y)
+    right, bottom = math.floor(x1 - margin_x), math.floor(y1 - margin_y)
+    width, height = right - left, bottom - top
+    if min(width, height) < MIN_ALIGN_SIDE:
+        return None
+
+    scale = min(1.0, ALIGN_SIZE / max(width, height))
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    ref_crop = cv2.resize(
+        ref_gray[top:bottom, left:right], size, interpolation=cv2.INTER_AREA
+    )
+
+    # reference coordinates to crop coordinates, the same mapping as the resize
+    scale_x, scale_y = size[0] / width, size[1] / height
+    to_crop = np.array(
+        [[scale_x, 0, -left * scale_x], [0, scale_y, -top * scale_y], [0, 0, 1]]
+    )
+    # warpPerspective aliases when it shrinks a lot, so a query much larger than
+    # the crop is first shrunk to about the crop's resolution
+    query_h, query_w = query_gray.shape[:2]
+    shrink = math.sqrt(
+        cv2.contourArea(corners) * scale_x * scale_y / (query_w * query_h)
+    )
+    matrix = to_crop @ h
+    if shrink < 1:
+        query_gray = cv2.resize(
+            query_gray,
+            (max(1, round(query_w * shrink)), max(1, round(query_h * shrink))),
+            interpolation=cv2.INTER_AREA,
+        )
+        unshrink = np.diag(
+            [query_w / query_gray.shape[1], query_h / query_gray.shape[0], 1.0]
+        )
+        matrix = matrix @ unshrink
+    query_crop = cv2.warpPerspective(
+        query_gray,
+        matrix,
+        size,
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+    return query_crop, ref_crop
+
+
+def _ncc(a: np.ndarray, b: np.ndarray) -> float:
+    """Zero-mean normalized cross-correlation of two same-sized images, in [-1, 1]."""
+    da = a - a.mean(dtype=np.float64)
+    db = b - b.mean(dtype=np.float64)
+    denom = math.sqrt(float((da * da).sum() * (db * db).sum()))
+    return float((da * db).sum()) / denom if denom > 0 else 0.0
+
+
+def _blur(image: np.ndarray) -> np.ndarray:
+    """The Gaussian window of SSIM."""
+    return cv2.GaussianBlur(image, (11, 11), 1.5)
+
+
+def _ssim(query: np.ndarray, ref: np.ndarray) -> float:
+    """Mean SSIM of two same-sized grayscale images.
+
+    The query first gets the mean and spread of the reference, so a black and
+    white plate of a colour painting is judged on structure, not on brightness
+    or contrast.
+    """
+    x = ref.astype(np.float64)
+    y = query.astype(np.float64)
+    spread = y.std()
+    if spread > 0:
+        y = (y - y.mean()) * (x.std() / spread) + x.mean()
+
+    mu_x, mu_y = _blur(x), _blur(y)
+    var_x = _blur(x * x) - mu_x * mu_x
+    var_y = _blur(y * y) - mu_y * mu_y
+    cov = _blur(x * y) - mu_x * mu_y
+    c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    ssim = ((2 * mu_x * mu_y + c1) * (2 * cov + c2)) / (
+        (mu_x * mu_x + mu_y * mu_y + c1) * (var_x + var_y + c2)
+    )
+    return float(ssim.mean())
+
+
+def _aligned_features(
+    query_gray: np.ndarray,
+    ref_gray: np.ndarray,
+    h: np.ndarray | None,
+    num_inliers: int,
+) -> AlignedFeatures:
+    """Hashes, NCC and SSIM of the overlap of a pair, when a good homography
+    aligns it."""
+    if h is None or num_inliers < MIN_ALIGN_INLIERS:
+        return AlignedFeatures()
+    try:
+        pair = _aligned_pair(query_gray, ref_gray, h)
+    except cv2.error:
+        return AlignedFeatures()
+    if pair is None:
+        return AlignedFeatures()
+    query_crop, ref_crop = pair
+    return AlignedFeatures(
+        hashes=HashDistances.between(
+            Image.fromarray(query_crop), Image.fromarray(ref_crop)
+        ),
+        ncc=_ncc(query_crop, ref_crop),
+        ssim=_ssim(query_crop, ref_crop),
+    )
 
 
 @dataclass
@@ -506,66 +574,6 @@ class FeatureExtractor:
         if self._bf is None:
             self._bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
         return self._bf
-
-    def extract_pair_features(
-        self, query_path: str, reference_path: str
-    ) -> tuple[ORBFeatures, HashFeatures]:
-        """ORB and hash features between two images, reading each image once."""
-        found, hashes = _pair_features(
-            query_path, reference_path, self._get_orb(), self._get_bf()
-        )
-        # the worker speaks the flat float dict the feature vector wants
-        orb = ORBFeatures(
-            num_matches=int(found["num_matches"]),
-            num_inliers=int(found["num_inliers"]),
-            confidence=found["confidence"],
-            warp_stretch=found["warp_stretch"],
-        )
-        return orb, HashFeatures(**hashes)
-
-    def extract_orb_features(self, query_path: str, reference_path: str) -> ORBFeatures:
-        """Extract ORB geometric verification features between two images."""
-        return self.extract_pair_features(query_path, reference_path)[0]
-
-    def extract_hash_features(
-        self, query_path: str, reference_path: str
-    ) -> HashFeatures:
-        """Extract perceptual hash features between two images."""
-        return self.extract_pair_features(query_path, reference_path)[1]
-
-    def _compute_warp_stretch(self, h: NDArray, img_shape: tuple[int, int]) -> float:
-        """Compute how much a homography stretches/distorts an image.
-
-        Returns the maximum ratio of (warped edge length / original edge length).
-        A value of 1.0 means no stretch, higher values mean more distortion.
-        """
-        img_h, img_w = img_shape[:2]
-        corners = np.array(
-            [[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]], dtype=np.float32
-        ).reshape(-1, 1, 2)
-
-        try:
-            warped = cv2.perspectiveTransform(corners, h).reshape(-1, 2)
-        except cv2.error:
-            return 1.0
-
-        # Original edge lengths
-        orig_edges = [img_w, img_h, img_w, img_h]
-
-        # Warped edge lengths
-        warped_edges = []
-        for i in range(4):
-            p1 = warped[i]
-            p2 = warped[(i + 1) % 4]
-            warped_edges.append(np.linalg.norm(p2 - p1))
-
-        # Compute stretch ratios
-        ratios = []
-        for orig, warped_len in zip(orig_edges, warped_edges, strict=True):
-            if orig > 0:
-                ratios.append(max(warped_len / orig, orig / warped_len))
-
-        return max(ratios) if ratios else 1.0
 
     def extract_distribution_features(
         self, similarities: list[float]
@@ -677,45 +685,18 @@ class FeatureExtractor:
             wikiart_path: Path to wikiart image (optional, for ORB/hash)
 
         Returns:
-            Dictionary with all features (distribution + ORB + hash)
+            Dictionary with all features (distribution + image features)
         """
-        features = self.extract_distribution_features(similarities)
-
-        # ORB and hash features (if image paths provided)
-        if glashelder_path and wikiart_path:
-            orb_feats, hash_feats = self.extract_pair_features(
-                glashelder_path, wikiart_path
-            )
-            features["orb_num_matches"] = float(orb_feats.num_matches)
-            features["orb_num_inliers"] = float(orb_feats.num_inliers)
-            features["orb_confidence"] = orb_feats.confidence
-            features["orb_warp_stretch"] = orb_feats.warp_stretch
-
-            # Inlier/match ratio
-            features["inlier_match_ratio"] = (
-                orb_feats.num_inliers / orb_feats.num_matches
-                if orb_feats.num_matches > 0
-                else 0.0
-            )
-
-            features["phash_distance"] = hash_feats.phash_distance
-            features["dhash_distance"] = hash_feats.dhash_distance
-            features["whash_distance"] = hash_feats.whash_distance
-            features["ahash_distance"] = hash_feats.ahash_distance
-        else:
-            # Placeholder features when paths not available
-            features["orb_num_matches"] = 0.0
-            features["orb_num_inliers"] = 0.0
-            features["orb_confidence"] = 0.0
-            features["orb_warp_stretch"] = 1.0
-            features["inlier_match_ratio"] = 0.0
-            features["phash_distance"] = 64.0
-            features["dhash_distance"] = 64.0
-            features["whash_distance"] = 64.0
-            features["ahash_distance"] = 64.0
-
-        # Sanitize to remove NaN/Inf values
-        return _sanitize_features(features)
+        image_features = (
+            _pair_features(
+                glashelder_path, wikiart_path, self._get_orb(), self._get_bf()
+            ).as_dict()
+            if glashelder_path and wikiart_path
+            else NO_IMAGE_FEATURES
+        )
+        return _sanitize_features(
+            self.extract_distribution_features(similarities) | image_features
+        )
 
 
 @dataclass
@@ -757,6 +738,12 @@ class MLClassifier:
         "dhash_distance",
         "whash_distance",
         "ahash_distance",
+        "aligned_phash_distance",
+        "aligned_dhash_distance",
+        "aligned_whash_distance",
+        "aligned_ahash_distance",
+        "aligned_ncc",
+        "aligned_ssim",
     ]
 
     def __init__(self, threshold: float = 0.5):
@@ -1095,16 +1082,13 @@ class MLClassifier:
         with open(path, "rb") as f:
             data = pickle.load(f)
 
+        if data.get("feature_order") != cls.FEATURE_ORDER:
+            raise ValueError(
+                f"{path} was trained on other features than this version computes, "
+                "retrain it with `glashelder artmatcher train-classifier`"
+            )
         classifier = cls(threshold=threshold or data.get("threshold", 0.5))
         classifier._model = data["model"]
-
-        # Verify feature order matches
-        saved_order = data.get("feature_order", [])
-        if saved_order and saved_order != cls.FEATURE_ORDER:
-            logger.warning(
-                "Feature order in saved model differs from current. "
-                "This may cause issues."
-            )
 
         logger.info(f"Model loaded from {path}")
         return classifier
