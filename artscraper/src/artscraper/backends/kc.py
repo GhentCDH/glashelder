@@ -286,12 +286,7 @@ async def _search_page(
 
     api_key = "***REMOVED***"
 
-    if api_key:
-        headers["authorization"] = f"ApiKey {api_key}"
-    else:
-        logger.warning(
-            "kc: no Elasticsearch credentials configured; request may return 401"
-        )
+    headers["authorization"] = f"ApiKey {api_key}"
 
     response = await ctx.client.post(
         SEARCH_URL,
