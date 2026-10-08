@@ -27,12 +27,13 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator
+from itertools import pairwise
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from ..model import Artwork
-from . import Backend, Context
+from ..model import Artwork, merge
+from . import Backend, Context, enrich_pool, physical
 
 BASE_URL = "https://collectie.wereldmuseum.nl"
 SEARCH_URL = f"{BASE_URL}/cc/ccConnector.asmx/search"
@@ -163,6 +164,9 @@ _YEAR_RE = re.compile(
 )
 
 
+_SIZE_RE = re.compile(r"[\d.,]+(?:\s*[×x]\s*[\d.,]+)*\s*(?:mm|cm|m)", re.IGNORECASE)  # noqa: RUF001
+
+
 def _full_image_url(src: str) -> str | None:
     """Rebuild the image-proxy URL at a usable resolution.
 
@@ -264,6 +268,29 @@ def _parse_results(html: str) -> list[dict]:
     return out
 
 
+def _record_spec(record_id: str) -> dict:
+    """A searchSpec for the full record view of one object, as a handle opens it."""
+    spec = _search_spec("", "", 1)
+    spec.update(facetValues={}, showtype="record", numPerPage=1)
+    spec["searchValues"][0].update(tag="Deeplink identifier", value=f"obj_{record_id}")
+    return spec
+
+
+def _parse_record(html: str) -> str | None:
+    """The physical description in a record view: material, then size.
+
+    The view is a list of texts in which only some values are labelled: the
+    material follows "Materiaal :", the size stands on its own, e.g. "92 x 3428 cm".
+    """
+    texts = BeautifulSoup(html, "html.parser").get_text("\n", strip=True).splitlines()
+    material = next(
+        (value for label, value in pairwise(texts) if label.startswith("Materiaal")),
+        None,
+    )
+    size = next((text for text in texts if _SIZE_RE.fullmatch(text)), None)
+    return physical(material and re.sub(r"\s*;\s*", ", ", material), size)
+
+
 # --------------------------------------------------------------------------- #
 #  Backend
 # --------------------------------------------------------------------------- #
@@ -362,3 +389,30 @@ class Wereldmuseum(Backend):
                 first += PAGE_SIZE
                 if first > total:
                     break
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async def complete_one(ctx: Context, artwork: Artwork) -> Artwork | None:
+            # the url is a handle, ".../<record id>"
+            record_id = artwork.url.rstrip("/").rsplit("/", 1)[-1]
+            resp = await _post_json(
+                ctx,
+                SEARCH_URL,
+                {"authToken": "", "searchSpec": _record_spec(record_id)},
+            )
+            html = resp.get("d", {}).get("result", "")
+            if not html:
+                return None
+            return merge(
+                artwork,
+                Artwork(
+                    source=self.name,
+                    url=artwork.url,
+                    image_url=None,
+                    physical_description=_parse_record(html),
+                ),
+            )
+
+        async for artwork in enrich_pool(ctx, artworks, complete_one):
+            yield artwork

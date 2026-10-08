@@ -39,3 +39,14 @@ def index(path: str | Path) -> dict[str, Artwork]:
         if artwork.image_url:
             found[artwork.image_url] = artwork
     return found
+
+
+def artwork_of(reference: str, artworks: dict[str, Artwork] | None) -> Artwork | None:
+    """The scraped record a matched reference describes, if we have it.
+
+    The reference is the join key: a URL for scraped artworks, a path for local
+    files (looked up by name, since the directory may differ per machine).
+    """
+    if not artworks or not reference:
+        return None
+    return artworks.get(reference) or artworks.get(Path(reference).name)

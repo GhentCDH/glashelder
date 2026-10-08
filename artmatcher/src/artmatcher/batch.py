@@ -25,7 +25,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from artscraper import Artwork
+from artscraper import Artwork, artwork_of, open_text
 
 from .ml_classifier import (
     NO_IMAGE_FEATURES,
@@ -545,15 +545,15 @@ def batch_classify(
     )
 
 
-def artwork_of(reference: str, artworks: dict[str, Artwork] | None) -> Artwork | None:
-    """The scraped record a matched reference describes, if we have it.
-
-    The reference is the join key: a URL for scraped artworks, a path for local
-    files (looked up by name, since the directory may differ per machine).
-    """
-    if not artworks or not reference:
-        return None
-    return artworks.get(reference) or artworks.get(Path(reference).name)
+def output_paths(path: Path) -> tuple[Path, Path]:
+    """The JSON and CSV paths for an `--output`, keeping a `.zst` on the JSON only."""
+    compressed = path.suffix.lower() == ".zst"
+    stem = path.with_suffix("") if compressed else path
+    json_path = stem.with_suffix(".json")
+    return (
+        json_path.with_name(json_path.name + ".zst") if compressed else json_path,
+        stem.with_suffix(".csv"),
+    )
 
 
 def write_json_output(
@@ -591,8 +591,9 @@ def write_json_output(
         ],
     }
 
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    compressed = Path(path).suffix.lower() == ".zst"
+    with open_text(path, "w") as f:
+        json.dump(data, f, indent=None if compressed else 2)
 
     console.print(f"[green]Wrote JSON output to {path}[/green]")
 
@@ -629,6 +630,7 @@ def write_csv_output(
         "title",
         "artist",
         "year",
+        "physical_description",
         "artwork_url",
     ]
     # Add similarity columns
@@ -655,6 +657,7 @@ def write_csv_output(
                 artwork and artwork.title,
                 artwork and artwork.artist,
                 artwork and artwork.year,
+                artwork and artwork.physical_description,
                 artwork and artwork.url,
             ]
             row.extend(r.similarities)

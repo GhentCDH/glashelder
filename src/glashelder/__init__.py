@@ -122,7 +122,10 @@ def cli_defaults() -> dict:
     }
     embedding = defaults_for(settings.embed)
     return {
-        "artscraper": {"scrape": given(output=paths.artworks)},
+        "artscraper": {
+            "scrape": given(output=paths.artworks),
+            "complete": given(artworks=paths.artworks),
+        },
         "cluster": {
             "cluster": {
                 **defaults_for(settings.cluster),

@@ -7,7 +7,7 @@ from typing import Literal
 
 import click
 
-from artscraper import Artwork
+from artscraper import Artwork, open_text
 from common import ASSETS_DIR
 from common.config import config
 
@@ -319,7 +319,7 @@ def serve(
         from .web.source import PrecomputedSource
 
         logger.info(f"Loading pre-computed results from {results_json}...")
-        with open(results_json) as f:
+        with open_text(results_json) as f:
             precomputed_data = json.load(f)
 
         results = precomputed_data["results"]
@@ -524,6 +524,7 @@ def batch_classify(
         )
     from .batch import (
         FeatureCache,
+        output_paths,
         write_csv_output,
         write_json_output,
     )
@@ -571,19 +572,14 @@ def batch_classify(
     )
 
     # Write output
-    output_path = Path(output)
+    json_path, csv_path = output_paths(Path(output))
     if output_format == "json":
-        write_json_output(result, output_path, artworks=artwork_index)
+        write_json_output(result, Path(output), artworks=artwork_index)
     elif output_format == "csv":
-        csv_path = output_path.with_suffix(".csv")
         write_csv_output(result, csv_path, artworks=artwork_index)
     else:  # both
-        write_json_output(
-            result, output_path.with_suffix(".json"), artworks=artwork_index
-        )
-        write_csv_output(
-            result, output_path.with_suffix(".csv"), artworks=artwork_index
-        )
+        write_json_output(result, json_path, artworks=artwork_index)
+        write_csv_output(result, csv_path, artworks=artwork_index)
 
     # Save cache if enabled
     if cache:
@@ -688,7 +684,8 @@ def report(
     from .report import build, render, summary_lines
     from .web.store import normalize_dataset
 
-    data = json.loads(results.read_text())
+    with open_text(results) as f:
+        data = json.load(f)
     labels = []
     for path in label_files:
         try:

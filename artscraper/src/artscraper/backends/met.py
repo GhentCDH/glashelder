@@ -33,8 +33,8 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from ..client import fetch_text
-from ..model import Artwork
-from . import Backend, Context, enrich_pool
+from ..model import Artwork, merge
+from . import Backend, Context, enrich_pool, physical
 
 BASE_URL = "https://collectionapi.metmuseum.org"
 SEARCH_URL = f"{BASE_URL}/public/collection/v1.1/search"
@@ -512,6 +512,9 @@ async def _fetch_object(
         title=data.get("title") or None,
         artist=data.get("artistDisplayName") or None,
         year=data.get("objectDate") or None,
+        physical_description=physical(
+            data.get("objectName"), data.get("medium"), data.get("dimensions")
+        ),
     )
 
 
@@ -627,3 +630,14 @@ class MetMuseum(Backend):
             await _remove_successful_failed_ids(
                 successful_retry_ids,
             )
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async def complete_one(ctx: Context, artwork: Artwork) -> Artwork | None:
+            # the object page url ends in the API's object id
+            found = await _fetch_object(ctx, artwork.url.rstrip("/").rsplit("/", 1)[-1])
+            return merge(artwork, found) if found else None
+
+        async for artwork in enrich_pool(ctx, artworks, complete_one):
+            yield artwork

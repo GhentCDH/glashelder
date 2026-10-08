@@ -18,10 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
-from artscraper import Artwork
+from artscraper import Artwork, artwork_of
 from common.images import is_url
 
-from .batch import artwork_of
 from .web.session import LabelDataset
 
 NEAR = 0.05
