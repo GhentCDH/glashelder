@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, enrich_pool
+from . import Backend, Context, complete_pages, enrich_pool, physical
 
 BASE_URL = "https://www.uffizi.it"
 INDEX_URLS = (
@@ -265,12 +265,13 @@ def _image_from_html(html: str, data: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _date_from_page(html: str) -> str | None:
-    """Extract the artwork Date value from the Uffizi detail page."""
+def _field_from_page(html: str, label: str) -> str | None:
+    """Extract a value from the "Characteristics" list on a Uffizi detail page,
+    such as "Date", "Technique" or "Size"."""
     soup = BeautifulSoup(html, "html.parser")
 
     # Look for a label/value pair in the page text.
-    for element in soup.find_all(string=re.compile(r"^\s*Date\s*$", re.I)):
+    for element in soup.find_all(string=re.compile(rf"^\s*{label}\s*$", re.I)):
         parent = element.parent
         if parent is None:
             continue
@@ -282,13 +283,13 @@ def _date_from_page(html: str) -> str | None:
         ):
             if candidate:
                 value = candidate.get_text(" ", strip=True)
-                if value and value.lower() != "date":
+                if value and value.lower() != label.lower():
                     return value
 
     # Fallback: search the visible text.
     text = soup.get_text("\n", strip=True)
     match = re.search(
-        r"(?im)^\s*Date\s*$\s*\n\s*([^\n]+)",
+        rf"(?im)^\s*{label}\s*$\s*\n\s*([^\n]+)",
         text,
     )
     if match:
@@ -333,7 +334,7 @@ def parse_page(
         )
         return None
 
-    date = _date_from_page(html)
+    date = _field_from_page(html, "Date")
 
     return Artwork(
         source="uffizi",
@@ -344,6 +345,9 @@ def parse_page(
         year=date
         or (data or {}).get("dateCreated")
         or (data or {}).get("datePublished"),
+        physical_description=physical(
+            _field_from_page(html, "Technique"), _field_from_page(html, "Size")
+        ),
     )
 
     return Artwork(
@@ -445,3 +449,13 @@ class Uffizi(Backend):
                 yielded += 1
                 if ctx.limit and yielded >= ctx.limit:
                     return
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async def fetch_page(ctx: Context, url: str) -> Artwork | None:
+            html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
+            return parse_page(url, html)
+
+        async for artwork in complete_pages(ctx, artworks, fetch_page):
+            yield artwork
