@@ -12,7 +12,7 @@ import httpx
 from common.throttle import Throttle
 
 from ..client import RestrictedError, Stats, fetch_bytes
-from ..model import Artwork
+from ..model import Artwork, merge
 
 SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 
@@ -41,6 +41,23 @@ class Backend(Protocol):
 
     def stream(self, ctx: Context) -> AsyncIterator[Artwork]: ...
 
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        """Yield artworks with their missing fields filled in from the source.
+
+        Takes a batch, so a source with a bulk API can answer in a few requests.
+        Artworks the source cannot complete are left out. Without an override,
+        nothing is completed.
+        """
+        for artwork in ():
+            yield artwork
+
+
+def completes(backend: Backend) -> bool:
+    """Whether a backend overrides `Backend.complete`."""
+    return type(backend).complete is not Backend.complete
+
 
 async def sitemap_locs(ctx: Context, url: str) -> list[str]:
     """Return every `<loc>` in a sitemap or sitemap index."""
@@ -53,31 +70,31 @@ async def sitemap_locs(ctx: Context, url: str) -> list[str]:
     ]
 
 
-async def enrich_pool(
+async def enrich_pool[T](
     ctx: Context,
-    urls: list[str],
-    fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
+    items: list[T],
+    fetch_one: Callable[[Context, T], Awaitable[Artwork | None]],
     limit: int | None = 0,
 ) -> AsyncIterator[Artwork]:
-    """Run `fetch_one` over `urls` with a bounded pool, yielding as results land.
+    """Run `fetch_one` over `items` with a bounded pool, yielding as results land.
 
     Per-artwork failures are logged and dropped: one bad page must not kill the run.
     """
-    todo = iter(urls)
+    todo = iter(items)
     queue: asyncio.Queue[Artwork | None] = asyncio.Queue(maxsize=ctx.workers)
     done = asyncio.Event()
 
     async def worker() -> None:
-        for url in todo:  # generators are safe to share between workers
+        for item in todo:  # generators are safe to share between workers
             if done.is_set():
                 return
             try:
-                artwork = await fetch_one(ctx, url)
+                artwork = await fetch_one(ctx, item)
             except RestrictedError:
-                logger.debug("%s is restricted", url)
+                logger.debug("%s is restricted", item)
                 continue
             except Exception as e:
-                logger.warning("skipping %s: %s", url, e)
+                logger.warning("skipping %s: %s", item, e)
                 continue
             if artwork is not None:
                 await queue.put(artwork)
@@ -97,6 +114,40 @@ async def enrich_pool(
     finally:
         done.set()
         runner.cancel()
+
+
+def physical(*parts: object) -> str | None:
+    """A `physical_description` from the parts a source has, e.g. type, medium, size.
+
+    Empty and repeated parts (some sources give the same text as type and medium)
+    are left out.
+    """
+    texts = [
+        text
+        for part in parts
+        if isinstance(part, str) and (text := " ".join(part.split()))
+    ]
+    folded = [text.casefold() for text in texts]
+    unique = [text for i, text in enumerate(texts) if folded[i] not in folded[:i]]
+    return "; ".join(unique) or None
+
+
+def complete_pages(
+    ctx: Context,
+    artworks: list[Artwork],
+    fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
+) -> AsyncIterator[Artwork]:
+    """`Backend.complete` for sources with one page per artwork at `artwork.url`.
+
+    `fetch_one` is the scrape's own page fetcher, so a scrape and a completion
+    read the same fields.
+    """
+
+    async def complete_one(ctx: Context, artwork: Artwork) -> Artwork | None:
+        found = await fetch_one(ctx, artwork.url)
+        return merge(artwork, found) if found else None
+
+    return enrich_pool(ctx, artworks, complete_one)
 
 
 async def stream_sitemaps(

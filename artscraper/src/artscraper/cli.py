@@ -22,7 +22,7 @@ from rich.table import Table
 
 from .backends import registry
 from .client import Stats
-from .harness import combine_files, scrape
+from .harness import combine_files, complete, scrape
 from .model import Artwork
 
 logger = logging.getLogger(__name__)
@@ -185,6 +185,73 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
             )
 
     return combine_files(jsonl, path=output)
+
+
+@artscraper.command("complete")
+@click.argument("results", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    required=True,
+    help="RESULTS with the completed artworks (.json, or compressed: .json.zst)",
+)
+@click.option(
+    "--artworks",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="The scrape, for result rows that carry no artwork. "
+    "Defaults to `paths.artworks` from glashelder.toml.",
+)
+@click.option(
+    "--all",
+    "everything",
+    is_flag=True,
+    help="Complete the artworks of every row, not only the matches",
+)
+@click.option(
+    "--jsonl",
+    type=click.Path(path_type=Path),
+    default=Path("completed.jsonl"),
+    show_default=True,
+    help="Streamed completed artworks, also used to resume an interrupted run",
+)
+@click.option("--concurrency", default=10, help="Requests in flight per backend")
+@click.option("--rate", default=5.0, help="Requests per second per backend")
+def complete_command(results, output, artworks, everything, jsonl, concurrency, rate):
+    """Fill in missing fields of the artworks a `batch-classify` run matched.
+
+    RESULTS is the JSON (or .json.zst) `artmatcher batch-classify` wrote. Only its
+    artworks are fetched again, not the whole scrape.
+    """
+    if output.resolve() == results.resolve():
+        raise click.BadParameter("would overwrite RESULTS", param_hint="--output")
+    if artworks is not None and not artworks.is_file():
+        logger.warning("no artworks at %s, rows without one are skipped", artworks)
+        artworks = None
+
+    columns = [
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        BarColumn(bar_width=10),
+        TimeElapsedColumn(),
+    ]
+    with Progress(*columns, console=Console(stderr=True)) as progress:
+        try:
+            asyncio.run(
+                complete(
+                    results,
+                    output=output,
+                    jsonl=jsonl,
+                    artworks=artworks,
+                    everything=everything,
+                    concurrency=concurrency,
+                    rate=rate,
+                    report=progress_reporter(progress),
+                )
+            )
+        except KeyboardInterrupt:
+            logger.warning("interrupted, run again to resume from %s", jsonl)
 
 
 @artscraper.command("combine_jsons")
