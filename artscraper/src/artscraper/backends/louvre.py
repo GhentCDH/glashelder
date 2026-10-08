@@ -11,7 +11,7 @@ from common.config import config
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, bare, urls_to_artworks
+from . import Backend, Context, bare, complete_pages, physical, urls_to_artworks
 from .parse import first_text, text
 
 BASE_URL = "https://collections.louvre.fr"
@@ -176,6 +176,42 @@ def record_url(data: dict, fallback_url: str) -> str:
     return urljoin(BASE_URL, url) if url else fallback_url
 
 
+def physical_description(data: dict) -> str | None:
+    """Object type, materials and techniques, and size, as the Louvre gives them (in French)."""
+    denominations = [
+        entry.get("value")
+        for entry in data.get("denominationTitle") or []
+        if isinstance(entry, dict) and entry.get("type") == "Dénomination"
+    ]
+    materials = data.get("materialsAndTechniques")
+    dimensions = data.get("dimension")
+    size = (
+        ", ".join(
+            f"{entry.get('type')} {entry.get('displayDimension')}"
+            for entry in dimensions
+            if isinstance(entry, dict) and entry.get("displayDimension")
+        )
+        if isinstance(dimensions, list)
+        else dimensions
+    )
+    return physical(
+        data.get("objectType"),
+        *denominations,
+        ", ".join(materials.splitlines()) if isinstance(materials, str) else None,
+        size,
+    )
+
+
+async def fetch_record(ctx: Context, url: str) -> Artwork | None:
+    """Fetch and parse the JSON record behind an artwork page."""
+    try:
+        body = await fetch_text(ctx.client, json_url(url), ctx.throttle, ctx.stats)
+    except Exception:
+        logger.exception("louvre: failed to fetch %s", json_url(url))
+        return None
+    return parse_page(url, body)
+
+
 def parse_page(fallback_url: str, body: str) -> Artwork | None:
     """Convert one Louvre JSON response into an Artwork."""
     try:
@@ -195,6 +231,7 @@ def parse_page(fallback_url: str, body: str) -> Artwork | None:
         title=text(data.get("title")),
         artist=first_creator(data),
         year=full_year(data),
+        physical_description=physical_description(data),
     )
 
 
@@ -241,9 +278,11 @@ class Louvre(Backend):
         urls = [url for url in map(artwork_url, arks) if url not in ctx.seen]
         logger.info("louvre: %d unseen records from export", len(urls))
 
-        async def fetch_one(ctx: Context, url: str) -> Artwork | None:
-            body = await fetch_text(ctx.client, json_url(url), ctx.throttle, ctx.stats)
-            return parse_page(url, body)
+        async for artwork in urls_to_artworks(ctx, urls, fetch_record, bare(self.name)):
+            yield artwork
 
-        async for artwork in urls_to_artworks(ctx, urls, fetch_one, bare(self.name)):
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async for artwork in complete_pages(ctx, artworks, fetch_record):
             yield artwork
