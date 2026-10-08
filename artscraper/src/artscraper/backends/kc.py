@@ -12,8 +12,8 @@ from typing import Any
 from urllib.parse import unquote
 
 from ..client import fetch_json
-from ..model import Artwork
-from . import Backend, Context
+from ..model import Artwork, merge
+from . import Backend, Context, physical
 from .parse import text
 
 API_KEY = "***REMOVED***"
@@ -21,8 +21,11 @@ ES_URL = "https://glue-vkc.es.europe-west1.gcp.cloud.es.io"
 PIT_URL = f"{ES_URL}/production_vkc_records/_pit?keep_alive=2m"
 CLOSE_PIT_URL = f"{ES_URL}/_pit"
 SEARCH_URL = f"{ES_URL}/_search"
+RECORDS_SEARCH_URL = f"{ES_URL}/production_vkc_records/_search"
 AUTH_HEADERS = {"authorization": f"ApiKey {API_KEY}"}
 PAGE_SIZE = 24
+SLUG_BATCH = 500
+"""Records asked for in one `complete` query."""
 SOURCE_FIELDS = [
     "slug",
     "title_nl",
@@ -36,6 +39,10 @@ SOURCE_FIELDS = [
     "title_en",
     "title_fr",
     "title_de",
+    "categories",
+    "display_material_nl",
+    "materials",
+    "measurements",
 ]
 
 # Afbeeldingen met dit pad worden niet opgenomen.
@@ -173,6 +180,15 @@ def _title(record: dict[str, Any]) -> str | None:
     return None
 
 
+def _physical(record: dict[str, Any]) -> str | None:
+    """Category, material and size, in Dutch, e.g. "tekeningen; potlood op papier; 210 x 270 mm"."""
+    return physical(
+        _label(record.get("categories")),
+        _text(record.get("display_material_nl")) or _label(record.get("materials")),
+        _text(record.get("measurements")),
+    )
+
+
 def _record_url(record: dict[str, Any]) -> str | None:
     slug = _text(record.get("slug"))
 
@@ -217,6 +233,7 @@ def _to_artwork(record: dict[str, Any]) -> Artwork | None:
         title=_title(record),
         artist=_creator(record),
         year=_year(record),
+        physical_description=_physical(record),
     )
 
 
@@ -256,3 +273,40 @@ class Kunstcollectie(Backend):
                 search_after = hits[-1]["sort"]
         finally:
             await _close_pit(ctx, pit_id)
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        """Ask the index for the records by slug, a batch per request."""
+        # an artwork url is ".../collectie/<slug>", see `_record_url`
+        by_slug = {
+            artwork.url.rstrip("/").rsplit("/", 1)[-1]: artwork for artwork in artworks
+        }
+        slugs = list(by_slug)
+        for start in range(0, len(slugs), SLUG_BATCH):
+            batch = slugs[start : start + SLUG_BATCH]
+            body = {
+                "size": len(batch),
+                "query": {"terms": {"slug": batch}},
+                "_source": SOURCE_FIELDS,
+            }
+            payload = await _es(ctx, "POST", RECORDS_SEARCH_URL, body)
+            for hit in payload.get("hits", {}).get("hits", []):
+                record = hit.get("_source")
+                if not isinstance(record, dict):
+                    continue
+                artwork = by_slug.get(_text(record.get("slug")) or "")
+                if artwork is None:
+                    continue
+                yield merge(
+                    artwork,
+                    Artwork(
+                        source=self.name,
+                        url=artwork.url,
+                        image_url=None,
+                        title=_title(record),
+                        artist=_creator(record),
+                        year=_year(record),
+                        physical_description=_physical(record),
+                    ),
+                )
