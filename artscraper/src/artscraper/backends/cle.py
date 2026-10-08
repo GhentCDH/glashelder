@@ -13,7 +13,7 @@ from urllib.parse import quote, urlencode
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, bare, urls_to_artworks
+from . import Backend, Context, bare, complete_pages, physical, urls_to_artworks
 from .parse import first_text, text
 
 BASE_URL = "https://archive.org"
@@ -233,7 +233,19 @@ def parse_metadata(
         title=title,
         artist=artist,
         year=year,
+        physical_description=physical(
+            metadata.get("type"), metadata.get("medium"), metadata.get("dimensions")
+        ),
     )
+
+
+async def fetch_record(ctx: Context, url: str) -> Artwork | None:
+    """Fetch and parse the archive.org metadata behind an item page."""
+    identifier = url.rstrip("/").rsplit("/", 1)[-1]
+    body = await fetch_text(
+        ctx.client, metadata_url(identifier), ctx.throttle, ctx.stats
+    )
+    return parse_metadata(identifier, body)
 
 
 class Cleveland(Backend):
@@ -245,13 +257,6 @@ class Cleveland(Backend):
         self,
         ctx: Context,
     ) -> AsyncIterator[Artwork]:
-        async def fetch_one(ctx: Context, url: str) -> Artwork | None:
-            identifier = url.rstrip("/").rsplit("/", 1)[-1]
-            body = await fetch_text(
-                ctx.client, metadata_url(identifier), ctx.throttle, ctx.stats
-            )
-            return parse_metadata(identifier, body)
-
         discovered: set[str] = set()
         cursor: str | None = None
 
@@ -284,7 +289,7 @@ class Cleveland(Backend):
                 url for url in map(artwork_url, new_identifiers) if url not in ctx.seen
             ]
             async for artwork in urls_to_artworks(
-                ctx, urls, fetch_one, bare(self.name)
+                ctx, urls, fetch_record, bare(self.name)
             ):
                 yield artwork
 
@@ -295,3 +300,9 @@ class Cleveland(Backend):
                 return
 
             cursor = next_cursor
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async for artwork in complete_pages(ctx, artworks, fetch_record):
+            yield artwork
