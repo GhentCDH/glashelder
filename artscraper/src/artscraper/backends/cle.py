@@ -13,7 +13,7 @@ from urllib.parse import quote, urlencode
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, enrich_pool
+from . import Backend, Context, complete_pages, enrich_pool, physical
 
 BASE_URL = "https://archive.org"
 COLLECTION = "clevelandart"
@@ -268,7 +268,19 @@ def parse_metadata(
         title=title,
         artist=artist,
         year=year,
+        physical_description=physical(
+            metadata.get("type"), metadata.get("medium"), metadata.get("dimensions")
+        ),
     )
+
+
+async def fetch_record(ctx: Context, url: str) -> Artwork | None:
+    """Fetch and parse the archive.org metadata behind an item page."""
+    identifier = url.rstrip("/").rsplit("/", 1)[-1]
+    body = await fetch_text(
+        ctx.client, metadata_url(identifier), ctx.throttle, ctx.stats
+    )
+    return parse_metadata(identifier, body)
 
 
 class Cleveland(Backend):
@@ -318,28 +330,10 @@ class Cleveland(Backend):
             if ctx.with_images:
                 remaining = ctx.limit - yielded if ctx.limit else None
 
-                async def fetch_one(
-                    ctx: Context,
-                    url: str,
-                ) -> Artwork | None:
-                    identifier = url.rstrip("/").rsplit("/", 1)[-1]
-
-                    body = await fetch_text(
-                        ctx.client,
-                        metadata_url(identifier),
-                        ctx.throttle,
-                        ctx.stats,
-                    )
-
-                    return parse_metadata(
-                        identifier,
-                        body,
-                    )
-
                 async for artwork in enrich_pool(
                     ctx,
                     urls,
-                    fetch_one,
+                    fetch_record,
                     remaining,
                 ):
                     yield artwork
@@ -368,3 +362,9 @@ class Cleveland(Backend):
                 return
 
             cursor = next_cursor
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async for artwork in complete_pages(ctx, artworks, fetch_record):
+            yield artwork
