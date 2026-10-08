@@ -22,7 +22,15 @@ from bs4 import BeautifulSoup
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, bare, sitemap_locs, urls_to_artworks
+from . import (
+    Backend,
+    Context,
+    bare,
+    complete_pages,
+    physical,
+    sitemap_locs,
+    urls_to_artworks,
+)
 from .parse import artwork_json_ld, text
 
 BASE_URL = "https://www.uffizi.it"
@@ -148,10 +156,11 @@ def _image_from_html(soup: BeautifulSoup, data: dict[str, Any] | None) -> str | 
     return None
 
 
-def _date_from_page(soup: BeautifulSoup) -> str | None:
-    """Extract the artwork Date value from the Uffizi detail page."""
+def _field_from_page(soup: BeautifulSoup, label: str) -> str | None:
+    """Extract a value from the "Characteristics" list on a Uffizi detail page,
+    such as "Date", "Technique" or "Size"."""
     # Look for a label/value pair in the page text.
-    for element in soup.find_all(string=re.compile(r"^\s*Date\s*$", re.I)):
+    for element in soup.find_all(string=re.compile(rf"^\s*{label}\s*$", re.I)):
         parent = element.parent
         if parent is None:
             continue
@@ -163,13 +172,13 @@ def _date_from_page(soup: BeautifulSoup) -> str | None:
         ):
             if candidate:
                 value = candidate.get_text(" ", strip=True)
-                if value and value.lower() != "date":
+                if value and value.lower() != label.lower():
                     return value
 
     # Fallback: search the visible text.
     text = soup.get_text("\n", strip=True)
     match = re.search(
-        r"(?im)^\s*Date\s*$\s*\n\s*([^\n]+)",
+        rf"(?im)^\s*{label}\s*$\s*\n\s*([^\n]+)",
         text,
     )
     if match:
@@ -210,7 +219,7 @@ def parse_page(url: str, html: str) -> Artwork | None:
         )
         return None
 
-    date = _date_from_page(soup)
+    date = _field_from_page(soup, "Date")
 
     return Artwork(
         source="uffizi",
@@ -221,6 +230,9 @@ def parse_page(url: str, html: str) -> Artwork | None:
         year=date
         or (data or {}).get("dateCreated")
         or (data or {}).get("datePublished"),
+        physical_description=physical(
+            _field_from_page(soup, "Technique"), _field_from_page(soup, "Size")
+        ),
     )
 
 
@@ -279,4 +291,10 @@ class Uffizi(Backend):
             fetch_one,
             lambda url: url_only(url) if discovered[url] else None,
         ):
+            yield artwork
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async for artwork in complete_pages(ctx, artworks, fetch_one):
             yield artwork
