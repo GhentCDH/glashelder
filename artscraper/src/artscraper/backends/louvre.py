@@ -10,7 +10,7 @@ from urllib.parse import quote, urljoin
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, enrich_pool
+from . import Backend, Context, complete_pages, enrich_pool, physical
 
 BASE_URL = "https://collections.louvre.fr"
 
@@ -203,6 +203,42 @@ def record_url(data: dict, fallback_url: str) -> str:
     return fallback_url
 
 
+def physical_description(data: dict) -> str | None:
+    """Object type, materials and techniques, and size, as the Louvre gives them (in French)."""
+    denominations = [
+        entry.get("value")
+        for entry in data.get("denominationTitle") or []
+        if isinstance(entry, dict) and entry.get("type") == "Dénomination"
+    ]
+    materials = data.get("materialsAndTechniques")
+    dimensions = data.get("dimension")
+    size = (
+        ", ".join(
+            f"{entry.get('type')} {entry.get('displayDimension')}"
+            for entry in dimensions
+            if isinstance(entry, dict) and entry.get("displayDimension")
+        )
+        if isinstance(dimensions, list)
+        else dimensions
+    )
+    return physical(
+        data.get("objectType"),
+        *denominations,
+        ", ".join(materials.splitlines()) if isinstance(materials, str) else None,
+        size,
+    )
+
+
+async def fetch_record(ctx: Context, url: str) -> Artwork | None:
+    """Fetch and parse the JSON record behind an artwork page."""
+    try:
+        body = await fetch_text(ctx.client, json_url(url), ctx.throttle, ctx.stats)
+    except Exception:
+        logger.exception("louvre: failed to fetch %s", json_url(url))
+        return None
+    return parse_page(url, body)
+
+
 def parse_page(fallback_url: str, body: str) -> Artwork | None:
     """Convert one Louvre JSON response into an Artwork."""
     try:
@@ -229,6 +265,7 @@ def parse_page(fallback_url: str, body: str) -> Artwork | None:
         title=title,
         artist=first_creator(data),
         year=full_year(data),
+        physical_description=physical_description(data),
     )
 
 
@@ -306,27 +343,7 @@ class Louvre(Backend):
 
             return
 
-        async def fetch_one(
-            fetch_ctx: Context,
-            url: str,
-        ) -> Artwork | None:
-            try:
-                body = await fetch_text(
-                    fetch_ctx.client,
-                    json_url(url),
-                    fetch_ctx.throttle,
-                    fetch_ctx.stats,
-                )
-            except Exception:
-                logger.exception(
-                    "louvre: failed to fetch %s",
-                    json_url(url),
-                )
-                return None
-
-            return parse_page(url, body)
-
-        async for artwork in enrich_pool(ctx, urls, fetch_one):
+        async for artwork in enrich_pool(ctx, urls, fetch_record):
             if artwork is None:
                 continue
 
@@ -336,3 +353,9 @@ class Louvre(Backend):
 
             if ctx.limit and yielded >= ctx.limit:
                 return
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async for artwork in complete_pages(ctx, artworks, fetch_record):
+            yield artwork
