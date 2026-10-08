@@ -45,7 +45,7 @@ _worker_bf = None
 def _init_orb_worker() -> None:
     """Initialize worker process with ORB detector and BFMatcher."""
     global _worker_orb, _worker_bf
-    _worker_orb = cv2.ORB_create(nfeatures=1000)  # type: ignore[attr-defined]
+    _worker_orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
     _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
 
@@ -62,7 +62,7 @@ def _extract_orb_worker(
     """
     global _worker_orb, _worker_bf
 
-    def handler(signum, frame):
+    def handler(_signum, _frame):
         raise TimeoutError("Worker timeout")
 
     old = signal.signal(signal.SIGALRM, handler)
@@ -73,7 +73,9 @@ def _extract_orb_worker(
 
         # Initialize if needed (shouldn't happen with initializer, but be safe)
         if _worker_orb is None:
-            _worker_orb = cv2.ORB_create(nfeatures=1000)  # type: ignore[attr-defined]
+            _worker_orb = cv2.ORB_create(  # ty: ignore[unresolved-attribute]
+                nfeatures=1000
+            )
         if _worker_bf is None:
             _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
@@ -566,7 +568,7 @@ class FeatureExtractor:
     def _get_orb(self):
         """Lazy initialization of ORB detector."""
         if self._orb is None:
-            self._orb = cv2.ORB_create(nfeatures=1000)  # type: ignore[attr-defined]
+            self._orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
         return self._orb
 
     def _get_bf(self):

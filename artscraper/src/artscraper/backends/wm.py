@@ -239,7 +239,9 @@ def _parse_results(html: str) -> list[dict]:
         record_id = img_tag.get("data-draggingid", "")
 
         # Copyright placeholder appears in both src and data-draggingimage.
-        is_copyright = COPYRIGHT_MARKER in src or COPYRIGHT_MARKER in dragging_image
+        is_copyright = (src is not None and COPYRIGHT_MARKER in src) or (
+            dragging_image is not None and COPYRIGHT_MARKER in dragging_image
+        )
 
         divs = [d.get_text(strip=True) for d in data_div.find_all("div")]
         # Layout: [0]=category, [1]=title, [2]=artist, [3]=origin+date,

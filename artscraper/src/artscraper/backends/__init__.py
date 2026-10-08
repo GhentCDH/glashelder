@@ -57,7 +57,7 @@ async def enrich_pool(
     ctx: Context,
     urls: list[str],
     fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
-    limit: int = 0,
+    limit: int | None = 0,
 ) -> AsyncIterator[Artwork]:
     """Run `fetch_one` over `urls` with a bounded pool, yielding as results land.
 

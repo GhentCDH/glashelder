@@ -160,7 +160,7 @@ def _get_default_features(similarities: list[float]) -> dict[str, float]:
 class _NullProgress:
     """No-op stand-in for rich.progress.Progress when progress output is disabled."""
 
-    def add_task(self, *args: Any, **kwargs: Any) -> TaskID:
+    def add_task(self, *_args: Any, **_kwargs: Any) -> TaskID:
         return TaskID(0)
 
     def advance(self, *args: Any, **kwargs: Any) -> None:
