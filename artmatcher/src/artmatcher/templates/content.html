@@ -217,7 +217,20 @@
 </div>
 
 {% if classifier_type == 'ml' and features %}
-<div class="grid grid-cols-3 gap-4 mb-8">
+{%- macro hash_cells(prefix, background) -%}
+{% for name, label in [("phash", "pHash"), ("dhash", "dHash"), ("whash", "wHash"), ("ahash", "aHash")] %}
+{% set distance = features[prefix ~ name ~ "_distance"] %}
+<div class="flex justify-between {{ background }} p-2 rounded">
+  <span>{{ label }}:</span>
+  <span
+    class="font-bold {% if distance < 10 %}text-green-600{% elif distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
+  >
+    {{ distance|int }}
+  </span>
+</div>
+{% endfor %}
+{%- endmacro -%}
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
   <!-- ORB Features Panel -->
   <div class="border-2 border-purple-200 rounded p-4">
     <h2 class="text-sm font-bold mb-3 text-purple-800">
@@ -265,40 +278,41 @@
       Perceptual Hash Distance
     </h2>
     <div class="grid grid-cols-2 gap-2 text-sm">
-      <div class="flex justify-between bg-green-50 p-2 rounded">
-        <span>pHash:</span>
-        <span
-          class="font-bold {% if features.phash_distance < 10 %}text-green-600{% elif features.phash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
-        >
-          {{ features.phash_distance|int }}
-        </span>
-      </div>
-      <div class="flex justify-between bg-green-50 p-2 rounded">
-        <span>dHash:</span>
-        <span
-          class="font-bold {% if features.dhash_distance < 10 %}text-green-600{% elif features.dhash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
-        >
-          {{ features.dhash_distance|int }}
-        </span>
-      </div>
-      <div class="flex justify-between bg-green-50 p-2 rounded">
-        <span>wHash:</span>
-        <span
-          class="font-bold {% if features.whash_distance < 10 %}text-green-600{% elif features.whash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
-        >
-          {{ features.whash_distance|int }}
-        </span>
-      </div>
-      <div class="flex justify-between bg-green-50 p-2 rounded">
-        <span>aHash:</span>
-        <span
-          class="font-bold {% if features.ahash_distance < 10 %}text-green-600{% elif features.ahash_distance < 20 %}text-yellow-600{% else %}text-red-600{% endif %}"
-        >
-          {{ features.ahash_distance|int }}
-        </span>
-      </div>
+      {{ hash_cells("", "bg-green-50") }}
     </div>
-    <p class="text-xs text-gray-500 mt-2">Lower = more similar (0-64 scale)</p>
+    <p class="text-xs text-gray-500 mt-2">
+      Whole images. Lower = more similar (0-64 scale)
+    </p>
+  </div>
+
+  <!-- Aligned Comparison Panel -->
+  <div class="border-2 border-amber-200 rounded p-4">
+    <h2 class="text-sm font-bold mb-3 text-amber-800">Aligned Comparison</h2>
+    {% if features.aligned_ncc != 0 or features.aligned_ssim != 0 %}
+    <div class="grid grid-cols-2 gap-2 text-sm">
+      {{ hash_cells("aligned_", "bg-amber-50") }}
+      {% for name, label in [("aligned_ncc", "NCC"), ("aligned_ssim", "SSIM")] %}
+      {% set score = features[name] %}
+      <div class="flex justify-between bg-amber-50 p-2 rounded">
+        <span>{{ label }}:</span>
+        <span
+          class="font-bold {% if score > 0.8 %}text-green-600{% elif score > 0.5 %}text-yellow-600{% else %}text-red-600{% endif %}"
+        >
+          {{ "%.3f"|format(score) }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="text-xs text-gray-500 mt-2">
+      The overlap after the ORB homography aligned the images. Hashes: lower =
+      more similar (0-64). NCC and SSIM: higher = more similar (up to 1).
+    </p>
+    {% else %}
+    <p class="text-sm text-neutral-600">
+      Not aligned: ORB found no homography with enough inliers, or the images
+      overlap too little to compare.
+    </p>
+    {% endif %}
   </div>
 
   <!-- Key Embedding Features Panel -->
