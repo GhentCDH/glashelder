@@ -136,6 +136,9 @@
         {{ artwork.artist or "unknown artist" }}{% if artwork.year %} · {{
         artwork.year }}{% endif %}
       </div>
+      {% if artwork.physical_description %}
+      <div class="text-neutral-600">{{ artwork.physical_description }}</div>
+      {% endif %}
       {% if artwork.url %}
       <a
         href="{{ artwork.url }}"
