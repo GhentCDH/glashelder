@@ -36,7 +36,6 @@ from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context, enrich_pool
 
-
 BASE_URL = "https://collectionapi.metmuseum.org"
 SEARCH_URL = f"{BASE_URL}/public/collection/v1.1/search"
 OBJECT_URL = f"{BASE_URL}/public/collection/v1/objects"
@@ -60,8 +59,7 @@ DATE_END = 1950
 PAGE_SIZE = 500
 SEARCH_CAP = 10000
 
-# Maximum number of attempts for an individual object request.
-OBJECT_MAX_ATTEMPTS = 10
+MAX_ATTEMPTS = 8
 
 # Failed requests are retained for a later retry pass.
 FAILED_OBJECTS_PATH = Path("metmuseum_failed_objects.jsonl")
@@ -91,10 +89,7 @@ async def _fetch_json(ctx: Context, url: str) -> dict:
     data = json.loads(text)
 
     if not isinstance(data, dict):
-        raise ValueError(
-            f"Unexpected JSON response from {url}: "
-            f"{type(data).__name__}"
-        )
+        raise ValueError(f"Unexpected JSON response from {url}: {type(data).__name__}")
 
     return data
 
@@ -123,10 +118,7 @@ async def _search_total(
     date_begin: int,
     date_end: int,
 ) -> int:
-    url = (
-        f"{SEARCH_URL}?"
-        f"{urlencode(_search_params(medium, date_begin, date_end))}"
-    )
+    url = f"{SEARCH_URL}?{urlencode(_search_params(medium, date_begin, date_end))}"
 
     try:
         data = await _fetch_json(ctx, url)
@@ -172,8 +164,7 @@ async def _search_page(
         data = await _fetch_json(ctx, url)
     except Exception as exc:
         logger.warning(
-            "metmuseum: search page failed for %s "
-            "(%d-%d, offset=%d): %s",
+            "metmuseum: search page failed for %s (%d-%d, offset=%d): %s",
             medium,
             date_begin,
             date_end,
@@ -186,8 +177,7 @@ async def _search_page(
 
     if not isinstance(object_ids, list):
         logger.warning(
-            "metmuseum: invalid objectIDs response for %s "
-            "(offset=%d)",
+            "metmuseum: invalid objectIDs response for %s (offset=%d)",
             medium,
             offset,
         )
@@ -251,8 +241,7 @@ async def _search_ids(
             return
 
         logger.warning(
-            "metmuseum: %s in %d-%d has %d results "
-            "(cap %d); truncating to first %d",
+            "metmuseum: %s in %d-%d has %d results (cap %d); truncating to first %d",
             medium,
             date_begin,
             date_end,
@@ -351,8 +340,7 @@ def _read_failed_ids_sync() -> list[str]:
                 TypeError,
             ):
                 logger.warning(
-                    "metmuseum: ignoring malformed failed-object "
-                    "record on line %d",
+                    "metmuseum: ignoring malformed failed-object record on line %d",
                     line_number,
                 )
 
@@ -426,10 +414,7 @@ def _is_permanent_invalid_object(
 
     normalized = str(message).lower()
 
-    return (
-        "not a valid object" in normalized
-        or "invalid object" in normalized
-    )
+    return "not a valid object" in normalized or "invalid object" in normalized
 
 
 async def _fetch_object(
@@ -443,7 +428,6 @@ async def _fetch_object(
     indefinitely.
     """
     url = f"{OBJECT_URL}/{object_id}"
-    MAX_ATTEMPTS = 8
 
     for attempt in range(MAX_ATTEMPTS):
         try:
@@ -458,16 +442,12 @@ async def _fetch_object(
                 return None
 
             if data.get("message"):
-                raise RuntimeError(
-                    str(data["message"])
-                )
+                raise RuntimeError(str(data["message"]))
 
             break
 
         except Exception as exc:
-            final_attempt = (
-                attempt == MAX_ATTEMPTS - 1
-            )
+            final_attempt = attempt == MAX_ATTEMPTS - 1
 
             if final_attempt:
                 logger.error(
@@ -488,7 +468,7 @@ async def _fetch_object(
             # This does not alter enrich_pool or concurrency.
             delay = min(
                 300.0,
-                (2 ** attempt) + random.uniform(0.5, 2.0),
+                (2**attempt) + random.uniform(0.5, 2.0),
             )
 
             logger.warning(
@@ -575,9 +555,7 @@ class MetMuseum(Backend):
 
                     seen_ids.add(object_id)
 
-                    object_page = (
-                        f"{OBJECT_PAGE_URL}/{object_id}"
-                    )
+                    object_page = f"{OBJECT_PAGE_URL}/{object_id}"
 
                     if object_page in ctx.seen:
                         continue
@@ -589,11 +567,7 @@ class MetMuseum(Backend):
 
                 # This is intentionally unchanged.
                 # Concurrency is controlled by the existing enrich_pool.
-                remaining = (
-                    ctx.limit - total_yielded
-                    if ctx.limit
-                    else 0
-                )
+                remaining = ctx.limit - total_yielded if ctx.limit else 0
 
                 async for artwork in enrich_pool(
                     ctx,
@@ -611,8 +585,7 @@ class MetMuseum(Backend):
                         return
 
             logger.info(
-                "metmuseum: %s done — %d IDs seen, "
-                "%d artworks yielded",
+                "metmuseum: %s done — %d IDs seen, %d artworks yielded",
                 medium,
                 len(seen_ids),
                 total_yielded,
@@ -631,11 +604,7 @@ class MetMuseum(Backend):
 
         successful_retry_ids: set[str] = set()
 
-        remaining = (
-            ctx.limit - total_yielded
-            if ctx.limit
-            else 0
-        )
+        remaining = ctx.limit - total_yielded if ctx.limit else 0
 
         async for artwork in enrich_pool(
             ctx,

@@ -12,7 +12,6 @@ from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context, enrich_pool
 
-
 BASE_URL = "https://collections.louvre.fr"
 
 DEFAULT_EXPORT_CSV = "louvre_export.csv"
@@ -60,8 +59,7 @@ def read_export_text(path: Path) -> str:
             continue
     else:
         logger.warning(
-            "louvre: could not decode %s as UTF-8 or cp1252; "
-            "falling back to latin-1",
+            "louvre: could not decode %s as UTF-8 or cp1252; falling back to latin-1",
             path,
         )
         text = raw.decode("latin-1")
@@ -156,11 +154,7 @@ def first_creator(data: dict) -> str | None:
         if not isinstance(creator, dict):
             continue
 
-        label = (
-            creator.get("label")
-            or creator.get("name")
-            or creator.get("title")
-        )
+        label = creator.get("label") or creator.get("name") or creator.get("title")
 
         if isinstance(label, str) and label.strip():
             return label.strip()
@@ -244,11 +238,7 @@ class Louvre(Backend):
     name = "louvre"
 
     async def stream(self, ctx: Context) -> AsyncIterator[Artwork]:
-        paths = [
-            path
-            for path in export_csv_paths()
-            if path.is_file()
-        ]
+        paths = [path for path in export_csv_paths() if path.is_file()]
 
         if not paths:
             raise FileNotFoundError(
@@ -265,11 +255,7 @@ class Louvre(Backend):
             csv_text = await asyncio.to_thread(read_export_text, path)
             page_arks = parse_export(csv_text)
 
-            new_arks = [
-                ark
-                for ark in page_arks
-                if ark not in seen_arks
-            ]
+            new_arks = [ark for ark in page_arks if ark not in seen_arks]
 
             seen_arks.update(new_arks)
             arks.extend(new_arks)

@@ -158,7 +158,7 @@ async def _post_json(ctx: Context, url: str, payload: dict) -> dict:
 # Examples: "Japan 1966-1969", "China 12de eeuw", "Jerusalem 1948-1965"
 _YEAR_RE = re.compile(
     r"(\d{1,4}(?:ste|de)?\s*eeuw"  # "12de eeuw", "19ste eeuw"
-    r"|\d{4}(?:\s*[-–]\s*\d{4})?)",  # "1966-1969", "2018"
+    r"|\d{4}(?:\s*[-–]\s*\d{4})?)",  # "1966-1969", "2018" # noqa:RUF001
     re.IGNORECASE,
 )
 
@@ -226,9 +226,7 @@ def _parse_results(html: str) -> list[dict]:
             continue
 
         # Find the metadata div — either a sibling or within the same <td>.
-        data_div = img_div.find_next_sibling(
-            "div", class_="ccIconviewRecordData"
-        )
+        data_div = img_div.find_next_sibling("div", class_="ccIconviewRecordData")
         if data_div is None:
             parent_td = img_div.find_parent("td")
             if parent_td is not None:
@@ -291,9 +289,7 @@ class Wereldmuseum(Backend):
                         {"authToken": "", "searchSpec": spec},
                     )
                 except Exception as exc:
-                    logger.error(
-                        "wereldmuseum: search failed for %s: %s", label, exc
-                    )
+                    logger.error("wereldmuseum: search failed for %s: %s", label, exc)
                     break
 
                 data = resp.get("d", {})
@@ -305,9 +301,7 @@ class Wereldmuseum(Backend):
 
                 # "Geen zoekresultaten" = no results at all
                 if not html or "Geen zoekresultaten" in html:
-                    logger.info(
-                        "wereldmuseum: no results for %s", label
-                    )
+                    logger.info("wereldmuseum: no results for %s", label)
                     break
 
                 records = _parse_results(html)
@@ -355,8 +349,7 @@ class Wereldmuseum(Backend):
                         return
 
                 logger.info(
-                    "wereldmuseum: %s — %d cells, %d yielded "
-                    "(page %d, total %d)",
+                    "wereldmuseum: %s — %d cells, %d yielded (page %d, total %d)",
                     label,
                     len(records),
                     page_yielded,

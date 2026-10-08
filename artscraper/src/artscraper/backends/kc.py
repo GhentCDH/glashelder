@@ -20,32 +20,49 @@ logger = logging.getLogger(__name__)
 PIT_URL = "https://glue-vkc.es.europe-west1.gcp.cloud.es.io/production_vkc_records/_pit"
 CLOSE_PIT_URL = "https://glue-vkc.es.europe-west1.gcp.cloud.es.io/_pit"
 
+
 def _auth_headers() -> dict[str, str]:
     return {"authorization": f"ApiKey {API_KEY}", "content-type": "application/json"}
 
+
 async def _open_pit(ctx: Context) -> str:
-    resp = await ctx.client.post(PIT_URL, params={"keep_alive": "2m"}, headers=_auth_headers(), timeout=30.0)
+    resp = await ctx.client.post(
+        PIT_URL, params={"keep_alive": "2m"}, headers=_auth_headers(), timeout=30.0
+    )
     resp.raise_for_status()
     return resp.json()["id"]
+
 
 async def _close_pit(ctx: Context, pit_id: str) -> None:
     try:
         await ctx.client.request(
-            "DELETE", CLOSE_PIT_URL,
+            "DELETE",
+            CLOSE_PIT_URL,
             content=json.dumps({"id": pit_id}),
-            headers=_auth_headers(), timeout=30.0,
+            headers=_auth_headers(),
+            timeout=30.0,
         )
     except Exception:
         logger.debug("kc: failed to close PIT", exc_info=True)
+
 
 def _pit_search_body(pit_id: str, size: int, search_after: list | None) -> str:
     body: dict[str, Any] = {
         "size": size,
         "query": {"match_all": {}},
         "_source": [
-            "slug", "title_nl", "description_nl", "image", "identifier",
-            "dating", "location_nl", "subjects", "creators",
-            "title_en", "title_fr", "title_de",
+            "slug",
+            "title_nl",
+            "description_nl",
+            "image",
+            "identifier",
+            "dating",
+            "location_nl",
+            "subjects",
+            "creators",
+            "title_en",
+            "title_fr",
+            "title_de",
         ],
         "pit": {"id": pit_id, "keep_alive": "2m"},
         "sort": [{"_shard_doc": "asc"}],
@@ -62,6 +79,7 @@ PAGE_SIZE = 24
 
 # Afbeeldingen met dit pad worden niet opgenomen.
 EXCLUDED_IMAGE_FRAGMENTS = ["public/11885", "public@27254"]
+
 
 def _msearch_body(offset: int, size: int) -> str:
     """Build the newline-delimited Elasticsearch _msearch request body."""
@@ -247,6 +265,7 @@ def _to_artwork(record: dict[str, Any]) -> Artwork | None:
         year=_year(record),
     )
 
+
 async def _search_page(
     ctx: Context,
     offset: int,
@@ -332,6 +351,7 @@ async def _search_page(
 
     return artworks, raw_hit_count
 
+
 class Kunstcollectie(Backend):
     """Retrieve artworks from the Vlaamse Kunstcollectie Elasticsearch index."""
 
@@ -349,12 +369,16 @@ class Kunstcollectie(Backend):
                 body = _pit_search_body(pit_id, PAGE_SIZE, search_after)
                 resp = await ctx.client.post(
                     "https://glue-vkc.es.europe-west1.gcp.cloud.es.io/_search",
-                    content=body, headers=_auth_headers(), timeout=30.0,
+                    content=body,
+                    headers=_auth_headers(),
+                    timeout=30.0,
                 )
                 resp.raise_for_status()
                 payload = resp.json()
 
-                pit_id = payload.get("pit_id", pit_id)  # ES may hand back a refreshed pit id
+                pit_id = payload.get(
+                    "pit_id", pit_id
+                )  # ES may hand back a refreshed pit id
                 hits = payload.get("hits", {}).get("hits", [])
 
                 if not hits:
@@ -364,7 +388,11 @@ class Kunstcollectie(Backend):
                     source = hit.get("_source")
                     if isinstance(source, dict):
                         artwork = _to_artwork(source)
-                        if artwork and artwork.url not in seen and artwork.url not in ctx.seen:
+                        if (
+                            artwork
+                            and artwork.url not in seen
+                            and artwork.url not in ctx.seen
+                        ):
                             seen.add(artwork.url)
                             yield artwork
                             yielded += 1
