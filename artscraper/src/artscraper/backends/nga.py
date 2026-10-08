@@ -19,8 +19,8 @@ from collections.abc import AsyncIterator
 from urllib.parse import urlsplit
 
 from ..client import fetch_text
-from ..model import Artwork
-from . import Backend, Context
+from ..model import Artwork, merge
+from . import Backend, Context, physical
 
 OPEN_DATA_BASE = (
     "https://raw.githubusercontent.com/"
@@ -194,6 +194,10 @@ def classification(row: dict[str, str]) -> str | None:
         "visual_browser_classification",
         "classification",
     )
+
+
+def physical_description(row: dict[str, str]) -> str | None:
+    return physical(classification(row), value(row, "medium"), value(row, "dimensions"))
 
 
 def wanted_object(row: dict[str, str]) -> bool:
@@ -378,9 +382,38 @@ class Nga(Backend):
                 title=title,
                 artist=artist_names(row, constituents),
                 year=date_text(row),
+                physical_description=physical_description(row),
             )
 
             yielded += 1
 
             if ctx.limit and yielded >= ctx.limit:
                 return
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        """Look the artworks up in `objects.csv`, which is one download for all of them."""
+        # an artwork url is ".../artworks/<object id>-<title slug>"
+        wanted = {
+            artwork.url.rstrip("/").rsplit("/", 1)[-1].split("-", 1)[0]: artwork
+            for artwork in artworks
+        }
+        objects_text = await fetch_text(
+            ctx.client, OBJECTS_CSV, ctx.throttle, ctx.stats
+        )
+        for row in csv_rows(objects_text):
+            artwork = wanted.get(value(row, "objectid", "object_id") or "")
+            if artwork is None:
+                continue
+            yield merge(
+                artwork,
+                Artwork(
+                    source=self.name,
+                    url=artwork.url,
+                    image_url=None,
+                    title=value(row, "title", "objecttitle", "object_title"),
+                    year=date_text(row),
+                    physical_description=physical_description(row),
+                ),
+            )
