@@ -13,14 +13,14 @@ The dataset provides:
 import csv
 import io
 import logging
-from collections.abc import AsyncIterator
-from urllib.parse import urlsplit
 import re
 import unicodedata
+from collections.abc import AsyncIterator
+from urllib.parse import urlsplit
+
 from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context
-
 
 OPEN_DATA_BASE = (
     "https://raw.githubusercontent.com/"
@@ -87,14 +87,6 @@ def int_value(row: dict[str, str], *names: str) -> int | None:
         return None
 
 
-def object_url(object_id: str) -> str:
-    """Return NGA's IIIF Presentation manifest URL for one object."""
-    return (
-        "https://www.nga.gov/api/v1/iiif/presentation/"
-        f"manifest.json?cultObj:id={object_id}"
-    )
-
-
 def artist_names(
     object_row: dict[str, str],
     constituents: dict[str, str],
@@ -159,10 +151,7 @@ def iiif_image_url(image_row: dict[str, str]) -> str | None:
             identifier = identifier.strip("/")
 
             if identifier:
-                return (
-                    f"{IIIF_BASE}{identifier}"
-                    f"/full/{IIIF_SIZE}/0/default.jpg"
-                )
+                return f"{IIIF_BASE}{identifier}/full/{IIIF_SIZE}/0/default.jpg"
 
     uuid = value(
         image_row,
@@ -172,10 +161,7 @@ def iiif_image_url(image_row: dict[str, str]) -> str | None:
     )
 
     if uuid:
-        return (
-            f"{IIIF_BASE}{uuid}"
-            f"/full/{IIIF_SIZE}/0/default.jpg"
-        )
+        return f"{IIIF_BASE}{uuid}/full/{IIIF_SIZE}/0/default.jpg"
 
     return None
 
@@ -224,16 +210,30 @@ def wanted_object(row: dict[str, str]) -> bool:
 
     return (
         object_classification is not None
-        and object_classification.casefold()
-        in SELECTED_CLASSIFICATIONS
+        and object_classification.casefold() in SELECTED_CLASSIFICATIONS
     )
+
 
 # Words the NGA website drops from artwork URL slugs.
 # Verified by testing live URLs: articles and common prepositions are
 # removed, but conjunctions like "and" are kept.
 _NGA_STOP_WORDS = {
-    "a", "an", "the", "of", "with", "in", "on", "at",
-    "to", "from", "by", "for", "as", "but", "or", "nor",
+    "a",
+    "an",
+    "the",
+    "of",
+    "with",
+    "in",
+    "on",
+    "at",
+    "to",
+    "from",
+    "by",
+    "for",
+    "as",
+    "but",
+    "or",
+    "nor",
 }
 
 
@@ -260,10 +260,8 @@ def nga_slug(text: str) -> str:
 
 def object_url(object_id: str, title: str) -> str:
     """Build NGA's public artwork-page URL."""
-    return (
-        "https://www.nga.gov/artworks/"
-        f"{object_id}-{nga_slug(title)}"
-    )
+    return f"https://www.nga.gov/artworks/{object_id}-{nga_slug(title)}"
+
 
 class Nga(Backend):
     """Yield NGA Open Data objects with published NGA IIIF images."""

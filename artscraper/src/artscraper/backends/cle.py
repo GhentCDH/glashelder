@@ -15,7 +15,6 @@ from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context, enrich_pool
 
-
 BASE_URL = "https://archive.org"
 COLLECTION = "clevelandart"
 
@@ -80,9 +79,7 @@ def first_creator(data: dict) -> str | None:
 
         if isinstance(value, list):
             creators = [
-                item.strip()
-                for item in value
-                if isinstance(item, str) and item.strip()
+                item.strip() for item in value if isinstance(item, str) and item.strip()
             ]
 
             if creators:
@@ -113,9 +110,7 @@ def image_from_files(
     if not isinstance(files, list):
         return None
 
-    preferred_extensions = (
-        ".jpg"
-    )
+    preferred_extensions = ".jpg"
 
     candidates: list[tuple[int, str]] = []
 
@@ -173,9 +168,7 @@ def image_from_files(
     )[0]
 
     return (
-        f"{BASE_URL}/download/"
-        f"{quote(identifier, safe='')}/"
-        f"{quote(filename, safe='')}"
+        f"{BASE_URL}/download/{quote(identifier, safe='')}/{quote(filename, safe='')}"
     )
 
 
@@ -302,9 +295,7 @@ class Cleveland(Backend):
             identifiers, next_cursor, total = parse_scrape(body)
 
             new_identifiers = [
-                identifier
-                for identifier in identifiers
-                if identifier not in discovered
+                identifier for identifier in identifiers if identifier not in discovered
             ]
 
             discovered.update(new_identifiers)
@@ -325,20 +316,13 @@ class Cleveland(Backend):
             ]
 
             if ctx.with_images:
-                remaining = (
-                    ctx.limit - yielded
-                    if ctx.limit
-                    else None
-                )
+                remaining = ctx.limit - yielded if ctx.limit else None
 
                 async def fetch_one(
                     ctx: Context,
                     url: str,
                 ) -> Artwork | None:
-                    identifier = (
-                        url.rstrip("/")
-                        .rsplit("/", 1)[-1]
-                    )
+                    identifier = url.rstrip("/").rsplit("/", 1)[-1]
 
                     body = await fetch_text(
                         ctx.client,

@@ -137,6 +137,7 @@ async def sitemap_artwork_urls(ctx: Context) -> list[str]:
 
     return urls
 
+
 def parse_json_ld(html: str) -> list[dict[str, Any]]:
     """Return schema.org JSON-LD objects found on an artwork page."""
     soup = BeautifulSoup(html, "html.parser")
@@ -263,6 +264,7 @@ def _image_from_html(html: str, data: dict[str, Any] | None) -> str | None:
 
     return None
 
+
 def _date_from_page(html: str) -> str | None:
     """Extract the artwork Date value from the Uffizi detail page."""
     soup = BeautifulSoup(html, "html.parser")
@@ -294,6 +296,7 @@ def _date_from_page(html: str) -> str | None:
 
     return None
 
+
 def parse_page(
     url: str,
     html: str,
@@ -322,8 +325,7 @@ def parse_page(
 
     if image_url is None:
         logger.warning(
-            "uffizi: no image found at %s; "
-            "img=%d source=%d jsonld=%s",
+            "uffizi: no image found at %s; img=%d source=%d jsonld=%s",
             url,
             len(soup.find_all("img")),
             len(soup.find_all("source")),
@@ -339,7 +341,8 @@ def parse_page(
         image_url=image_url,
         title=title,
         artist=artist,
-        year=date or (data or {}).get("dateCreated")
+        year=date
+        or (data or {}).get("dateCreated")
         or (data or {}).get("datePublished"),
     )
 
@@ -349,8 +352,7 @@ def parse_page(
         image_url=image_url,
         title=title,
         artist=artist,
-        year=(data or {}).get("dateCreated")
-        or (data or {}).get("datePublished"),
+        year=(data or {}).get("dateCreated") or (data or {}).get("datePublished"),
     )
 
 
@@ -381,9 +383,7 @@ class Uffizi(Backend):
 
         for index_url, collection in category_indexes:
             try:
-                html = await fetch_text(
-                    ctx.client, index_url, ctx.throttle, ctx.stats
-                )
+                html = await fetch_text(ctx.client, index_url, ctx.throttle, ctx.stats)
             except Exception as exc:
                 logger.warning("uffizi: failed to fetch %s: %s", index_url, exc)
                 continue
@@ -416,28 +416,22 @@ class Uffizi(Backend):
         async def fetch_one(
             ctx: Context, item: tuple[str, str | None]
         ) -> Artwork | None:
-            url, expected_collection = item
+            url, _expected_collection = item
 
-            html = await fetch_text(
-                ctx.client, url, ctx.throttle, ctx.stats
-            )
+            html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
 
             return parse_page(url, html, None)
 
         if ctx.with_images:
             # enrich_pool expects URLs, so wrap the tuple in a local fetcher.
-            async def fetch_wrapped(
-                ctx: Context, url: str
-            ) -> Artwork | None:
+            async def fetch_wrapped(ctx: Context, url: str) -> Artwork | None:
                 for candidate, collection in discovered:
                     if candidate == url:
                         return await fetch_one(ctx, (candidate, collection))
                 return None
 
             urls = [url for url, _ in discovered]
-            async for artwork in enrich_pool(
-                ctx, urls, fetch_wrapped, ctx.limit
-            ):
+            async for artwork in enrich_pool(ctx, urls, fetch_wrapped, ctx.limit):
                 yield artwork
         else:
             # Without fetching detail pages there is no reliable way to know
@@ -451,4 +445,3 @@ class Uffizi(Backend):
                 yielded += 1
                 if ctx.limit and yielded >= ctx.limit:
                     return
-
