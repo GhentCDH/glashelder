@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
+from artscraper import open_text
+
 # ---------------------------------------------------------------------------
 # Style setup
 # ---------------------------------------------------------------------------
@@ -54,7 +56,7 @@ def setup_style():
 
 
 def load_data(path: str) -> dict:
-    with open(path) as f:
+    with open_text(path) as f:
         return json.load(f)
 
 
