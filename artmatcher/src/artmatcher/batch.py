@@ -13,9 +13,8 @@ from typing import Any, Literal
 import numpy as np
 from rich.console import Console
 
-from artscraper import Artwork
+from artscraper import Artwork, artwork_of, open_text
 
-from .artworks import artwork_of
 from .classifier import MLClassifier
 from .features import NO_IMAGE_FEATURES
 from .features.worker import extract_features_batch, pool  # noqa: F401
@@ -381,10 +380,21 @@ def read_json_output(path: str | Path) -> dict:
     became `artwork_*`."""
     from .web.store import artwork_keys
 
-    with open(path) as f:
+    with open_text(path) as f:
         data = json.load(f)
     data["results"] = [artwork_keys(r) for r in data.get("results", [])]
     return data
+
+
+def output_paths(path: Path) -> tuple[Path, Path]:
+    """The JSON and CSV paths for an `--output`, keeping a `.zst` on the JSON only."""
+    compressed = path.suffix.lower() == ".zst"
+    stem = path.with_suffix("") if compressed else path
+    json_path = stem.with_suffix(".json")
+    return (
+        json_path.with_name(json_path.name + ".zst") if compressed else json_path,
+        stem.with_suffix(".csv"),
+    )
 
 
 def write_json_output(
@@ -422,8 +432,9 @@ def write_json_output(
         ],
     }
 
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    compressed = Path(path).suffix.lower() == ".zst"
+    with open_text(path, "w") as f:
+        json.dump(data, f, indent=None if compressed else 2)
 
     console.print(f"[green]Wrote JSON output to {path}[/green]")
 
@@ -460,6 +471,7 @@ def write_csv_output(
         "title",
         "artist",
         "year",
+        "physical_description",
         "artwork_url",
     ]
     # Add similarity columns
@@ -486,6 +498,7 @@ def write_csv_output(
                 artwork and artwork.title,
                 artwork and artwork.artist,
                 artwork and artwork.year,
+                artwork and artwork.physical_description,
                 artwork and artwork.url,
             ]
             row.extend(r.similarities)
@@ -504,13 +517,14 @@ def write_output(
     """Write batch classification output in the requested format(s).
 
     `path` is used as given for a single format; for "both" it is written once
-    with a `.json` suffix and once with a `.csv` suffix.
+    as JSON and once as CSV (see `output_paths`).
     """
     path = Path(path)
+    json_path, csv_path = output_paths(path)
     if fmt == "json":
         write_json_output(output, path, artworks=artworks)
     elif fmt == "csv":
-        write_csv_output(output, path.with_suffix(".csv"), artworks=artworks)
+        write_csv_output(output, csv_path, artworks=artworks)
     else:
-        write_json_output(output, path.with_suffix(".json"), artworks=artworks)
-        write_csv_output(output, path.with_suffix(".csv"), artworks=artworks)
+        write_json_output(output, json_path, artworks=artworks)
+        write_csv_output(output, csv_path, artworks=artworks)

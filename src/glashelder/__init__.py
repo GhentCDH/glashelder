@@ -131,6 +131,7 @@ def cli_defaults() -> dict:
     return {
         "artscraper": {
             "scrape": given(output=paths.artworks),
+            "complete": given(artworks=paths.artworks),
         },
         "cluster": {
             "cluster": {
