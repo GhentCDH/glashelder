@@ -12,12 +12,13 @@ from bs4 import BeautifulSoup, Tag
 
 from ..client import RestrictedError, fetch_text
 from ..model import Artwork
-from . import Backend, Context, stream_sitemaps
+from . import Backend, Context, complete_pages, physical, stream_sitemaps
 
 BASE_URL = "https://www.wikiart.org"
 PAINTING_SITEMAPS = [f"{BASE_URL}/sitemap/paintings-{n}.xml" for n in range(1, 7)]
 ARTWORK_PATH = re.compile(r"^/en/([^/]+)/([^/]+)$")
 TRAILING_YEAR = re.compile(r"-(\d{4})$")
+SPACE_BEFORE_PUNCTUATION = re.compile(r"\s+([,;])")
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,21 @@ def parse_image_url(html: str) -> str | None:
     return src.split("!", 1)[0]
 
 
+def parse_info(soup: BeautifulSoup) -> dict[str, str]:
+    """The "Label: value" list beside an artwork, e.g. {"Media": "oil, canvas"}."""
+    info: dict[str, str] = {}
+    for item in soup.select("article ul li"):
+        label = item.find("s")
+        if not isinstance(label, Tag):
+            continue
+        name = label.get_text(strip=True).rstrip(":")
+        label.extract()
+        text = SPACE_BEFORE_PUNCTUATION.sub(r"\1", item.get_text(" ", strip=True))
+        if name and text:
+            info.setdefault(name, text)
+    return info
+
+
 def parse_page(url: str, html: str) -> Artwork | None:
     artwork = parse_artwork_url(url)
     if artwork is None:
@@ -88,23 +104,39 @@ def parse_page(url: str, html: str) -> Artwork | None:
         return None
 
     artwork.image_url = parse_image_url(html)
+    soup = BeautifulSoup(html, "html.parser")
 
-    if title := meta_content(BeautifulSoup(html, "html.parser"), "og:title"):
+    if title := meta_content(soup, "og:title"):
         # format: "Autumn - Giuseppe Arcimboldo - WikiArt.org"
         artwork.title = title.split(" - ")[0].strip()
 
+    info = parse_info(soup)
+    if artwork.year is None and (date := info.get("Date")):
+        # e.g. "1889 ; Saint-rémy-de-provence, France"
+        artwork.year = date.split(";")[0].strip() or None
+    artwork.physical_description = physical(
+        info.get("Media"), info.get("Genre"), info.get("Dimensions")
+    )
+
     return artwork
+
+
+async def fetch_page(ctx: Context, url: str) -> Artwork | None:
+    html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
+    return parse_page(url, html)
 
 
 class WikiArt(Backend):
     name = "wikiart"
 
     async def stream(self, ctx: Context) -> AsyncIterator[Artwork]:
-        async def fetch_one(ctx: Context, url: str) -> Artwork | None:
-            html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
-            return parse_page(url, html)
-
         async for artwork in stream_sitemaps(
-            ctx, PAINTING_SITEMAPS, fetch_one, parse_artwork_url
+            ctx, PAINTING_SITEMAPS, fetch_page, parse_artwork_url
         ):
+            yield artwork
+
+    async def complete(
+        self, ctx: Context, artworks: list[Artwork]
+    ) -> AsyncIterator[Artwork]:
+        async for artwork in complete_pages(ctx, artworks, fetch_page):
             yield artwork
