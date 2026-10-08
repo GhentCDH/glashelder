@@ -109,7 +109,24 @@ class PrecomputedSource(ClassificationSource):
         reference_root,
         artworks: dict[str, Artwork] | None = None,
     ):
-        self._artworks = artworks or {}
+        from pathlib import Path
+
+        from artscraper import Artwork
+        from common.images import is_url
+
+        # the records in the results win over the scrape: `artscraper complete`
+        # fills them in further. Keyed like `artwork_of` looks them up.
+        embedded = {
+            key: Artwork(**r["artwork"])
+            for r in results
+            if r.get("artwork")
+            for key in (
+                [r["artwork_path"]]
+                if is_url(r["artwork_path"])
+                else [r["artwork_path"], Path(r["artwork_path"]).name]
+            )
+        }
+        self._artworks = {**(artworks or {}), **embedded}
 
         glashelder_paths = rebase_paths(
             [r["glashelder_path"] for r in results], glashelder_root
