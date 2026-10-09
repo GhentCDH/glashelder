@@ -192,8 +192,3 @@ class Orchestrator:
         logger.info("Starting test run with: %s", path)
         self.run_all(path)
         logger.info("Test run complete. Majority votes: %s", self.majority_votes)
-
-
-if __name__ == "__main__":
-    orchestrator = Orchestrator()
-    orchestrator.run_test()
