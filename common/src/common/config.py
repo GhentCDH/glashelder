@@ -132,6 +132,9 @@ class Artmatcher:
 
 @dataclass(slots=True)
 class Config:
+    secret: str | None = None
+    """Secret for the serve commands' authentication. Unset means a random one
+    per run. Better set from the environment (`GLASHELDER_SECRET`) than in the file."""
     paths: Paths = field(default_factory=Paths)
     images: Images = field(default_factory=Images)
     embed: Embed = field(default_factory=Embed)
