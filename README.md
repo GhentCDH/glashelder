@@ -55,7 +55,7 @@ However, if you have older drivers (e.g. `11.8`), you should be able to edit thi
 ```diff
 [[tool.uv.index]]
 name = "pytorch"
-- url = "https://download.pytorch.org/whl/cu126"
+- url = "https://download.pytorch.org/whl/cpu"
 + url = "https://download.pytorch.org/whl/cu118"
 explicit = true
 ```
@@ -154,7 +154,7 @@ uv run glashelder embed neighbours
 uv run glashelder artmatcher serve
 ```
 
-Embeddings live in a *store*: a directory with a memory-mapped matrix, so a set larger
+Embeddings live in a _store_: a directory with a memory-mapped matrix, so a set larger
 than RAM still works. `uv run glashelder embed info <store>` shows what one holds and
 whether it fits in RAM or VRAM on this machine. Old `.pkl` embeddings still load, and
 `uv run glashelder embed convert old.pkl new.store` turns one into a store.
