@@ -30,9 +30,9 @@ from artscraper import Artwork
 from .ml_classifier import (
     NO_IMAGE_FEATURES,
     MLClassifier,
-    _extract_distribution_features,
     _extract_orb_worker,
     _init_orb_worker,
+    distribution_features,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,7 +154,7 @@ class FeatureCache:
 
 def _get_default_features(similarities: list[float]) -> dict[str, float]:
     """Return default features when extraction fails."""
-    return _extract_distribution_features(similarities) | NO_IMAGE_FEATURES
+    return distribution_features(similarities) | NO_IMAGE_FEATURES
 
 
 class _NullProgress:

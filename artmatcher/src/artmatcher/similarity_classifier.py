@@ -115,6 +115,25 @@ def gaussian_weights_min(
     return gaussian_weights(length, center, sigma)
 
 
+def poly_diff(similarities: list[float]) -> float:
+    """How far the top similarity sits above a line fitted through the rest.
+
+    The line is fitted to `similarities[1:]` with Gaussian weights that fall to
+    0.3 at the far end, so the closest runners-up count most. 0.0 when there is
+    nothing to fit.
+    """
+    if len(similarities) < 2:
+        return 0.0
+    rest = similarities[1:]
+    try:
+        coeffs = fit_poly(
+            rest, list(range(len(rest))), gaussian_weights_min(len(rest), 0, 0.3), 1
+        )
+    except (np.linalg.LinAlgError, ValueError):
+        return 0.0
+    return similarities[0] - coeffs[-1]
+
+
 class ClassificationResult:
     """Result of a classification containing the decision and the diff value."""
 
@@ -131,14 +150,7 @@ class SimpleClassifier:
         self.threshold = threshold
 
     def classify(self, similarities: list[float]) -> ClassificationResult:
-        weights = gaussian_weights_min(len(similarities[1:]), 0, 0.3)
-        fitted = fit_poly(
-            similarities[1:], list(range(len(similarities[1:]))), weights, 1
-        )
-
-        at_zero = fitted[-1]
-        diff = similarities[0] - at_zero
-
+        diff = poly_diff(similarities)
         return ClassificationResult(
             is_match=diff > self.threshold,
             diff=diff,
