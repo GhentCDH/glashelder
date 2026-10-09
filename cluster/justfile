@@ -1,5 +1,0 @@
-dev:
-    pnpm run dev
-
-run:
-    uv run main.py serve
