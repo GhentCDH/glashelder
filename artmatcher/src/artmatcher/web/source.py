@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from embed import rebase_paths
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from concurrent.futures import ProcessPoolExecutor
 
     from artscraper import Artwork
@@ -51,7 +52,13 @@ class ClassificationSource(ABC):
 
     @property
     @abstractmethod
-    def total_images(self) -> int: ...
+    def total_images(self) -> int:
+        """One past the highest glashelder index; see `indices` for which exist."""
+
+    @property
+    def indices(self) -> Iterable[int]:
+        """The glashelder indices this source has an image for."""
+        return range(self.total_images)
 
     @property
     def batch_size(self) -> int:
@@ -98,7 +105,12 @@ def _current_keys(result: dict) -> dict:
 
 
 class PrecomputedSource(ClassificationSource):
-    """Serves classification items from pre-computed batch_classify results."""
+    """Serves classification items from pre-computed batch_classify results.
+
+    Items are keyed by each result's own `glashelder_index`: with
+    `--min-confidence` the run leaves rows out, so a result's place in the list
+    is not its image.
+    """
 
     def __init__(
         self,
@@ -107,12 +119,17 @@ class PrecomputedSource(ClassificationSource):
         reference_root,
         artworks: dict[str, Artwork] | None = None,
     ):
-        self._results = [_current_keys(r) for r in results]
-        results = self._results
+        results = [_current_keys(r) for r in results]
         self._artworks = artworks or {}
 
-        glashelder_paths = [r["glashelder_path"] for r in results]
-        self._glashelder_paths = rebase_paths(glashelder_paths, glashelder_root)
+        glashelder_paths = rebase_paths(
+            [r["glashelder_path"] for r in results], glashelder_root
+        )
+        self._results: dict[int, dict] = {
+            r["glashelder_index"]: {**r, "glashelder_path": path}
+            for r, path in zip(results, glashelder_paths, strict=True)
+        }
+        self._indices = sorted(self._results)
 
         artwork_indices: dict[int, str] = {}
         for r in results:
@@ -127,34 +144,43 @@ class PrecomputedSource(ClassificationSource):
 
     @property
     def total_images(self) -> int:
-        return len(self._glashelder_paths)
+        return self._indices[-1] + 1 if self._indices else 0
+
+    @property
+    def indices(self) -> Iterable[int]:
+        return self._indices
 
     def glashelder_path(self, index: int) -> str | None:
-        if index < 0 or index >= len(self._glashelder_paths):
-            return None
-        return self._glashelder_paths[index]
+        r = self._results.get(index)
+        return r["glashelder_path"] if r is not None else None
 
     def artwork_path(self, index: int) -> str:
         return self._artwork_paths.get(index, "")
 
     def classify(self, index: int, threshold: float) -> MatchItem | None:
-        if index < 0 or index >= len(self._results):
+        r = self._results.get(index)
+        if r is None:
             return None
 
-        r = self._results[index]
         confidence = r["confidence"]
-        is_match = confidence > threshold
+        rank = r.get("rank", 0)
+        # results only name the chosen reference: the ones CLIP ranked above it
+        # are unknown (-1), so `best_index` still finds it at `rank`
+        known = r.get("top_indices")
+        top_indices = known or [-1] * rank + [r["artwork_index"]]
 
         return MatchItem(
             glashelder_index=index,
             glashelder_path=r["glashelder_path"],
-            top_indices=[r["artwork_index"]],
+            top_indices=top_indices,
             similarities=r["similarities"],
-            is_match=is_match,
+            is_match=confidence > threshold,
             diff=confidence,
             threshold=threshold,
             classifier_type="precomputed",
             features=r.get("features", {}),
+            rank=rank,
+            top_similarities=r.get("top_similarities", []) if known else [],
         )
 
 
