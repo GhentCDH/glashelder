@@ -13,19 +13,12 @@ from artmatcher.batch import choose, score_round, shifted
 CONFIDENCE = {"r0": 0.3, "r1": 0.6, "r2": 0.95, "r3": 0.4}
 
 
-class FakeModel:
-    def predict_proba(self, matrix):
-        return np.stack([1 - matrix[:, 0], matrix[:, 0]], axis=1)
-
-
 class FakeClassifier:
-    _model = FakeModel()
-
-    def _features_to_array(self, features):
-        return np.array([features["confidence"]])
+    def predict_proba(self, features):
+        return np.array([f["confidence"] for f in features])
 
 
-# stands in for an MLClassifier: only these two members are used
+# stands in for an MLClassifier: only this method is used
 CLASSIFIER: Any = FakeClassifier()
 
 

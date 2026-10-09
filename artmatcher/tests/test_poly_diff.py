@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from artmatcher.ml_classifier import distribution_features
+from artmatcher.features import distribution_features
 from artmatcher.similarity_classifier import SimpleClassifier, poly_diff
 
 

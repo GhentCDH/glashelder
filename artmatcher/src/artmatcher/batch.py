@@ -5,26 +5,20 @@ import csv
 import json
 import logging
 import pickle
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from rich.console import Console
-from rich.progress import TaskID
 
 from artscraper import Artwork
-from common.progress import progress as progress_bars
 
-from .ml_classifier import (
-    NO_IMAGE_FEATURES,
-    MLClassifier,
-    _extract_orb_worker,
-    _init_orb_worker,
-    distribution_features,
-)
+from .artworks import artwork_of
+from .classifier import MLClassifier
+from .features import NO_IMAGE_FEATURES
+from .features.worker import extract_features_batch, pool  # noqa: F401
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -143,157 +137,6 @@ class FeatureCache:
         return True
 
 
-def _get_default_features(similarities: list[float]) -> dict[str, float]:
-    """Return default features when extraction fails."""
-    return distribution_features(similarities) | NO_IMAGE_FEATURES
-
-
-class _NullProgress:
-    """No-op stand-in for rich.progress.Progress when progress output is disabled."""
-
-    def add_task(self, *_args: Any, **_kwargs: Any) -> TaskID:
-        return TaskID(0)
-
-    def advance(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-
-def pool(workers: int) -> ProcessPoolExecutor:
-    """Worker processes for ORB/hash extraction, each with its own detector."""
-    return ProcessPoolExecutor(max_workers=workers, initializer=_init_orb_worker)
-
-
-def extract_features_batch(
-    work_items: list[tuple[int, str, str, list[float], int]],
-    workers: int,
-    cache: FeatureCache | None = None,
-    timeout_per_item: float = 30.0,
-    cache_save_interval: int = 100,
-    progress: bool = True,
-    executor: ProcessPoolExecutor | None = None,
-) -> dict[int, dict[str, float]]:
-    """Extract ORB/hash features for a batch of image pairs in parallel.
-
-    Args:
-        work_items: List of (index, glashelder_path, artwork_path, similarities, label)
-        workers: Number of parallel workers
-        cache: Optional feature cache
-        timeout_per_item: Seconds a worker spends on one item before it falls
-            back to the distribution features only (default 30s)
-        cache_save_interval: Save cache to disk every N items (default 100)
-        progress: If False, suppress the progress bar and all console output
-        executor: A pool to use and leave running, for callers that extract
-            often (one per call costs a fork of every worker each time). Made
-            from `pool(workers)` and shut down here when not given.
-
-    Returns:
-        Dict mapping index to feature dict
-    """
-    results: dict[int, dict[str, float]] = {}
-
-    # Check cache first
-    uncached_items = []
-    for item in work_items:
-        idx, glashelder_path, artwork_path, _, _ = item
-        if cache:
-            cached_features = cache.get(glashelder_path, artwork_path)
-            if cached_features is not None:
-                results[idx] = cached_features
-                continue
-        uncached_items.append(item)
-
-    if not uncached_items:
-        return results
-
-    # Extract features in parallel for uncached items
-    n_failed = 0
-    n_completed = 0
-
-    # Calculate a reasonable global timeout
-    # Allow timeout_per_item seconds per item, but at least 5 minutes
-    global_timeout = max(300, len(uncached_items) * timeout_per_item / workers)
-
-    progress_cm = (
-        progress_bars(console=console)
-        if progress
-        else contextlib.nullcontext(_NullProgress())
-    )
-
-    with progress_cm as progress_bar:
-        task = progress_bar.add_task(
-            "[cyan]Extracting ORB/hash features...",
-            total=len(uncached_items),
-        )
-
-        owned = executor is None
-        if executor is None:
-            executor = pool(workers)
-
-        try:
-            # the worker itself gives up on an item after `timeout_per_item`
-            future_to_item = {
-                executor.submit(_extract_orb_worker, item, timeout_per_item): item
-                for item in uncached_items
-            }
-            for future in as_completed(future_to_item, timeout=global_timeout):
-                item = future_to_item[future]
-                idx = item[0]
-                similarities = item[3]
-
-                try:
-                    _, features, _ = future.result()
-                    results[idx] = features
-
-                    # Update cache
-                    if cache:
-                        cache.set(item[1], item[2], features)
-                except Exception as e:
-                    logger.warning(f"Error extracting features for {item[1]}: {e}")
-                    results[idx] = _get_default_features(similarities)
-                    n_failed += 1
-
-                n_completed += 1
-                progress_bar.advance(task)
-
-                # Periodically save cache to disk for crash recovery
-                if (
-                    cache
-                    and cache_save_interval > 0
-                    and n_completed % cache_save_interval == 0
-                ):
-                    cache.save(quiet=True)
-
-        except TimeoutError:
-            # Global timeout - cancel remaining futures and use defaults
-            if progress:
-                console.print(
-                    f"[yellow]Global timeout reached after {n_completed} items[/yellow]"
-                )
-            for future, item in future_to_item.items():
-                if not future.done():
-                    future.cancel()
-                    idx = item[0]
-                    similarities = item[3]
-                    if idx not in results:
-                        results[idx] = _get_default_features(similarities)
-                        n_failed += 1
-                        progress_bar.advance(task)
-
-            # Save cache on timeout for crash recovery
-            if cache:
-                cache.save()
-        finally:
-            if owned:
-                executor.shutdown(wait=False, cancel_futures=True)
-
-    if n_failed > 0 and progress:
-        console.print(
-            f"[yellow]Warning: {n_failed} items failed feature extraction[/yellow]"
-        )
-
-    return results
-
-
 def predict_confidences(
     classifier: MLClassifier,
     features_by_index: dict[int, dict[str, float]],
@@ -302,12 +145,7 @@ def predict_confidences(
     """Vectorized match-confidence prediction for a set of feature dicts."""
     if not indices:
         return []
-
-    feature_matrix = np.array(
-        [classifier._features_to_array(features_by_index[i]) for i in indices]
-    )
-    all_proba = classifier._model.predict_proba(feature_matrix)  # type:ignore
-    return all_proba[:, 1].astype(float).tolist()
+    return classifier.predict_proba([features_by_index[i] for i in indices]).tolist()
 
 
 Tried = list[tuple[float, dict[str, float]]]
@@ -538,17 +376,6 @@ def batch_classify(
     )
 
 
-def artwork_of(reference: str, artworks: dict[str, Artwork] | None) -> Artwork | None:
-    """The scraped record a matched reference describes, if we have it.
-
-    The reference is the join key: a URL for scraped artworks, a path for local
-    files (looked up by name, since the directory may differ per machine).
-    """
-    if not artworks or not reference:
-        return None
-    return artworks.get(reference) or artworks.get(Path(reference).name)
-
-
 def read_json_output(path: str | Path) -> dict:
     """A JSON file `write_json_output` wrote, also one from before `wikiart_*`
     became `artwork_*`."""
@@ -666,3 +493,24 @@ def write_csv_output(
             writer.writerow(row)
 
     console.print(f"[green]Wrote CSV output to {path}[/green]")
+
+
+def write_output(
+    output: BatchClassifyOutput,
+    path: str | Path,
+    fmt: Literal["json", "csv", "both"],
+    artworks: dict[str, Artwork] | None = None,
+) -> None:
+    """Write batch classification output in the requested format(s).
+
+    `path` is used as given for a single format; for "both" it is written once
+    with a `.json` suffix and once with a `.csv` suffix.
+    """
+    path = Path(path)
+    if fmt == "json":
+        write_json_output(output, path, artworks=artworks)
+    elif fmt == "csv":
+        write_csv_output(output, path.with_suffix(".csv"), artworks=artworks)
+    else:
+        write_json_output(output, path.with_suffix(".json"), artworks=artworks)
+        write_csv_output(output, path.with_suffix(".csv"), artworks=artworks)
