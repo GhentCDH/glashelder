@@ -44,7 +44,7 @@ def require_auth(app):
         app: Flask application instance
 
     Returns:
-        The same Flask app with authentication middleware added
+        The secret clients must provide
     """
     from flask import request
 
@@ -93,4 +93,4 @@ def require_auth(app):
             )
         return response
 
-    return app
+    return expected_secret

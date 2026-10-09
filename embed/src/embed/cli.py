@@ -641,13 +641,22 @@ def search(
 )
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=5000, help="Port to bind to")
-def serve(embeddings, image_dir, host, port):
+@click.option(
+    "--open/--no-open",
+    "open_browser",
+    default=True,
+    help="Open the site in a browser on startup",
+)
+def serve(embeddings, image_dir, host, port, open_browser):
     """Start a web server for interactive image search.
 
     Authentication is required. Set the GLASHELDER_SECRET environment variable,
     then access the server with /?secret=<your-secret> to get a session cookie.
     """
     import io
+    import threading
+    import webbrowser
+    from urllib.parse import urlencode
 
     from flask import Flask, render_template, request, send_from_directory
     from PIL import Image
@@ -662,7 +671,7 @@ def serve(embeddings, image_dir, host, port):
     )
 
     # Add authentication middleware
-    require_auth(app)
+    secret = require_auth(app)
 
     # Load embeddings and determine model
     logger.info(f"Loading embeddings from {embeddings}...")
@@ -940,5 +949,9 @@ def serve(embeddings, image_dir, host, port):
         image_path = Path(image_paths[index])
         return send_from_directory(image_path.parent, image_path.name)
 
+    url = f"http://localhost:{port}/?{urlencode({'secret': secret})}"
     logger.info(f"Starting Flask server on {host}:{port}...")
+    logger.info(f"Open {url}")
+    if open_browser:
+        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
     app.run(host=host, port=port)
