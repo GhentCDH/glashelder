@@ -27,6 +27,9 @@ uv run glashelder embed info embeddings/artworks-clip.store
 # turn an old pickle into a store, or merge several into one
 uv run glashelder embed convert artworks-clip.pkl artworks-clip.store
 
+# copy the 10 images that match a text prompt best into search_results/
+uv run glashelder embed search "a dog in the park" --top-k 10
+
 # start the search web interface
 uv run glashelder embed serve
 ```

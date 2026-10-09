@@ -1,10 +1,10 @@
 # Cluster - Image Clustering
 
-Image clustering, search using embeddings with UMAP dimensionality reduction and HDBSCAN clustering.
+Image clustering using embeddings with UMAP dimensionality reduction and HDBSCAN clustering.
+Text search is `glashelder embed search` and `glashelder embed serve`.
 
 ## Features
 
-- **Text Search**: Find images matching text descriptions
 - **Clustering**: Group similar images automatically
 - **Web Interface**: Interactive search UI
 
@@ -19,15 +19,7 @@ uv run glashelder embed images ./images --output embeddings.store --model clip
 ```
 
 
-### 2. Text Search
-
-Search for images using text descriptions:
-
-```bash
-uv run glashelder cluster search "a dog in the park" --top-k 10
-```
-
-### 3. Start Web Interface
+### 2. Start Web Interface
 
 Launch the interactive search UI:
 
