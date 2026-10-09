@@ -5,7 +5,6 @@ and robots.txt disallows the new search URLs. What is left is the object
 sitemaps plus a schema.org JSON-LD block on every detail page.
 """
 
-import json
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -15,6 +14,7 @@ from bs4 import BeautifulSoup
 from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context, sitemap_locs, stream_sitemaps
+from .parse import artwork_json_ld
 
 BASE_URL = "https://balat.kikirpa.be"
 SITEMAP_INDEX = f"{BASE_URL}/sitemap.xml"
@@ -30,20 +30,8 @@ def full_image_url(url: str) -> str:
     return IIIF_SIZE.sub(rf"\1!{IMAGE_SIZE},{IMAGE_SIZE}\2", url)
 
 
-def parse_json_ld(html: str) -> dict | None:
-    soup = BeautifulSoup(html, "html.parser")
-    tag = soup.find("script", type="application/ld+json")
-    if tag is None:
-        return None
-    try:
-        data = json.loads(tag.string or "")
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def parse_page(url: str, html: str) -> Artwork | None:
-    data = parse_json_ld(html)
+    data = artwork_json_ld(BeautifulSoup(html, "html.parser"))
     if data is None:
         logger.warning("no usable json-ld at %s", url)
         return None

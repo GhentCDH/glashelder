@@ -14,6 +14,7 @@ from urllib.parse import quote, urlencode
 from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context, enrich_pool
+from .parse import first_text, text
 
 BASE_URL = "https://archive.org"
 COLLECTION = "clevelandart"
@@ -50,56 +51,34 @@ def artwork_url(identifier: str) -> str:
     return f"{BASE_URL}/details/{quote(identifier, safe='')}"
 
 
-def text_value(value: object) -> str | None:
-    """Return a cleaned string from a metadata value."""
-    if isinstance(value, str) and value.strip():
-        return value.strip()
+def creator_text(value: object) -> str | None:
+    """A creator field as text, joining lists of names."""
+    if isinstance(value, list):
+        return "; ".join(filter(None, map(text, value))) or None
+    return text(value)
 
-    return None
 
-
-def first_text(data: dict, *fields: str) -> str | None:
-    """Return the first non-empty text value."""
-    for field in fields:
-        value = text_value(data.get(field))
-
-        if value:
-            return value
-
-    return None
+def year_text(value: object) -> str | None:
+    """A date field as text, accepting bare integer years."""
+    return str(value) if isinstance(value, int) else text(value)
 
 
 def first_creator(data: dict) -> str | None:
     """Extract the first creator or artist value."""
-    for field in ("creator", "artist", "author"):
-        value = data.get(field)
-
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-        if isinstance(value, list):
-            creators = [
-                item.strip() for item in value if isinstance(item, str) and item.strip()
-            ]
-
-            if creators:
-                return "; ".join(creators)
-
-    return None
+    return next(
+        filter(
+            None, (creator_text(data.get(f)) for f in ("creator", "artist", "author"))
+        ),
+        None,
+    )
 
 
 def first_year(data: dict) -> str | None:
     """Extract the original date or year."""
-    for field in ("date", "year", "created"):
-        value = data.get(field)
-
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-        if isinstance(value, int):
-            return str(value)
-
-    return None
+    return next(
+        filter(None, (year_text(data.get(f)) for f in ("date", "year", "created"))),
+        None,
+    )
 
 
 def image_from_files(
@@ -118,12 +97,11 @@ def image_from_files(
         if not isinstance(file, dict):
             continue
 
-        name = file.get("name")
+        name = text(file.get("name"))
 
-        if not isinstance(name, str) or not name.strip():
+        if name is None:
             continue
 
-        name = name.strip()
         lower_name = name.casefold()
 
         # Ignore thumbnails, derivatives, metadata, and archives.
@@ -195,21 +173,12 @@ def parse_scrape(body: str) -> tuple[list[str], str | None, int]:
     if not isinstance(items, list):
         items = []
 
-    identifiers: list[str] = []
-
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-
-        identifier = item.get("identifier")
-
-        if isinstance(identifier, str) and identifier.strip():
-            identifiers.append(identifier.strip())
-
-    cursor = data.get("cursor")
-
-    if not isinstance(cursor, str) or not cursor.strip():
-        cursor = None
+    identifiers = [
+        identifier
+        for item in items
+        if isinstance(item, dict) and (identifier := text(item.get("identifier")))
+    ]
+    cursor = text(data.get("cursor"))
 
     total = data.get("total", 0)
     total = int(total) if isinstance(total, int) else 0
@@ -252,11 +221,7 @@ def parse_metadata(
         )
         return None
 
-    title = first_text(
-        metadata,
-        "title",
-        "name",
-    )
+    title = first_text(map(metadata.get, ("title", "name")))
 
     artist = first_creator(metadata)
     year = first_year(metadata)
