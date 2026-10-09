@@ -81,36 +81,36 @@ class FeatureCache:
         if self.cache_path and self.cache_path.exists():
             self._load()
 
-    def _make_key(self, glashelder_path: str, wikiart_path: str) -> str:
+    def _make_key(self, glashelder_path: str, artwork_path: str) -> str:
         """Create a cache key from image paths."""
-        return f"{glashelder_path}||{wikiart_path}"
+        return f"{glashelder_path}||{artwork_path}"
 
-    def get(self, glashelder_path: str, wikiart_path: str) -> dict[str, float] | None:
+    def get(self, glashelder_path: str, artwork_path: str) -> dict[str, float] | None:
         """Get cached features for an image pair.
 
         Args:
             glashelder_path: Path to glashelder image
-            wikiart_path: Path to wikiart image
+            artwork_path: Path or URL of the reference image
 
         Returns:
             Feature dict if cached with every current image feature, None otherwise
         """
-        features = self._cache.get(self._make_key(glashelder_path, wikiart_path))
+        features = self._cache.get(self._make_key(glashelder_path, artwork_path))
         if features is None or not NO_IMAGE_FEATURES.keys() <= features.keys():
             return None
         return features
 
     def set(
-        self, glashelder_path: str, wikiart_path: str, features: dict[str, float]
+        self, glashelder_path: str, artwork_path: str, features: dict[str, float]
     ) -> None:
         """Cache features for an image pair.
 
         Args:
             glashelder_path: Path to glashelder image
-            wikiart_path: Path to wikiart image
+            artwork_path: Path or URL of the reference image
             features: Feature dict to cache
         """
-        key = self._make_key(glashelder_path, wikiart_path)
+        key = self._make_key(glashelder_path, artwork_path)
         self._cache[key] = features
         self._dirty = True
 
@@ -184,7 +184,7 @@ def extract_features_batch(
     """Extract ORB/hash features for a batch of image pairs in parallel.
 
     Args:
-        work_items: List of (index, glashelder_path, wikiart_path, similarities, label)
+        work_items: List of (index, glashelder_path, artwork_path, similarities, label)
         workers: Number of parallel workers
         cache: Optional feature cache
         timeout_per_item: Seconds a worker spends on one item before it falls
@@ -203,9 +203,9 @@ def extract_features_batch(
     # Check cache first
     uncached_items = []
     for item in work_items:
-        idx, glashelder_path, wikiart_path, _, _ = item
+        idx, glashelder_path, artwork_path, _, _ = item
         if cache:
-            cached_features = cache.get(glashelder_path, wikiart_path)
+            cached_features = cache.get(glashelder_path, artwork_path)
             if cached_features is not None:
                 results[idx] = cached_features
                 continue
@@ -565,6 +565,17 @@ def artwork_of(reference: str, artworks: dict[str, Artwork] | None) -> Artwork |
     if not artworks or not reference:
         return None
     return artworks.get(reference) or artworks.get(Path(reference).name)
+
+
+def read_json_output(path: str | Path) -> dict:
+    """A JSON file `write_json_output` wrote, also one from before `wikiart_*`
+    became `artwork_*`."""
+    from .web.store import artwork_keys
+
+    with open(path) as f:
+        data = json.load(f)
+    data["results"] = [artwork_keys(r) for r in data.get("results", [])]
+    return data
 
 
 def write_json_output(

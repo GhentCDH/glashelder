@@ -61,7 +61,7 @@ def _extract_orb_worker(
     """Worker function to extract features for a single entry.
 
     Args:
-        args: Tuple of (index, glashelder_path, wikiart_path, similarities, label)
+        args: Tuple of (index, glashelder_path, artwork_path, similarities, label)
         timeout: Seconds before giving up on the images and returning only the
             distribution features
 
@@ -77,7 +77,7 @@ def _extract_orb_worker(
     signal.setitimer(signal.ITIMER_REAL, timeout)
 
     try:
-        idx, glashelder_path, wikiart_path, similarities, label = args
+        idx, glashelder_path, artwork_path, similarities, label = args
 
         # Initialize if needed (shouldn't happen with initializer, but be safe)
         if _worker_orb is None or _worker_bf is None:
@@ -86,7 +86,7 @@ def _extract_orb_worker(
         features = (
             distribution_features(similarities)
             | _pair_features(
-                glashelder_path, wikiart_path, _worker_orb, _worker_bf
+                glashelder_path, artwork_path, _worker_orb, _worker_bf
             ).as_dict()
         )
         return (idx, _sanitize_features(features), label)
@@ -99,15 +99,6 @@ def _extract_orb_worker(
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, old)
-
-
-def entry_artwork_path(entry: dict) -> str:
-    """The reference a labeled entry was matched to.
-
-    Labels made before `wikiart_path` became `artwork_path` still count: without
-    a path, the entry would be trained on without its ORB/hash features.
-    """
-    return entry.get("artwork_path") or entry.get("wikiart_path") or ""
 
 
 def _sanitize_features(features: dict[str, float]) -> dict[str, float]:
@@ -808,14 +799,14 @@ class MLClassifier:
         workers: int,
     ) -> tuple[list[NDArray], list[int]]:
         """Extract features in parallel using multiprocessing with progress bar."""
-        # Prepare work items: (index, glashelder_path, wikiart_path, similarities, label)
+        # Prepare work items: (index, glashelder_path, artwork_path, similarities, label)
         work_items = []
         for idx, (entry, label) in enumerate(entries_with_labels):
             work_items.append(
                 (
                     idx,
                     entry.get("glashelder_path", ""),
-                    entry_artwork_path(entry),
+                    entry.get("artwork_path") or "",
                     entry.get("similarities", []),
                     label,
                 )
@@ -879,7 +870,7 @@ class MLClassifier:
         glashelder_path = (
             entry.get("glashelder_path") if extract_image_features else None
         )
-        artwork_path = entry_artwork_path(entry) if extract_image_features else None
+        artwork_path = entry.get("artwork_path") if extract_image_features else None
 
         return self._feature_extractor.extract_all_features(
             similarities, glashelder_path, artwork_path

@@ -37,6 +37,22 @@ def slugify_session_name(name: str) -> str:
     return slug[:64]
 
 
+def artwork_keys(record: dict) -> dict:
+    """A copy of a label or a batch-classify result with the `wikiart_*` keys
+    of files written before they became `artwork_*` renamed."""
+
+    def current(key: str) -> str:
+        if key.startswith("wikiart_"):
+            return "artwork_" + key.removeprefix("wikiart_")
+        return key
+
+    return {
+        current(key): value
+        for key, value in record.items()
+        if current(key) == key or current(key) not in record
+    }
+
+
 def normalize_dataset(data: dict) -> LabelDataset:
     """Read a dataset out of either export format.
 
@@ -64,16 +80,9 @@ def normalize_dataset(data: dict) -> LabelDataset:
         for entry in entries:
             if not isinstance(entry, dict):
                 raise ValueError(f"Bucket {name!r} contains a non-object entry")
-            entry = dict(entry)
+            entry = artwork_keys(entry)
             # older exports imply `is_match` through the bucket
             entry.setdefault("is_match", was_match(name))
-            # labels from before `wikiart_*` became `artwork_*`
-            for old, new in (
-                ("wikiart_path", "artwork_path"),
-                ("wikiart_idx", "artwork_idx"),
-            ):
-                if old in entry:
-                    entry.setdefault(new, entry.pop(old))
             normalized.append(entry)
         setattr(dataset, name, normalized)
 

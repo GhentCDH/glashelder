@@ -134,11 +134,10 @@ def build(
     artworks: dict[str, Artwork] | None = None,
     source: str = "",
 ) -> Report:
-    """The report on a `batch-classify` JSON, with accuracy when labels are given."""
-    from .web.source import _current_keys
-
+    """The report on a `batch-classify` JSON (as `read_json_output` reads it), with
+    accuracy when labels are given."""
     metadata = data.get("metadata", {})
-    results = [_current_keys(r) for r in data.get("results", [])]
+    results = data.get("results", [])
     run_threshold = float(metadata.get("threshold", 0.5))
     threshold = run_threshold if threshold is None else threshold
 
