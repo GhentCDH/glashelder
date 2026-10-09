@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -227,6 +228,8 @@ class LiveSource(ClassificationSource):
         # threshold changes, since a higher threshold may need more candidates
         self._tried: dict[int, list[tuple[float, dict[str, float]]]] = {}
         self._pool: ProcessPoolExecutor | None = None
+        # Flask serves requests in threads: guards `_tried` and `_pool`
+        self._lock = threading.Lock()
 
     @property
     def total_images(self) -> int:
@@ -247,19 +250,27 @@ class LiveSource(ClassificationSource):
 
         from .. import batch
 
-        def run() -> dict[int, dict[str, float]]:
-            if self._pool is None:
-                self._pool = batch.pool(self._search_workers)
+        def current_pool() -> ProcessPoolExecutor:
+            with self._lock:
+                if self._pool is None:
+                    self._pool = batch.pool(self._search_workers)
+                return self._pool
+
+        def run(executor: ProcessPoolExecutor) -> dict[int, dict[str, float]]:
             return batch.extract_features_batch(
-                work_items, self._search_workers, progress=False, executor=self._pool
+                work_items, self._search_workers, progress=False, executor=executor
             )
 
+        executor = current_pool()
         try:
-            return run()
+            return run(executor)
         except BrokenProcessPool:
-            logger.warning("the feature worker pool broke; starting a new one")
-            self._pool = None
-            return run()
+            with self._lock:
+                # another request may have replaced it already
+                if self._pool is executor:
+                    logger.warning("the feature worker pool broke; starting a new one")
+                    self._pool = None
+            return run(current_pool())
 
     def glashelder_path(self, index: int) -> str | None:
         if index < 0 or index >= len(self._glashelder_paths):
@@ -330,6 +341,7 @@ class LiveSource(ClassificationSource):
             top_similarities=self._similarities,
             classifier=self._classifier,
             extract=self._extract,
+            lock=self._lock,
         ):
             pass
 
@@ -341,7 +353,8 @@ class LiveSource(ClassificationSource):
     def _ml_item(self, index: int, threshold: float) -> MatchItem:
         from .. import batch
 
-        tried = self._tried[index]
+        with self._lock:
+            tried = list(self._tried[index])
         rank = batch.choose(tried, threshold, self._candidates)
         confidence, features = tried[rank]
         top_indices, top_similarities = self._embedding_results(index)

@@ -91,6 +91,29 @@ def test_threshold_changes_reuse_what_was_scored() -> None:
     assert rank == 2 and [ref for ref, _ in seen] == ["r3"] and len(tried[0]) == 4
 
 
+def test_a_score_added_meanwhile_is_kept() -> None:
+    """Another request scored the same candidate while this one extracted."""
+    tried: dict = {}
+
+    def extract(work_items):
+        tried.setdefault(0, []).append((0.1, {"confidence": 0.1}))
+        return {n: {"confidence": CONFIDENCE[ref]} for n, _, ref, _, _ in work_items}
+
+    score_round(
+        tried,
+        [0],
+        threshold=0.82,
+        candidates=4,
+        glashelder_paths=["g0"],
+        artwork_paths=["r0", "r1", "r2", "r3"],
+        top_indices=np.array([[0, 1, 2, 3]]),
+        top_similarities=np.array([[0.9, 0.8, 0.7, 0.6]]),
+        classifier=CLASSIFIER,
+        extract=extract,
+    )
+    assert tried[0] == [(0.1, {"confidence": 0.1})]
+
+
 if __name__ == "__main__":
     test_shifted()
     test_one_candidate_is_the_old_behaviour()
@@ -98,4 +121,5 @@ if __name__ == "__main__":
     test_stops_at_the_first_match()
     test_lower_threshold_stops_earlier()
     test_threshold_changes_reuse_what_was_scored()
+    test_a_score_added_meanwhile_is_kept()
     print("ok")

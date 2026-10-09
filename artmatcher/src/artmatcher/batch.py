@@ -376,34 +376,48 @@ def score_round(
     top_similarities,
     classifier: MLClassifier,
     extract,
+    lock: contextlib.AbstractContextManager | None = None,
 ) -> bool:
     """Score the next candidate of every image in `images` that needs one.
 
     `tried` is updated in place; `extract(work_items)` computes the ORB/hash
     features. Returns whether there was anything left to score, so callers run
     rounds until it says no.
+
+    `lock` guards `tried` for callers that share it between threads. It is not
+    held during `extract`; a score another thread added for the same rank in
+    the meantime is kept, and this one dropped.
     """
-    need = [
-        image
-        for image in images
-        if needs_more(
-            tried.get(image, []), threshold, candidates, len(top_indices[image])
-        )
-    ]
+    lock = contextlib.nullcontext() if lock is None else lock
+    with lock:
+        need = [
+            (image, len(tried.get(image, [])))
+            for image in images
+            if needs_more(
+                tried.get(image, []), threshold, candidates, len(top_indices[image])
+            )
+        ]
     if not need:
         return False
 
-    work_items = []
-    for n, image in enumerate(need):
-        rank = len(tried.get(image, []))
-        reference = artwork_paths[int(top_indices[image][rank])]
-        sims = shifted(top_similarities[image], rank)
-        work_items.append((n, glashelder_paths[image], reference, sims, 0))
+    work_items = [
+        (
+            n,
+            glashelder_paths[image],
+            artwork_paths[int(top_indices[image][rank])],
+            shifted(top_similarities[image], rank),
+            0,
+        )
+        for n, (image, rank) in enumerate(need)
+    ]
 
     features = extract(work_items)
     confidences = predict_confidences(classifier, features, list(range(len(need))))
-    for n, image in enumerate(need):
-        tried.setdefault(image, []).append((confidences[n], features[n]))
+    with lock:
+        for n, (image, rank) in enumerate(need):
+            scores = tried.setdefault(image, [])
+            if len(scores) == rank:
+                scores.append((confidences[n], features[n]))
     return True
 
 
