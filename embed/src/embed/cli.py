@@ -941,4 +941,4 @@ def serve(embeddings, image_dir, host, port):
         return send_from_directory(image_path.parent, image_path.name)
 
     logger.info(f"Starting Flask server on {host}:{port}...")
-    app.run(host=host, port=port, debug=True)
+    app.run(host=host, port=port)
