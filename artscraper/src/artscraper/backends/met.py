@@ -27,12 +27,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import random
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from urllib.parse import urlencode
 
-from ..client import fetch_text
+import httpx
+
+from ..client import fetch_json
 from ..model import Artwork
 from . import Backend, Context, enrich_pool
 
@@ -59,12 +60,17 @@ DATE_END = 1950
 PAGE_SIZE = 500
 SEARCH_CAP = 10000
 
-MAX_ATTEMPTS = 8
-
-# Failed requests are retained for a later retry pass.
-FAILED_OBJECTS_PATH = Path("metmuseum_failed_objects.jsonl")
+FAILED_OBJECTS_NAME = "metmuseum_failed_objects.jsonl"
+"""Objects that failed, kept for the retry pass at the end of a run."""
 
 logger = logging.getLogger(__name__)
+
+
+def _failed_path(ctx: Context) -> Path:
+    """Where failed objects go: next to the output, or the working directory without one."""
+    if ctx.output is None:
+        return Path(FAILED_OBJECTS_NAME)
+    return ctx.output.with_name(f"{ctx.output.stem}.{FAILED_OBJECTS_NAME}")
 
 
 # --------------------------------------------------------------------------- #
@@ -73,20 +79,8 @@ logger = logging.getLogger(__name__)
 
 
 async def _fetch_json(ctx: Context, url: str) -> dict:
-    """GET a URL via the project's HTTP client and parse JSON.
-
-    Exceptions are deliberately allowed to propagate. The object fetcher
-    handles retries because it needs to distinguish temporary failures from
-    permanent invalid-object responses.
-    """
-    text = await fetch_text(
-        ctx.client,
-        url,
-        ctx.throttle,
-        ctx.stats,
-    )
-
-    data = json.loads(text)
+    """GET a URL and parse JSON; the client retries transient failures."""
+    data = await fetch_json(ctx.client, ctx.throttle, ctx.stats, "GET", url)
 
     if not isinstance(data, dict):
         raise ValueError(f"Unexpected JSON response from {url}: {type(data).__name__}")
@@ -281,10 +275,11 @@ async def _search_ids(
 
 
 def _append_failed_object_sync(
+    path: Path,
     object_id: str,
     error: str,
 ) -> None:
-    FAILED_OBJECTS_PATH.parent.mkdir(
+    path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
@@ -294,7 +289,7 @@ def _append_failed_object_sync(
         "error": error,
     }
 
-    with FAILED_OBJECTS_PATH.open(
+    with path.open(
         "a",
         encoding="utf-8",
     ) as file:
@@ -308,24 +303,26 @@ def _append_failed_object_sync(
 
 
 async def _record_failed_object(
+    path: Path,
     object_id: str,
     error: str,
 ) -> None:
-    """Append a permanently failed request to the retry file."""
+    """Append a failed object to the retry file."""
     await asyncio.to_thread(
         _append_failed_object_sync,
+        path,
         object_id,
         error,
     )
 
 
-def _read_failed_ids_sync() -> list[str]:
-    if not FAILED_OBJECTS_PATH.exists():
+def _read_failed_ids_sync(path: Path) -> list[str]:
+    if not path.exists():
         return []
 
     object_ids: list[str] = []
 
-    with FAILED_OBJECTS_PATH.open(
+    with path.open(
         "r",
         encoding="utf-8",
     ) as file:
@@ -348,19 +345,22 @@ def _read_failed_ids_sync() -> list[str]:
     return list(dict.fromkeys(object_ids))
 
 
-async def _read_failed_ids() -> list[str]:
-    return await asyncio.to_thread(_read_failed_ids_sync)
+async def _read_failed_ids(path: Path) -> list[str]:
+    return await asyncio.to_thread(_read_failed_ids_sync, path)
 
 
-def _remove_successful_failed_ids_sync(
-    successful_ids: set[str],
+def _remove_resolved_ids(
+    path: Path,
+    resolved: set[str],
 ) -> None:
-    if not FAILED_OBJECTS_PATH.exists():
+    """Rewrite the retry file to hold only the objects that still fail, once each."""
+    if not path.exists():
         return
 
     remaining_lines: list[str] = []
+    kept: set[str] = set()
 
-    with FAILED_OBJECTS_PATH.open(
+    with path.open(
         "r",
         encoding="utf-8",
     ) as file:
@@ -377,25 +377,17 @@ def _remove_successful_failed_ids_sync(
                 remaining_lines.append(line)
                 continue
 
-            if object_id not in successful_ids:
+            if object_id not in resolved and object_id not in kept:
+                kept.add(object_id)
                 remaining_lines.append(line)
 
     if remaining_lines:
-        FAILED_OBJECTS_PATH.write_text(
+        path.write_text(
             "".join(remaining_lines),
             encoding="utf-8",
         )
     else:
-        FAILED_OBJECTS_PATH.unlink(missing_ok=True)
-
-
-async def _remove_successful_failed_ids(
-    successful_ids: set[str],
-) -> None:
-    await asyncio.to_thread(
-        _remove_successful_failed_ids_sync,
-        successful_ids,
-    )
+        path.unlink(missing_ok=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -417,75 +409,45 @@ def _is_permanent_invalid_object(
     return "not a valid object" in normalized or "invalid object" in normalized
 
 
+def _error_body(response: httpx.Response) -> dict:
+    try:
+        data = json.loads(response.text)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 async def _fetch_object(
     ctx: Context,
     object_id: str,
 ) -> Artwork | None:
-    """Fetch one object with retries.
+    """Fetch one object.
 
-    Temporary HTTP failures, connection errors, timeouts, and malformed
-    responses are retried. Explicit invalid-object responses are not retried
-    indefinitely.
+    The client already retries transient failures, so anything raised here is
+    worth trying again in a later pass. Objects the API calls invalid (a 404
+    with an explanation) are skipped for good.
     """
     url = f"{OBJECT_URL}/{object_id}"
 
-    for attempt in range(MAX_ATTEMPTS):
-        try:
-            data = await _fetch_json(ctx, url)
-
-            if _is_permanent_invalid_object(data):
-                logger.warning(
-                    "metmuseum: object %s is invalid: %s",
-                    object_id,
-                    data.get("message"),
-                )
-                return None
-
-            if data.get("message"):
-                raise RuntimeError(str(data["message"]))
-
-            break
-
-        except Exception as exc:
-            final_attempt = attempt == MAX_ATTEMPTS - 1
-
-            if final_attempt:
-                logger.error(
-                    "metmuseum: object %s failed after %d attempts: %s",
-                    object_id,
-                    MAX_ATTEMPTS,
-                    exc,
-                )
-
-                await _record_failed_object(
-                    object_id,
-                    repr(exc),
-                )
-
-                return None
-
-            # Exponential backoff with jitter.
-            # This does not alter enrich_pool or concurrency.
-            delay = min(
-                300.0,
-                (2**attempt) + random.uniform(0.5, 2.0),
+    try:
+        data = await _fetch_json(ctx, url)
+    except httpx.HTTPStatusError as e:
+        body = _error_body(e.response)
+        if e.response.status_code == 404 and _is_permanent_invalid_object(body):
+            logger.debug(
+                "metmuseum: object %s is invalid: %s", object_id, body.get("message")
             )
+            return None
+        raise
 
-            logger.warning(
-                "metmuseum: object %s failed "
-                "(attempt %d/%d): %s; "
-                "retrying in %.1f seconds",
-                object_id,
-                attempt + 1,
-                MAX_ATTEMPTS,
-                exc,
-                delay,
-            )
-
-            await asyncio.sleep(delay)
-
-    else:
+    if _is_permanent_invalid_object(data):
+        logger.debug(
+            "metmuseum: object %s is invalid: %s", object_id, data.get("message")
+        )
         return None
+
+    if data.get("message"):
+        raise RuntimeError(str(data["message"]))
 
     if not data.get("isPublicDomain"):
         return None
@@ -520,6 +482,70 @@ async def _fetch_object(
 # --------------------------------------------------------------------------- #
 
 
+async def _scrape_materials(
+    ctx: Context,
+    fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
+) -> AsyncIterator[Artwork]:
+    seen_ids: set[int] = set()
+    total_yielded = 0
+
+    for medium in MATERIALS:
+        if ctx.limit and total_yielded >= ctx.limit:
+            return
+
+        logger.info(
+            "metmuseum: searching medium %s",
+            medium,
+        )
+
+        async for batch in _search_ids(
+            ctx,
+            medium,
+            DATE_BEGIN,
+            DATE_END,
+        ):
+            # Build the to-fetch list, deduplicating across materials
+            # and skipping URLs already scraped in earlier runs.
+            todo: list[str] = []
+
+            for object_id in batch:
+                if object_id in seen_ids:
+                    continue
+
+                seen_ids.add(object_id)
+
+                object_page = f"{OBJECT_PAGE_URL}/{object_id}"
+
+                if object_page in ctx.seen:
+                    continue
+
+                todo.append(str(object_id))
+
+            if not todo:
+                continue
+
+            remaining = ctx.limit - total_yielded if ctx.limit else 0
+
+            async for artwork in enrich_pool(
+                ctx,
+                todo,
+                fetch_one,
+                remaining,
+            ):
+                yield artwork
+                total_yielded += 1
+
+                if ctx.limit and total_yielded >= ctx.limit:
+                    return
+
+        logger.info(
+            "metmuseum: %s done, %d IDs seen, %d artworks yielded",
+            medium,
+            len(seen_ids),
+            total_yielded,
+        )
+
+
 class MetMuseum(Backend):
     name = "metmuseum"
 
@@ -527,103 +553,48 @@ class MetMuseum(Backend):
         self,
         ctx: Context,
     ) -> AsyncIterator[Artwork]:
-        seen_ids: set[int] = set()
-        total_yielded = 0
+        failed_path = _failed_path(ctx)
+        # objects fetched without failing this run, they leave the retry file
+        resolved: set[str] = set()
 
-        for medium in MATERIALS:
-            if ctx.limit and total_yielded >= ctx.limit:
+        async def fetch(ctx: Context, object_id: str) -> Artwork | None:
+            artwork = await _fetch_object(ctx, object_id)
+            resolved.add(object_id)
+            return artwork
+
+        async def fetch_or_record(ctx: Context, object_id: str) -> Artwork | None:
+            try:
+                return await fetch(ctx, object_id)
+            except Exception as exc:
+                logger.error("metmuseum: object %s failed: %s", object_id, exc)
+                await _record_failed_object(failed_path, object_id, repr(exc))
+                return None
+
+        try:
+            yielded = 0
+            async for artwork in _scrape_materials(ctx, fetch_or_record):
+                yield artwork
+                yielded += 1
+
+            if ctx.limit and yielded >= ctx.limit:
                 return
 
-            logger.info(
-                "metmuseum: searching medium %s",
-                medium,
+            # Failures from this and earlier runs get one more go; ones that
+            # fail again stay in the file without being appended twice.
+            failed_ids = await _read_failed_ids(failed_path)
+            resolved.update(
+                object_id
+                for object_id in failed_ids
+                if f"{OBJECT_PAGE_URL}/{object_id}" in ctx.seen
             )
+            todo = [object_id for object_id in failed_ids if object_id not in resolved]
+            if not todo:
+                return
 
-            async for batch in _search_ids(
-                ctx,
-                medium,
-                DATE_BEGIN,
-                DATE_END,
-            ):
-                # Build the to-fetch list, deduplicating across materials
-                # and skipping URLs already scraped in earlier runs.
-                todo: list[str] = []
-
-                for object_id in batch:
-                    if object_id in seen_ids:
-                        continue
-
-                    seen_ids.add(object_id)
-
-                    object_page = f"{OBJECT_PAGE_URL}/{object_id}"
-
-                    if object_page in ctx.seen:
-                        continue
-
-                    todo.append(str(object_id))
-
-                if not todo:
-                    continue
-
-                # This is intentionally unchanged.
-                # Concurrency is controlled by the existing enrich_pool.
-                remaining = ctx.limit - total_yielded if ctx.limit else 0
-
-                async for artwork in enrich_pool(
-                    ctx,
-                    todo,
-                    _fetch_object,
-                    remaining,
-                ):
-                    if artwork is None:
-                        continue
-
-                    yield artwork
-                    total_yielded += 1
-
-                    if ctx.limit and total_yielded >= ctx.limit:
-                        return
-
-            logger.info(
-                "metmuseum: %s done — %d IDs seen, %d artworks yielded",
-                medium,
-                len(seen_ids),
-                total_yielded,
-            )
-
-        # Retry objects that still failed after all normal attempts.
-        failed_ids = await _read_failed_ids()
-
-        if not failed_ids:
-            return
-
-        logger.info(
-            "metmuseum: retrying %d previously failed objects",
-            len(failed_ids),
-        )
-
-        successful_retry_ids: set[str] = set()
-
-        remaining = ctx.limit - total_yielded if ctx.limit else 0
-
-        async for artwork in enrich_pool(
-            ctx,
-            failed_ids,
-            _fetch_object,
-            remaining,
-        ):
-            if artwork is None:
-                continue
-
-            successful_retry_ids.add(artwork.url.rsplit("/", 1)[-1])
-
-            yield artwork
-            total_yielded += 1
-
-            if ctx.limit and total_yielded >= ctx.limit:
-                break
-
-        if successful_retry_ids:
-            await _remove_successful_failed_ids(
-                successful_retry_ids,
-            )
+            logger.info("metmuseum: retrying %d previously failed objects", len(todo))
+            remaining = ctx.limit - yielded if ctx.limit else 0
+            async for artwork in enrich_pool(ctx, todo, fetch, remaining):
+                yield artwork
+        finally:
+            if resolved:
+                _remove_resolved_ids(failed_path, resolved)

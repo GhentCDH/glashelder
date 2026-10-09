@@ -91,6 +91,7 @@ async def scrape(
                 with_images=with_images,
                 workers=concurrency,
                 seen=seen,
+                output=jsonl,
             )
             if report:
                 report(
