@@ -55,7 +55,7 @@ def resize_image_to_max_dimension(src_path: str, dst_path: str, max_dim: int = 5
 
 @click.group()
 def cluster():
-    """Cluster and search images using embedding similarity."""
+    """Cluster images using embedding similarity."""
     load_dotenv()
     pass
 
@@ -409,112 +409,6 @@ def report(path: Path | None, image_dir: str | None, samples: int, open_: bool):
     logger.info(f"Saved the report to {pdf}")
     if open_:
         click.launch(str(pdf))
-
-
-@cluster.command()
-@click.argument("prompt")
-@click.option("--top-k", default=10, help="Number of top matching images to return")
-@click.option(
-    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
-)
-@click.option(
-    "--output-dir", default="search_results", help="Directory to save matching images"
-)
-@click.option(
-    "--sample-size",
-    default=10000,
-    help="The amount of images in the dataset to consider",
-)
-@click.option("--embeddings", default=None, help="The path to a embeddings pickle file")
-@click.option("--batch-size", default=64, help="Batch size for embedding generation")
-@click.option(
-    "--model",
-    default="clip",
-    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
-    help="Embedding model to use",
-)
-def search(
-    prompt, top_k, image_dir, output_dir, sample_size, embeddings, batch_size, model
-):
-    """Search for images matching a text prompt using embedding similarity"""
-    from embed import (
-        get_embedder,
-        load_embeddings,
-    )
-    from embed.search import perform_search, place
-
-    logger.info(f"Searching for: '{prompt}'")
-    logger.info(f"Looking for top {top_k} matches")
-
-    device = get_device()
-
-    # Get image embeddings and determine which model to use for text encoding
-    if embeddings is not None:
-        data = load_embeddings(embeddings, root=image_dir)
-        image_paths = data["images"]
-        image_embeddings = place(data["embeddings"], device, label=str(embeddings))
-        embedding_model_name = data.get("model", "clip")
-        logger.info(f"Loaded embeddings from model: {embedding_model_name}")
-    else:
-        embedding_model_name = model
-        logger.info(f"Getting embedding model: {model}")
-        embedder = get_embedder(model)
-        embedder.load(device)
-        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
-            :sample_size
-        ]
-        logger.info("Generating image embeddings...")
-        image_embeddings, image_paths = embedder.encode_images(input_paths, batch_size)
-        if len(image_paths) < len(input_paths):
-            logger.warning(
-                f"Skipped {len(input_paths) - len(image_paths)} images due to load errors"
-            )
-
-    # Load the embedder for text encoding (must match the image embeddings)
-    embedder = get_embedder(embedding_model_name)
-    embedder.load(device)
-
-    if not embedder.supports_text:
-        logger.error(
-            f"Model '{embedding_model_name}' does not support text search. "
-            "Use CLIP or Qwen3-VL for text-based search."
-        )
-        return
-
-    # Get text embedding for the prompt
-    logger.info("Generating text embedding...")
-    text_embedding = embedder.encode_text(prompt)
-
-    top_indices, top_scores = perform_search(
-        top_k, text_embedding, image_embeddings, image_paths
-    )
-
-    # Print results
-    logger.info(f"\nTop {top_k} matches for '{prompt}':")
-    for i, (idx, score) in enumerate(
-        zip(top_indices.cpu().numpy(), top_scores.cpu().numpy(), strict=False), 1
-    ):
-        logger.info(f"{i}. {Path(image_paths[idx]).name} (similarity: {score:.4f})")
-
-    # Create output directory and copy images
-    output_path = Path(output_dir)
-    output_path.mkdir(exist_ok=True)
-
-    # Clear previous results
-    for old_file in output_path.glob("*"):
-        old_file.unlink()
-
-    for i, (idx, score) in enumerate(
-        zip(top_indices.cpu().numpy(), top_scores.cpu().numpy(), strict=False), 1
-    ):
-        src_path = image_paths[idx]
-        filename = Path(src_path).name
-        # Add rank and score to filename
-        dst_filename = f"{i:02d}_score{score:.3f}_{filename}"
-        dst_path = output_path / dst_filename
-        shutil.copy(src_path, dst_path)
-
-    logger.info(f"\nTop {top_k} images saved to: {output_path}")
 
 
 @cluster.command()

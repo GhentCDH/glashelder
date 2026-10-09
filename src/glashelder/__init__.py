@@ -52,7 +52,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     ),
     "cluster": (
         "cluster.cli:cluster",
-        "Cluster and search images using embedding similarity.",
+        "Cluster images using embedding similarity.",
     ),
     "embed": ("embed.cli:embed", "Generate and manage image embeddings."),
     "ocr": ("ocr.cli:ocr", "Read text from images."),
@@ -135,6 +135,10 @@ def cli_defaults() -> dict:
             "info": given(path=paths.clusters),
             "serve": given(clusters=paths.clusters, image_dir=paths.images.glashelder),
             "report": given(path=paths.clusters, image_dir=paths.images.glashelder),
+            "analyze": given(
+                embeddings=paths.embeddings.glashelder,
+                image_dir=paths.images.glashelder,
+            ),
         },
         "embed": {
             "artworks": {
@@ -152,6 +156,14 @@ def cli_defaults() -> dict:
                 queries=paths.embeddings.glashelder,
                 references=paths.embeddings.reference,
                 top_k=settings.artmatcher.top_k,
+            ),
+            "search": given(
+                embeddings=paths.embeddings.glashelder,
+                image_dir=paths.images.glashelder,
+            ),
+            "serve": given(
+                embeddings=paths.embeddings.glashelder,
+                image_dir=paths.images.glashelder,
             ),
         },
         "artmatcher": {

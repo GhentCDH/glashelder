@@ -550,8 +550,89 @@ def info(path: Path):
 
 
 @embed.command()
+@click.argument("prompt")
 @click.option(
-    "--embeddings", default=EMBEDDINGS_PATH, help="Path to embeddings pickle file"
+    "--embeddings",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Embedding store or legacy pickle [paths.embeddings.glashelder]",
+)
+@click.option(
+    "--image-dir",
+    default=ASSETS_DIR,
+    help="Directory the embedded images live in on this machine",
+)
+@click.option("--top-k", default=10, show_default=True, help="Matches to return")
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("search_results"),
+    show_default=True,
+    help="Directory to copy the matches into, must be empty or not exist yet",
+)
+def search(
+    prompt: str,
+    embeddings: Path | None,
+    image_dir: str,
+    top_k: int,
+    output_dir: Path,
+):
+    """Find the images that match a text PROMPT best, and copy them to a directory.
+
+    The files are named after their rank and similarity, so the directory
+    sorts best first.
+    """
+    import shutil
+
+    from common.images import load
+
+    from .embed import get_embedder, load_embeddings
+    from .search import perform_search, place
+
+    if embeddings is None:
+        raise click.UsageError(
+            "pass --embeddings or set paths.embeddings.glashelder in glashelder.toml"
+        )
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise click.ClickException(
+            f"{output_dir} is not empty; pass another --output-dir or empty it first"
+        )
+
+    device = get_device()
+    data = load_embeddings(embeddings, root=image_dir)
+    refs = data["images"]
+    image_embeddings = place(data["embeddings"], device, label=str(embeddings))
+
+    embedder = get_embedder(data.get("model", "clip"))
+    if not embedder.supports_text:
+        raise click.ClickException(
+            f"{embeddings} was made with '{embedder.name}', which cannot embed text"
+        )
+    embedder.load(device)
+
+    indices, scores = perform_search(
+        top_k, embedder.encode_text(prompt), image_embeddings, refs
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Top {top_k} matches for '{prompt}':")
+    for rank, (index, score) in enumerate(
+        zip(indices.tolist(), scores.tolist(), strict=True), 1
+    ):
+        ref = refs[index]
+        destination = output_dir / f"{rank:02d}_score{score:.3f}_{Path(ref).name}"
+        if is_url(ref):
+            load(ref).save(destination.with_suffix(".jpg"))
+        else:
+            shutil.copy(ref, destination)
+        logger.info(f"{rank}. {ref} (similarity: {score:.4f})")
+    logger.info(f"Saved the matches to {output_dir}")
+
+
+@embed.command()
+@click.option(
+    "--embeddings",
+    default=EMBEDDINGS_PATH,
+    help="Embedding store or legacy pickle [paths.embeddings.glashelder]",
 )
 @click.option(
     "--image-dir",
