@@ -431,4 +431,3 @@ class MonitorApp(App):
             majority_votes = self.orchestrator.get_majority_votes()
             if self.content_panel:
                 self.content_panel.show_votes(majority_votes)
-    app._stop_webviewer()
