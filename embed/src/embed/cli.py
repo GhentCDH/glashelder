@@ -6,7 +6,8 @@ from urllib.parse import unquote, urlsplit
 
 import click
 
-from common import ASSETS_DIR, PROJECT_ROOT, require_auth, run_app
+from common import ASSETS_DIR, PROJECT_ROOT, run_app
+from common.cli import options, serve_options
 from common.images import is_url, list_images
 from common.progress import format_bytes
 
@@ -47,68 +48,64 @@ def embed():
     pass
 
 
-def store_options(command):
-    """The options `embed artworks` and `embed images` share."""
-    options = [
-        click.option(
-            "--output",
-            type=click.Path(path_type=Path),
-            default=None,
-            help="Embedding store to create or extend",
-        ),
-        click.option(
-            "--model",
-            default="clip",
-            show_default=True,
-            type=click.Choice(sorted(EMBEDDING_MODELS)),
-            help="Embedding model, must match the one an existing store was made with",
-        ),
-        click.option("--batch-size", default=64, show_default=True),
-        click.option(
-            "--limit", default=0, help="Only look at the first N images, 0 for all"
-        ),
-        click.option(
-            "--verify",
-            is_flag=True,
-            help="Also read images that are already stored, embedding again the ones "
-            "whose bytes changed. Rows without a hash only get their hash recorded.",
-        ),
-        click.option(
-            "--prune",
-            is_flag=True,
-            help="Drop stored rows whose image is no longer in the input. "
-            "Shifts the indices of the rows after them.",
-        ),
-        click.option(
-            "--concurrency",
-            type=int,
-            default=None,
-            help="Fetches in flight over all hosts [default: images.concurrency]",
-        ),
-        click.option(
-            "--per-host",
-            type=int,
-            default=None,
-            help="Fetches in flight to one host [default: images.per_host]",
-        ),
-        click.option(
-            "--rate",
-            type=float,
-            default=None,
-            help="Requests per second to one host, 0 for no limit [default: images.rate]. "
-            "Hosts with their own [images.hosts] table keep that.",
-        ),
-    ]
-    for option in reversed(options):
-        command = option(command)
-    return command
+STORE_OPTIONS = [
+    # shared by `embed artworks` and `embed images`
+    click.option(
+        "--output",
+        type=click.Path(path_type=Path),
+        default=None,
+        help="Embedding store to create or extend",
+    ),
+    click.option(
+        "--model",
+        default="clip",
+        show_default=True,
+        type=click.Choice(sorted(EMBEDDING_MODELS)),
+        help="Embedding model, must match the one an existing store was made with",
+    ),
+    click.option("--batch-size", default=64, show_default=True),
+    click.option(
+        "--limit", default=0, help="Only look at the first N images, 0 for all"
+    ),
+    click.option(
+        "--verify",
+        is_flag=True,
+        help="Also read images that are already stored, embedding again the ones "
+        "whose bytes changed. Rows without a hash only get their hash recorded.",
+    ),
+    click.option(
+        "--prune",
+        is_flag=True,
+        help="Drop stored rows whose image is no longer in the input. "
+        "Shifts the indices of the rows after them.",
+    ),
+    click.option(
+        "--concurrency",
+        type=int,
+        default=None,
+        help="Fetches in flight over all hosts [default: images.concurrency]",
+    ),
+    click.option(
+        "--per-host",
+        type=int,
+        default=None,
+        help="Fetches in flight to one host [default: images.per_host]",
+    ),
+    click.option(
+        "--rate",
+        type=float,
+        default=None,
+        help="Requests per second to one host, 0 for no limit [default: images.rate]. "
+        "Hosts with their own [images.hosts] table keep that.",
+    ),
+]
 
 
 @embed.command()
 @click.argument(
     "artworks", type=click.Path(exists=True, dir_okay=False, path_type=Path)
 )
-@store_options
+@options(*STORE_OPTIONS)
 def artworks(artworks: Path, output: Path | None, **options):
     """Embed scraped artworks into a store, fetching their images as needed.
 
@@ -127,7 +124,7 @@ def artworks(artworks: Path, output: Path | None, **options):
 @click.argument(
     "image_dir", type=click.Path(exists=True, file_okay=False, path_type=Path)
 )
-@store_options
+@options(*STORE_OPTIONS)
 def images(image_dir: Path, output: Path | None, **options):
     """Embed a directory of JPGs into a store.
 
@@ -650,18 +647,11 @@ def search(
     default=ASSETS_DIR,
     help="Directory the embedded images live in on this machine",
 )
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--port", default=5000, help="Port to bind to")
-@click.option(
-    "--open/--no-open",
-    "open_browser",
-    default=True,
-    help="Open the site in a browser on startup",
-)
-def serve(embeddings, image_dir, host, port, open_browser):
+@serve_options(5000)
+def serve(embeddings, image_dir, **server):
     """Start a web server for interactive image search.
 
-    Authentication is required. Set the `secret` config value (or
+    Unless --no-auth is given, set the `secret` config value (or
     GLASHELDER_SECRET), then access the server with /?secret=<your-secret> to
     get a session cookie.
     """
@@ -678,9 +668,6 @@ def serve(embeddings, image_dir, host, port, open_browser):
         template_folder=PACKAGE_ROOT / "templates",
         static_folder=PACKAGE_ROOT / "static",
     )
-
-    # Add authentication middleware
-    require_auth(app)
 
     # Load embeddings and determine model
     logger.info(f"Loading embeddings from {embeddings}...")
@@ -978,4 +965,4 @@ def serve(embeddings, image_dir, host, port, open_browser):
         image_path = Path(ref)
         return send_from_directory(image_path.parent, image_path.name)
 
-    run_app(app, host, port, open_browser=open_browser)
+    run_app(app, **server)

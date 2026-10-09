@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 # local source
 from common import ASSETS_DIR, PROJECT_ROOT, run_app
+from common.cli import serve_options
 from common.images import list_images, save_resized
 from embed import get_device
 
@@ -335,27 +336,8 @@ def info(path: Path | None, embeddings: Path | None):
     default=None,
     help="Directory the clustered images live in on this machine",
 )
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--port", default=5001, help="Port to bind to")
-@click.option(
-    "--auth", is_flag=True, help="Enable secret url parameter based authentication."
-)
-@click.option("--debug", is_flag=True, help="Run Flask in debug mode")
-@click.option(
-    "--open/--no-open",
-    "open_browser",
-    default=True,
-    help="Open the site in a browser on startup",
-)
-def serve(
-    clusters: Path | None,
-    image_dir: str | None,
-    host: str,
-    port: int,
-    auth: bool,
-    debug: bool,
-    open_browser: bool,
-):
+@serve_options(5002)
+def serve(clusters: Path | None, image_dir: str | None, **server):
     """Show a clustering result in the browser, and give its clusters names and groups.
 
     Names and groups are saved in the result, in `annotations.json`.
@@ -364,8 +346,7 @@ def serve(
 
     if clusters is None:
         raise click.UsageError("give --clusters, or set paths.clusters")
-    app = create_app(clusters, image_dir, auth=auth)
-    run_app(app, host, port, open_browser=open_browser, debug=debug)
+    run_app(create_app(clusters, image_dir), **server)
 
 
 @cluster.command()

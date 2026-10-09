@@ -7,7 +7,6 @@ from urllib.parse import quote
 
 from flask import Flask, Response, redirect, render_template, request, send_file
 
-from common import require_auth
 from common.images import is_url
 
 from .session import LabelSession, bucket_for
@@ -27,7 +26,6 @@ def create_app(
     source: ClassificationSource,
     *,
     threshold: float,
-    auth: bool,
     session_dir: str | Path = "labeling-sessions",
     subset: list[int] | None = None,
 ) -> Flask:
@@ -41,9 +39,6 @@ def create_app(
         __name__,
         template_folder=Path(__file__).parent.parent / "templates",
     )
-
-    if auth:
-        require_auth(app)
 
     store = SessionStore(session_dir)
     logger.info(f"Labeling sessions are stored in {store.directory.resolve()}")

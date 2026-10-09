@@ -9,6 +9,8 @@ _MODELS_DIR = Path(__file__).parent
 
 # combined results of a run, relative to the working directory; also what `serve` reads
 RESULTS_CSV = Path("combined_risk_assessment_results.csv")
+# default port of `serve`, where the TUI starts it
+WEB_PORT = 5003
 
 
 def get_prompt(prompt_file=None):
