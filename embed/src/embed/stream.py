@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from common.images import reason, stream
 
-from .embed import EmbeddingModel
+from .models import EmbeddingModel
 from .store import Store
 
 if TYPE_CHECKING:

@@ -331,19 +331,3 @@ async def _fetch_async(
         if not response.is_server_error and response.status_code != 429:
             response.raise_for_status()
     raise RuntimeError(f"{url}: out of attempts")
-
-
-def as_paths(refs: Iterable[str | Path]) -> list[Path]:
-    """Local paths for references, fetching and caching the URLs among them.
-
-    For the few consumers that genuinely need a file on disk, such as the Qwen
-    embedder's `file://` messages.
-    """
-    return [Path(ref) if not is_url(ref) else _ensure_cached(str(ref)) for ref in refs]
-
-
-def _ensure_cached(url: str) -> Path:
-    path = cache_path(url)
-    if not path.is_file():
-        store(url, _fetch_sync(_client(), url))
-    return path

@@ -3,7 +3,7 @@
 Generates image embedding vectors, keeps them in stores, and provides a web interface
 for searching through them.
 
-Supports CLIP (default), DINOv2 (no text support), OpenCLIP, and Qwen3-VL (~16 GB VRAM).
+Supports CLIP (default, with text search) and DINOv2 (no text support).
 
 ## Commands
 
