@@ -165,7 +165,8 @@ def embed_refs(
 
     if output is None:
         raise click.UsageError(
-            f"no store given: pass --output or set paths.embeddings.{kind}"
+            f"no store given: pass --output or set paths.embeddings.{kind} "
+            "(or run `glashelder setup`)"
         )
     if output.exists() and not is_store(output):
         raise click.ClickException(
@@ -449,7 +450,8 @@ def neighbours(queries: Path | None, references: Path | None, top_k: int):
     ):
         if path is None:
             raise click.UsageError(
-                f"pass {name} or set paths.embeddings.{setting} in glashelder.toml"
+                f"pass {name} or set paths.embeddings.{setting} in glashelder.toml "
+                "(or run `glashelder setup`)"
             )
         if not is_store(path):
             raise click.ClickException(
@@ -597,7 +599,8 @@ def search(
 
     if embeddings is None:
         raise click.UsageError(
-            "pass --embeddings or set paths.embeddings.glashelder in glashelder.toml"
+            "pass --embeddings or set paths.embeddings.glashelder in glashelder.toml "
+            "(or run `glashelder setup`)"
         )
     if output_dir.exists() and any(output_dir.iterdir()):
         raise click.ClickException(
@@ -659,6 +662,7 @@ def serve(embeddings, image_dir, **server):
 
     if embeddings is None:
         raise click.UsageError(
-            "pass --embeddings or set paths.embeddings.glashelder in glashelder.toml"
+            "pass --embeddings or set paths.embeddings.glashelder in glashelder.toml "
+            "(or run `glashelder setup`)"
         )
     run_app(create_app(embeddings, image_dir), **server)

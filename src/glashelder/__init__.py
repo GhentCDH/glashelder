@@ -59,6 +59,10 @@ COMMANDS: dict[str, tuple[str, str]] = {
         "glaswacht.cli:glaswacht",
         "Assess image content risk using vision-language models.",
     ),
+    "setup": (
+        "glashelder.setup:setup",
+        "Answer a few questions and write glashelder.toml.",
+    ),
 }
 
 
@@ -192,4 +196,13 @@ def cli_defaults() -> dict:
 @click.pass_context
 def main(ctx: click.Context):
     """Run the full glashelder CLI interface."""
+    if ctx.invoked_subcommand == "setup":
+        # a broken or missing toml must not block the command that writes one
+        return
+    from common.config import find_config
+
+    if find_config() is None:
+        logging.getLogger(__name__).info(
+            "no glashelder.toml yet, run `uv run glashelder setup`"
+        )
     ctx.default_map = cli_defaults()
