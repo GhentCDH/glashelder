@@ -1091,7 +1091,9 @@ class MLClassifier:
                 f"{path} was trained on other features than this version computes, "
                 "retrain it with `glashelder artmatcher train-classifier`"
             )
-        classifier = cls(threshold=threshold or data.get("threshold", 0.5))
+        classifier = cls(
+            threshold=threshold if threshold is not None else data.get("threshold", 0.5)
+        )
         classifier._model = data["model"]
 
         logger.info(f"Model loaded from {path}")
