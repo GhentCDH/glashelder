@@ -3,18 +3,17 @@
 #   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
 
 [paths]
-artworks = "artworks.json.zst"                              # artscraper output, doubles as the metadata index
-ml_model = "/mnt/ghentcdh/glashelder/models/artmatcher.pkl"
-clusters = "/mnt/ghentcdh/glashelder/clusters/glashelder-clip.clusters"  # cluster cluster output
+artworks = "artworks.json.zst"   # artscraper output, doubles as the metadata index
+ml_model = "artmatcher.pkl"
+clusters = "glashelder.clusters" # cluster cluster output
 
 [paths.images]
-glashelder = "/mnt/ghentcdh/glashelder/assets-crop"
-# reference = "/mnt/ghentcdh/glashelder/wikiart"   # only when references are local files
-cache = ".image-cache" # only used when image caching is on
+glashelder = "/home/miepeete/Pictures/Wallpapers/grid/assets/"
+cache = ".image-cache"                                         # only used when image caching is on
 
 [paths.embeddings]
-glashelder = "/mnt/ghentcdh/glashelder/embeddings/glashelder-clip.store"
-reference = "/mnt/ghentcdh/glashelder/embeddings/artworks-clip.store"
+glashelder = "glashelder-clip.store"
+reference = "artworks-clip.store"
 
 [images]
 concurrency = 16 # image fetches in flight, over all hosts
@@ -32,9 +31,9 @@ model = "clip"
 batch_size = 64
 
 [cluster]
-n_neighbors = 30     # UMAP: higher keeps more global structure
-min_dist = 0.0       # UMAP: 0 packs similar images tightly
-dimensions = 30      # UMAP output that HDBSCAN clusters
+n_neighbors = 30      # UMAP: higher keeps more global structure
+min_dist = 0.0        # UMAP: 0 packs similar images tightly
+dimensions = 30       # UMAP output that HDBSCAN clusters
 min_cluster_size = 30
 # min_samples = 10   # HDBSCAN: higher makes more noise, unset means min_cluster_size
 
