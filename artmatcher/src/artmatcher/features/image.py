@@ -15,7 +15,21 @@ from PIL import Image
 from common.images import is_url
 from common.images import load as load_pil
 
-from ..stitching import find_homography
+
+def find_homography(kp1, kp2, matches) -> tuple[np.ndarray | None, int]:
+    """Homography from matched keypoints and its RANSAC inlier count.
+
+    `(None, 0)` when there are fewer than 4 matches or 4 inliers.
+    """
+    if len(matches) < 4:
+        return None, 0
+    src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)  # type:ignore
+    dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)  # type:ignore
+    h, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    inliers = int(mask.sum()) if mask is not None else 0
+    if h is None or inliers < 4:
+        return None, 0
+    return h, inliers
 
 
 def make_orb() -> tuple:
