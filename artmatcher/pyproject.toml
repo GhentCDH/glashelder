@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Match glass plate photos against a reference set of artworks."
 readme = "README.md"
 authors = [{ name = "Miel Peeters", email = "peetersmiel@gmail.com" }]
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
   "common",
   "embed",
@@ -14,6 +14,7 @@ dependencies = [
   "flask>=3.1.2",
   "imagehash>=4.3.1",
   "scikit-learn>=1.4.0",
+  "scipy>=1.17.0",
   "opencv-python>=4.11.0.86",
   "numpy>=2.2.3",
   "pillow>=12.0.0",
@@ -23,5 +24,5 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.9.26,<0.10.0"]
+requires = ["uv_build>=0.9.14,<0.13"]
 build-backend = "uv_build"
