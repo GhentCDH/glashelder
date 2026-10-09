@@ -1,18 +1,14 @@
 import logging
-import os
-import shutil
 from pathlib import Path
 
 # installed packages
 import click
-import numpy as np
 from dotenv import load_dotenv
 
 # local source
 from common import ASSETS_DIR, PROJECT_ROOT, run_app
 from common.cli import serve_options
-from common.images import list_images, save_resized
-from embed import EMBEDDING_MODELS, get_device
+from embed import EMBEDDING_MODELS
 
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
@@ -124,144 +120,46 @@ def do_clustering(
     soft,
     soft_top,
 ):
-    from collections import Counter
-    from datetime import datetime
+    import os
 
-    from common.paths import rebase_paths
-    from embed import Store, is_store, read_embeddings
-
-    from .cluster import create_clusterer, reduce_dimensions, soft_memberships
-    from .result import Clustering, fingerprint, save
-    from .rr import init_rerun, log_clustered_points, log_images_3d, log_reduced
+    from .pipeline import (
+        ClusterOptions,
+        export_cluster_samples,
+        log_cluster_sizes,
+        log_to_rerun,
+        reduce_only,
+        run,
+        save_clustering,
+    )
+    from .rr import init_rerun
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
-    logger.info("Loading embeddings")
-    data = read_embeddings(embeddings)
-    refs: list[str] = data["images"]
-    root = image_dir if image_dir is not None else data["root"]
-    image_paths = rebase_paths(refs, root)
-    edits = Store.open(embeddings).edits if is_store(embeddings) else None
-    # UMAP needs all of it in memory, as float32
-    vectors = data["embeddings"].float().numpy()
-    logger.info(f"Loaded embeddings from model: {data.get('model', 'unknown')}")
-
-    logger.info("Reducing dimensions")
-    reduced_embeddings = reduce_dimensions(vectors, dimensions, n_neighbors, min_dist)
-    visualization_embeddings = reduce_dimensions(
-        reduced_embeddings, 3, n_neighbors, min_dist
+    options = ClusterOptions(
+        embeddings=embeddings,
+        image_dir=image_dir,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        dimensions=dimensions,
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        soft=soft,
+        soft_top=soft_top,
     )
 
     if reduce:
-        log_reduced(visualization_embeddings, count=20000)
+        reduce_only(options, count=20000)
         return
 
-    flat_embeddings = reduce_dimensions(reduced_embeddings, 2, n_neighbors, min_dist)
+    clustering, image_paths = run(options)
+    save_clustering(output, clustering)
+    log_to_rerun(clustering, image_paths, count)
+    log_cluster_sizes(clustering)
 
-    logger.info("cluster points")
-    clusterer = create_clusterer(
-        reduced_embeddings, min_cluster_size, min_samples, prediction_data=soft
-    )
-    labels = clusterer.labels_
-    if soft:
-        logger.info("Computing soft cluster memberships")
-        soft_labels, soft_scores = soft_memberships(clusterer, soft_top)
-    else:
-        soft_labels = soft_scores = None
-    sizes = Counter(int(label) for label in labels)
-    noise = sizes.pop(-1, 0)
-
-    save(
-        output,
-        Clustering(
-            refs=refs,
-            labels=labels,
-            probabilities=clusterer.probabilities_,
-            outlier_scores=clusterer.outlier_scores_,
-            coords2d=flat_embeddings,
-            coords3d=visualization_embeddings,
-            reduced=reduced_embeddings,
-            soft_labels=soft_labels,
-            soft_scores=soft_scores,
-            meta={
-                "created": datetime.now().isoformat(timespec="seconds"),
-                "embeddings": str(Path(embeddings).resolve()),
-                "model": data["model"],
-                "model_id": data["model_id"],
-                "root": data["root"],
-                "rows": len(refs),
-                "edits": edits,
-                "refs_hash": fingerprint(refs, edits),
-                "umap": {
-                    "n_neighbors": n_neighbors,
-                    "min_dist": min_dist,
-                    "dimensions": dimensions,
-                },
-                "hdbscan": {
-                    "min_cluster_size": min_cluster_size,
-                    "min_samples": min_samples,
-                },
-                "clusters": len(sizes),
-                "noise": noise,
-                "persistence": [float(p) for p in clusterer.cluster_persistence_],
-                "soft": {"top": soft_top} if soft else None,
-            },
-        ),
-    )
-    logger.info(f"Saved the clustering to {output}")
-
-    # log to rerun
-    logger.info("logging clustered points to rerun")
-    log_clustered_points(visualization_embeddings, labels, count=count)
-    log_images_3d(visualization_embeddings, image_paths, 500)
-
-    logger.info(f"Number of clusters: {len(sizes)}")
-    logger.info(f"Number of noise points: {noise}")
-    logger.info("Cluster sizes:")
-    for label, size in sorted(sizes.items()):
-        logger.info(f"  Cluster {label}: {size} points")
-
-    if not output_files:
-        return
-
-    output_dir = Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
-    output_dir.mkdir(exist_ok=True)
-
-    # For each cluster, copy up to 4 sample images
-    for cluster_id in sorted(sizes):
-        cluster_indices = np.flatnonzero(labels == cluster_id)
-        cluster_dir = output_dir / f"cluster_{cluster_id}"
-        shutil.rmtree(cluster_dir, ignore_errors=True)
-        cluster_dir.mkdir()
-
-        sample_indices = cluster_indices[:4]
-        for idx in sample_indices:
-            src_path = image_paths[idx]
-            dst_path = cluster_dir / Path(src_path).name
-            save_resized(src_path, dst_path, 512)
-
-        print(
-            f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
+    if output_files:
+        export_cluster_samples(
+            clustering, image_paths, Path(CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR)
         )
-
-    # Optionally handle noise points
-    noise_indices = np.flatnonzero(labels == -1)
-    if len(noise_indices):
-        noise_dir = output_dir / "noise"
-        noise_dir.mkdir(exist_ok=True)
-
-        # Save up to 2 noise samples
-        for idx in noise_indices[:2]:
-            src_path = image_paths[idx]
-            filename = Path(src_path).name
-            dst_path = noise_dir / filename
-            save_resized(src_path, dst_path, 512)
-
-        print(
-            f"Noise: {len(noise_indices)} total images, saved {min(2, len(noise_indices))} samples"
-        )
-
-    print(f"\nSamples saved to: {output_dir}")
 
 
 @cluster.command()
@@ -415,332 +313,26 @@ def analyze(
     model,
 ):
     """Analyze clustering results and generate statistics and visualizations."""
+    import os
     from datetime import datetime
 
-    from embed import (
-        CLIP_MODEL_ID,
-        get_embedder,
-        load_embeddings,
-    )
-
-    from .cluster import (
-        calculate_cluster_statistics,
-        create_2d_visualization,
-        create_3d_visualization,
-        create_clusterer,
-        is_noise,
-        noise_mask,
-        reduce_dimensions,
-        save_cluster_statistics,
-    )
-    from .rr import init_rerun, log_clustered_points_density
+    from .analysis import AnalyzeOptions, run
+    from .rr import init_rerun
 
     init_rerun(os.getenv("RERUN_ADDR"))
 
-    device = get_device()
-
-    # Add timestamp to output directory if not explicitly specified
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = f"cluster_analysis_{timestamp}"
-
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True, parents=True)
 
-    # Load or generate embeddings
-    if embeddings is not None and os.path.exists(embeddings):
-        logger.info("Loading embeddings")
-        data = load_embeddings(embeddings, root=image_dir)
-        image_paths = data["images"][:sample_size]
-        embeddings_tensor = data["embeddings"][:sample_size].float().to(device)
-        embedding_model_name = data.get("model", "clip")
-        embedding_model_id = data.get("model_id", CLIP_MODEL_ID)
-        logger.info(f"Loaded embeddings from model: {embedding_model_name}")
-    else:
-        logger.info(f"Getting embedding model: {model}")
-        embedder = get_embedder(model)
-        embedder.load(device)
-        embedding_model_name = embedder.name
-        embedding_model_id = embedder.model_id
-        input_paths = [
-            str(p) for p in list_images(image_dir, suffixes=(".jpg",))[:sample_size]
-        ]
-        logger.info("Generating image embeddings...")
-        embeddings_tensor, image_paths = embedder.encode_images(input_paths, batch_size)
-        if len(image_paths) < len(input_paths):
-            logger.warning(
-                f"Skipped {len(input_paths) - len(image_paths)} images due to load errors"
-            )
-
-    logger.info(f"Processing {len(image_paths)} images")
-
-    # Reduce dimensions for clustering (30D) and visualization (2D and 3D)
-    logger.info("Reducing dimensions for clustering (30D)...")
-    reduced_embeddings_30d = reduce_dimensions(embeddings_tensor.cpu().numpy(), 30)
-
-    logger.info("Reducing dimensions for 2D visualization...")
-    reduced_embeddings_2d = reduce_dimensions(embeddings_tensor.cpu().numpy(), 2)
-
-    logger.info("Reducing dimensions for 3D visualization...")
-    reduced_embeddings_3d = reduce_dimensions(embeddings_tensor.cpu().numpy(), 3)
-
-    # Perform clustering
-    logger.info(f"Clustering with min_cluster_size={min_cluster_size}...")
-    clusterer = create_clusterer(
-        reduced_embeddings_30d, min_cluster_size=min_cluster_size
+    options = AnalyzeOptions(
+        image_dir=image_dir,
+        embeddings=embeddings,
+        sample_size=sample_size,
+        batch_size=batch_size,
+        min_cluster_size=min_cluster_size,
+        model=model,
     )
-    labels = clusterer.labels_
-
-    # Apply hierarchical refinement if enabled
-    if hierarchical:
-        from .cluster import HierarchicalConfig, hierarchical_cluster
-
-        config = HierarchicalConfig(
-            enabled=True,
-            density_threshold=density_threshold,
-            max_depth=max_depth,
-            min_cluster_size=min_cluster_size,
-        )
-
-        logger.info("\n" + "=" * 60)
-        logger.info("Starting hierarchical refinement...")
-        logger.info("=" * 60)
-        logger.info("Configuration:")
-        logger.info(f"  Density threshold: {density_threshold}")
-        logger.info(f"  Max depth: {max_depth}")
-        logger.info(f"  Min cluster size: {min_cluster_size}")
-
-        # refined clusters come with coordinates from their own UMAP fit; keep the
-        # global 30D fit so every cluster's statistics are measured in one space
-        labels, _, refinement_tree = hierarchical_cluster(
-            embeddings_tensor.cpu().numpy(), labels, reduced_embeddings_30d, config
-        )
-
-    # Calculate statistics
-    logger.info("Calculating cluster statistics...")
-    stats = calculate_cluster_statistics(reduced_embeddings_30d, labels, clusterer)
-
-    # log to rerun
-    log_clustered_points_density(
-        reduced_embeddings_3d, labels, stats, 30000, "clusters"
-    )
-
-    # Add hierarchical metadata if used
-    if hierarchical:
-        stats["refinement_tree"] = refinement_tree
-        stats["metadata_hierarchical"] = {
-            "enabled": True,
-            "density_threshold": density_threshold,
-            "max_depth": max_depth,
-        }
-
-    # Define output paths
-    json_path = output_path / "cluster_stats.json"
-    plot_2d_path = output_path / "clusters_2d.png"
-    plot_3d_path = output_path / "clusters_3d.png"
-
-    # Create visualizations
-    logger.info("\nGenerating visualizations...")
-    create_2d_visualization(reduced_embeddings_2d, labels, str(plot_2d_path))
-    create_3d_visualization(reduced_embeddings_3d, labels, str(plot_3d_path))
-
-    # Save sample images for each cluster
-    logger.info("Saving sample images for each cluster...")
-    samples_dir = output_path / "cluster_samples"
-    samples_dir.mkdir(exist_ok=True)
-
-    # Convert labels to strings for consistent comparison
-    labels_str = [str(label) for label in labels]
-
-    # Get unique clusters (excluding noise and .noise suffix)
-    unique_clusters = sorted(
-        [label for label in set(labels_str) if not is_noise(label)],
-        key=lambda x: (x.count("."), x),
-    )  # Sort by depth, then name
-
-    # For each cluster, copy sample images
-    for cluster_id in unique_clusters:
-        # Create cluster directory (handle hierarchical labels with dots)
-        cluster_dir = samples_dir / f"cluster_{cluster_id}"
-        if cluster_dir.exists():
-            shutil.rmtree(cluster_dir)
-        cluster_dir.mkdir(exist_ok=True, parents=True)
-
-        # Get indices of images in this cluster
-        cluster_indices = [
-            i for i, label in enumerate(labels_str) if label == cluster_id
-        ]
-
-        # Select up to 4 samples
-        sample_indices = cluster_indices[:4]
-
-        # Copy and resize images
-        for idx in sample_indices:
-            src_path = image_paths[idx]
-            filename = Path(src_path).name
-            dst_path = cluster_dir / filename
-            save_resized(src_path, dst_path, 512)
-
-        logger.info(
-            f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
-        )
-
-    # Handle noise points (both "-1" and ".noise" suffix)
-    noise_indices = np.flatnonzero(noise_mask(labels_str)).tolist()
-    if noise_indices:
-        noise_dir = samples_dir / "noise"
-        noise_dir.mkdir(exist_ok=True)
-
-        # Save up to 2 noise samples
-        for idx in noise_indices[:2]:
-            src_path = image_paths[idx]
-            filename = Path(src_path).name
-            dst_path = noise_dir / filename
-            save_resized(src_path, dst_path, 512)
-
-        logger.info(
-            f"Noise: {len(noise_indices)} total images, saved {min(2, len(noise_indices))} samples"
-        )
-
-    # Also save hierarchical .noise clusters separately
-    if hierarchical:
-        noise_clusters = sorted(
-            [label for label in set(labels_str) if label.endswith(".noise")]
-        )
-        for noise_cluster_id in noise_clusters:
-            noise_cluster_dir = samples_dir / f"cluster_{noise_cluster_id}"
-            noise_cluster_dir.mkdir(exist_ok=True, parents=True)
-
-            noise_cluster_indices = [
-                i for i, label in enumerate(labels_str) if label == noise_cluster_id
-            ]
-            for idx in noise_cluster_indices[:4]:
-                src_path = image_paths[idx]
-                filename = Path(src_path).name
-                dst_path = noise_cluster_dir / filename
-                save_resized(src_path, dst_path, 512)
-
-            logger.info(
-                f"Cluster {noise_cluster_id}: {len(noise_cluster_indices)} total images, saved {min(4, len(noise_cluster_indices))} samples"
-            )
-
-    # Add metadata to stats (including visualization paths)
-    stats["metadata"] = {
-        "timestamp": datetime.now().isoformat(),
-        "n_samples": len(image_paths),
-        "min_cluster_size": min_cluster_size,
-        "embedding_model": embedding_model_name,
-        "embedding_model_id": embedding_model_id,
-        "reduction_dims": 30,
-        "output_directory": str(output_path.resolve()),
-        "visualizations": {
-            "plot_2d": str(plot_2d_path.resolve()),
-            "plot_3d": str(plot_3d_path.resolve()),
-        },
-        "sample_images": str(samples_dir.resolve()),
-    }
-
-    # Print hierarchical refinement summary if applicable
-    if hierarchical and refinement_tree:
-        logger.info("\n" + "=" * 60)
-        logger.info("HIERARCHICAL CLUSTERING SUMMARY")
-        logger.info("=" * 60)
-        logger.info(f"Refinement depth: {max_depth}")
-        logger.info(f"Clusters refined: {len(refinement_tree)}")
-
-        total_sub_clusters = 0
-        for parent_id, info in sorted(
-            refinement_tree.items(), key=lambda x: (x[0].count("."), x[0])
-        ):
-            sub_cluster_count = len(
-                [c for c in info["refined_into"] if not c.endswith(".noise")]
-            )
-            total_sub_clusters += sub_cluster_count
-
-            logger.info(f"\nCluster {parent_id} (depth {info['depth']}):")
-            logger.info(
-                f"  Original: {info['original_size']} pts, density {info['original_density']:.2f}"
-            )
-            logger.info(f"  Refined into {len(info['refined_into'])} sub-clusters:")
-
-            # Show breakdown of sub-clusters with their stats
-            for sub_label in sorted(
-                info["refined_into"], key=lambda x: (x.count("."), x)
-            ):
-                # Find stats for this sub-cluster
-                sub_stats = next(
-                    (c for c in stats["clusters"] if str(c["cluster_id"]) == sub_label),
-                    None,
-                )
-                if sub_stats:
-                    status = (
-                        "✓"
-                        if sub_stats["density"] >= density_threshold
-                        else "→ needs refinement"
-                    )
-                    logger.info(
-                        f"    ├─ {sub_label}: {sub_stats['size']} pts "
-                        f"(density {sub_stats['density']:.2f}) {status}"
-                    )
-                else:
-                    # It's a noise cluster
-                    noise_count = len(
-                        [i for i, label in enumerate(labels_str) if label == sub_label]
-                    )
-                    logger.info(f"    └─ {sub_label}: {noise_count} pts")
-
-        logger.info(f"\nTotal new sub-clusters created: {total_sub_clusters}")
-
-        # Calculate density improvements
-        density_improvements = []
-        for _parent_id, info in refinement_tree.items():
-            original_density = info["original_density"]
-            for sub_label in info["refined_into"]:
-                if not sub_label.endswith(".noise"):
-                    sub_stats = next(
-                        (
-                            c
-                            for c in stats["clusters"]
-                            if str(c["cluster_id"]) == sub_label
-                        ),
-                        None,
-                    )
-                    if sub_stats and original_density > 0:
-                        improvement = sub_stats["density"] / original_density
-                        density_improvements.append(improvement)
-
-        if density_improvements:
-            avg_improvement = sum(density_improvements) / len(density_improvements)
-            logger.info(f"Average density improvement: {avg_improvement:.2f}x")
-
-    # Print summary
-    logger.info("\n" + "=" * 60)
-    logger.info("CLUSTERING ANALYSIS SUMMARY")
-    logger.info("=" * 60)
-    logger.info(f"Total samples: {stats['overall']['n_samples']}")
-    logger.info(f"Number of clusters: {stats['overall']['n_clusters']}")
-    logger.info(
-        f"Noise points: {stats['overall']['n_noise']} ({stats['overall']['noise_ratio'] * 100:.2f}%)"
-    )
-    if stats["overall"]["silhouette_score"] is not None:
-        logger.info(f"Silhouette score: {stats['overall']['silhouette_score']:.4f}")
-
-    logger.info("\nTop 10 clusters by size:")
-    for i, cluster in enumerate(stats["clusters"][:10], 1):
-        logger.info(
-            f"  {i}. Cluster {cluster['cluster_id']}: "
-            f"{cluster['size']} points ({cluster['percentage']:.2f}%), "
-            f"compactness={cluster['compactness']:.4f}, "
-            f"density={cluster['density']:.4f}"
-        )
-
-    # Save statistics to JSON (after adding visualization paths)
-    save_cluster_statistics(stats, json_path)
-
-    logger.info("\n" + "=" * 60)
-    logger.info(f"Analysis complete! Results saved to: {output_path}")
-    logger.info(f"  - Statistics: {json_path}")
-    logger.info(f"  - 2D plot: {output_path / 'clusters_2d.png'}")
-    logger.info(f"  - 3D plot: {output_path / 'clusters_3d.png'}")
-    logger.info(f"  - Sample images: {samples_dir}")
-    logger.info("=" * 60)
+    run(options, output_path, hierarchical, density_threshold, max_depth)
