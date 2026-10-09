@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 from xml.etree import ElementTree
 
@@ -34,6 +35,8 @@ class Context:
     """In-flight artwork page fetches; the throttle still caps the request rate."""
     seen: set[str] = field(default_factory=set)
     """URLs already scraped in an earlier run, skipped."""
+    output: Path | None = None
+    """The file results go to, for backends that keep their own state next to it."""
 
 
 class Backend(Protocol):
