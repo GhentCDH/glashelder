@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
+from common.config import config
+
 # ---------------------------------------------------------------------------
 # Style setup
 # ---------------------------------------------------------------------------
@@ -184,7 +186,9 @@ def plot_confidence_distribution(d: dict, meta: dict, summary: dict, outdir: Pat
     ecdf_y = np.arange(1, len(sorted_conf) + 1) / len(sorted_conf)
     ax.plot(sorted_conf, ecdf_y, color=ACCENT, lw=1.5)
     # mark threshold
-    threshold = meta.get("threshold", 0.82)
+    threshold = meta.get("threshold")
+    if threshold is None:
+        threshold = config().artmatcher.threshold
     # mark median & percentiles
     for pct, ls in [(50, "--"), (90, ":"), (99, "-.")]:
         val = np.percentile(conf, pct)
@@ -230,7 +234,9 @@ def plot_confidence_distribution(d: dict, meta: dict, summary: dict, outdir: Pat
         "",
         f"  threshold       {threshold}",
         f"  top_k           {meta.get('top_k', '?')}",
-        f"  duration        {meta.get('duration_seconds', '?'):.1f}s",
+        f"  duration        {duration:.1f}s"
+        if (duration := meta.get("duration_seconds")) is not None
+        else "  duration        ?",
     ]
     ax.text(
         0.05,
