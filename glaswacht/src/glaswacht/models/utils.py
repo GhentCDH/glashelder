@@ -181,14 +181,19 @@ def calculate_majority_vote(ratings: list[str]) -> str:
 
 def write_combined_csv(
     assessments: dict,
-    output_csv: str | Path = RESULTS_CSV,
+    output_csv: str | Path | None = None,
 ) -> None:
     """Write combined assessment results from all models to a single CSV.
 
     Args:
         assessments: dict mapping model name → list[Rating]
-        output_csv: Path to the output CSV file
+        output_csv: Path to the output CSV file [glaswacht.results]
     """
+    if output_csv is None:
+        from common.config import config
+
+        output_csv = config().glaswacht.results
+
     model_names = list(assessments.keys())
     combined: dict[str, dict] = {}
 

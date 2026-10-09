@@ -4,7 +4,7 @@ import click
 
 from common.cli import serve_options
 from glaswacht.models.safety_model import SafetyModel
-from glaswacht.models.utils import RESULTS_CSV, WEB_PORT
+from glaswacht.models.utils import WEB_PORT
 
 MODEL_REGISTRY: dict[str, type[SafetyModel]] = {}
 
@@ -85,16 +85,15 @@ def run(path, model_names):
 @serve_options(WEB_PORT)
 @click.option(
     "--csv-path",
-    default=RESULTS_CSV,
-    show_default=True,
+    default=None,
     type=click.Path(dir_okay=False, path_type=Path),
-    help="Combined results CSV written by `glaswacht run`.",
+    help="Combined results CSV written by `glaswacht run` [glaswacht.results].",
 )
 @click.option(
     "--images-dir",
-    required=True,
+    default=None,
     type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="Folder with the assessed images.",
+    help="Folder with the assessed images [glaswacht.images].",
 )
 def serve(csv_path, images_dir, **server):
     """Serve the validation web interface."""
@@ -102,6 +101,15 @@ def serve(csv_path, images_dir, **server):
 
     from common import run_app
     from glaswacht.web import create_app
+
+    if csv_path is None:
+        raise click.UsageError(
+            "no results csv: pass --csv-path or set glaswacht.results"
+        )
+    if images_dir is None:
+        raise click.UsageError(
+            "no images dir: pass --images-dir or set glaswacht.images"
+        )
 
     logging.basicConfig(level=logging.INFO)
     run_app(create_app(csv_path, images_dir), **server)
