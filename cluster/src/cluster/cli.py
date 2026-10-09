@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from common import ASSETS_DIR, PROJECT_ROOT, run_app
 from common.cli import serve_options
 from common.images import list_images, save_resized
-from embed import get_device
+from embed import EMBEDDING_MODELS, get_device
 
 # TODO: put some default images in `./images/` as exampels
 DEFAULT_IMAGES = "images/"
@@ -399,7 +399,7 @@ def report(path: Path | None, image_dir: str | None, samples: int, open_: bool):
 @click.option(
     "--model",
     default="clip",
-    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    type=click.Choice(sorted(EMBEDDING_MODELS)),
     help="Embedding model to use if generating embeddings",
 )
 def analyze(
