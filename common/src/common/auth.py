@@ -43,7 +43,7 @@ def require_auth(app):
     Returns:
         The secret clients must provide
     """
-    from flask import request
+    from flask import g, request
 
     from .config import config
 
@@ -69,8 +69,7 @@ def require_auth(app):
         if provided_secret:
             if matches(hash_secret(provided_secret)):
                 # Valid secret in query - will set cookie in after_request
-                request.auth_valid = True
-                request.set_auth_cookie = True
+                g.set_auth_cookie = True
                 return None
             else:
                 return "Unauthorized: invalid secret", 401
@@ -78,15 +77,13 @@ def require_auth(app):
         # Check cookie
         auth_cookie = request.cookies.get(AUTH_COOKIE_NAME)
         if auth_cookie and matches(auth_cookie):
-            request.auth_valid = True
-            request.set_auth_cookie = False
             return None
 
         return "Unauthorized: access /?secret=<your-secret> to authenticate", 401
 
     @app.after_request
     def set_auth_cookie(response):
-        if getattr(request, "set_auth_cookie", False):
+        if g.get("set_auth_cookie", False):
             response.set_cookie(
                 AUTH_COOKIE_NAME,
                 expected_hash,
