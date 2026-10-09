@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 from flask import Flask, Response, render_template, request
 
-from common import require_auth
 from common.paths import rebase_paths
 
 from . import result
@@ -35,7 +34,7 @@ def statistics(clustering: Clustering, label: int, size: int) -> dict:
     }
 
 
-def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
+def create_app(clusters: Path, image_dir: str | None) -> Flask:
     clustering = result.load(clusters)
     meta = clustering.meta
     root = image_dir if image_dir is not None else meta["root"]
@@ -58,8 +57,6 @@ def create_app(clusters: Path, image_dir: str | None, *, auth: bool) -> Flask:
     )
 
     app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
-    if auth:
-        require_auth(app)
 
     @lru_cache(maxsize=4096)
     def cached_thumbnail(row: int, size: int) -> bytes:

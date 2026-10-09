@@ -13,7 +13,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Static
 
-from glaswacht.models.utils import RESULTS_CSV, get_prompt
+from glaswacht.models.utils import RESULTS_CSV, WEB_PORT, get_prompt
 from glaswacht.orchestrator import ModelStatus, Orchestrator
 
 _LOG_PATH = Path("glaswacht.log")
@@ -203,7 +203,6 @@ class MenuItem(Static):
 
 
 _MENU_LABELS = ["RUN", "TAXONOMY", "VALIDATE USING WEBVIEWER", "QUIT"]
-_WEB_PORT = 5001
 
 
 class MonitorApp(App):
@@ -411,7 +410,7 @@ class MonitorApp(App):
                     "--csv-path",
                     str(RESULTS_CSV),
                     "--port",
-                    str(_WEB_PORT),
+                    str(WEB_PORT),
                 ],
                 stdout=self._web_log_fh,
                 stderr=self._web_log_fh,
@@ -421,7 +420,7 @@ class MonitorApp(App):
         self._content_mode = "webviewer"
         if self.content_panel:
             query = urlencode({"secret": self._web_secret})
-            self.content_panel.show_webviewer(f"http://localhost:{_WEB_PORT}/?{query}")
+            self.content_panel.show_webviewer(f"http://localhost:{WEB_PORT}/?{query}")
 
     def _update_display(self):
         state = self.orchestrator.get_state()

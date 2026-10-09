@@ -13,8 +13,6 @@ from flask import (
     url_for,
 )
 
-from common import require_auth
-
 logger = logging.getLogger(__name__)
 
 
@@ -29,10 +27,8 @@ def load_results(csv_path: Path) -> list[dict[str, str]]:
     return results
 
 
-def create_app(csv_path: Path, images_dir: Path, *, auth: bool) -> Flask:
+def create_app(csv_path: Path, images_dir: Path) -> Flask:
     app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
-    if auth:
-        require_auth(app)
 
     results = load_results(csv_path)
 

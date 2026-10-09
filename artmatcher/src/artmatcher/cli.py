@@ -9,6 +9,7 @@ import click
 
 from artscraper import Artwork
 from common import ASSETS_DIR, run_app
+from common.cli import options, serve_options
 from common.config import config
 
 logger = logging.getLogger(__name__)
@@ -144,39 +145,35 @@ def train_classifier(
     classifier.save(output_model)
 
 
-def reference_options(command):
-    """Where the references come from, shared by `serve` and `batch-classify`."""
-    options = [
-        click.option(
-            "--reference-embeddings",
-            "-e",
-            type=click.Path(exists=True),
-            default=None,
-            help="Store (or legacy pickle) of the reference artworks' embeddings, "
-            "all backends together",
-        ),
-        click.option(
-            "--source",
-            "sources",
-            multiple=True,
-            help="Only match against artworks from this backend, repeatable. "
-            "Needs --artworks to know where each reference came from.",
-        ),
-        click.option(
-            "--glashelder-images",
-            "-i",
-            type=click.Path(exists=True, file_okay=False),
-            default=ASSETS_DIR,
-            help="Directory the glashelder images live in on this machine",
-        ),
-    ]
-    for option in reversed(options):
-        command = option(command)
-    return command
+REFERENCE_OPTIONS = [
+    # where the references come from, shared by `serve` and `batch-classify`
+    click.option(
+        "--reference-embeddings",
+        "-e",
+        type=click.Path(exists=True),
+        default=None,
+        help="Store (or legacy pickle) of the reference artworks' embeddings, "
+        "all backends together",
+    ),
+    click.option(
+        "--source",
+        "sources",
+        multiple=True,
+        help="Only match against artworks from this backend, repeatable. "
+        "Needs --artworks to know where each reference came from.",
+    ),
+    click.option(
+        "--glashelder-images",
+        "-i",
+        type=click.Path(exists=True, file_okay=False),
+        default=ASSETS_DIR,
+        help="Directory the glashelder images live in on this machine",
+    ),
+]
 
 
 @artmatcher.command()
-@reference_options
+@options(*REFERENCE_OPTIONS)
 @click.option(
     "--glashelder-embeddings",
     "-g",
@@ -191,8 +188,6 @@ def reference_options(command):
     type=click.Choice(["clip", "dinov2", "qwen3vl"]),
     help="Embedding model to use",
 )
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--port", default=5000, help="Port to bind to")
 @click.option("--top-k", default=10, help="Number of top matches to consider")
 @click.option(
     "--candidates",
@@ -249,18 +244,6 @@ def reference_options(command):
     "artist and source link",
 )
 @click.option(
-    "--auth", is_flag=True, help="Enable secret url parameter based authentication."
-)
-@click.option(
-    "--debug", is_flag=True, help="Enable the Flask debugger and auto-reloader."
-)
-@click.option(
-    "--open/--no-open",
-    "open_browser",
-    default=True,
-    help="Open the site in a browser on startup",
-)
-@click.option(
     "--session-dir",
     type=click.Path(file_okay=False),
     default="labeling-sessions",
@@ -275,14 +258,13 @@ def reference_options(command):
     "a file name or a path relative to --glashelder-images ('#' starts a "
     "comment). Uses the same stores and saved top-k as the full set.",
 )
+@serve_options(5001)
 def serve(
     reference_embeddings: str | None,
     sources: tuple[str, ...],
     glashelder_images: str | None,
     glashelder_embeddings: str | None,
     model: Literal["clip", "dinov2", "qwen3vl"],
-    host: str,
-    port: int,
     top_k: int,
     candidates: int,
     threshold: float,
@@ -292,15 +274,13 @@ def serve(
     results_json: str | None,
     reference_images: Path | None,
     artworks: str | None,
-    auth: bool,
-    debug: bool,
-    open_browser: bool,
     session_dir: str,
     subset: Path | None,
+    **server,
 ):
     """Start a web interface for labeling artwork matches.
 
-    Authentication is required when `--auth` is set. Set the `secret` config value
+    Unless --no-auth is given, set the `secret` config value
     (or GLASHELDER_SECRET), then access the server with /?secret=<your-secret> to
     get a session cookie.
 
@@ -381,14 +361,13 @@ def serve(
         else None
     )
     app = create_app(
-        source, threshold=threshold, auth=auth, session_dir=session_dir, subset=chosen
+        source, threshold=threshold, session_dir=session_dir, subset=chosen
     )
-
-    run_app(app, host, port, open_browser=open_browser, debug=debug)
+    run_app(app, **server)
 
 
 @artmatcher.command()
-@reference_options
+@options(*REFERENCE_OPTIONS)
 @click.option(
     "--ml-model",
     type=click.Path(exists=True),

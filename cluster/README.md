@@ -27,5 +27,5 @@ Launch the interactive search UI:
 uv run glashelder cluster serve
 ```
 
-Then open http://localhost:5000 in your browser.
+It opens the link it logs (`http://localhost:5002/?secret=...`) in your browser.
 
