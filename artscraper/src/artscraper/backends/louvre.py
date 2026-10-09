@@ -11,6 +11,7 @@ from urllib.parse import quote, urljoin
 from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context, enrich_pool
+from .parse import first_text, text
 
 BASE_URL = "https://collections.louvre.fr"
 
@@ -53,7 +54,7 @@ def read_export_text(path: Path) -> str:
 
     for encoding in ("utf-8-sig", "cp1252"):
         try:
-            text = raw.decode(encoding)
+            decoded = raw.decode(encoding)
             break
         except UnicodeDecodeError:
             continue
@@ -62,10 +63,10 @@ def read_export_text(path: Path) -> str:
             "louvre: could not decode %s as UTF-8 or cp1252; falling back to latin-1",
             path,
         )
-        text = raw.decode("latin-1")
+        decoded = raw.decode("latin-1")
 
     # Normalize Windows, old Mac, and Unix line endings.
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+    return decoded.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def parse_export(csv_text: str) -> list[str]:
@@ -81,15 +82,9 @@ def parse_export(csv_text: str) -> list[str]:
 
     logger.info("louvre: CSV columns: %s", reader.fieldnames)
 
-    arks: list[str] = []
-
-    for row in reader:
-        ark = row.get("ARK") or row.get("\ufeffARK")
-
-        if isinstance(ark, str) and ark.strip():
-            arks.append(ark.strip())
-
-    return arks
+    return [
+        ark for row in reader if (ark := text(row.get("ARK") or row.get("\ufeffARK")))
+    ]
 
 
 def full_year(data: dict) -> str | None:
@@ -99,8 +94,8 @@ def full_year(data: dict) -> str | None:
     if isinstance(dates, dict):
         dates = [dates]
 
-    if isinstance(dates, str) and dates.strip():
-        return dates.strip()
+    if isinstance(dates, str):
+        return text(dates)
 
     if not isinstance(dates, list):
         return None
@@ -108,17 +103,15 @@ def full_year(data: dict) -> str | None:
     parts: list[str] = []
 
     for date in dates:
-        if isinstance(date, str) and date.strip():
-            parts.append(date.strip())
+        if found := text(date):
+            parts.append(found)
             continue
 
         if not isinstance(date, dict):
             continue
 
-        text = date.get("text")
-
-        if isinstance(text, str) and text.strip():
-            parts.append(text.strip())
+        if found := text(date.get("text")):
+            parts.append(found)
             continue
 
         start_year = date.get("startYear")
@@ -147,19 +140,12 @@ def first_creator(data: dict) -> str | None:
     if not isinstance(creators, list):
         return None
 
-    for creator in creators:
-        if isinstance(creator, str) and creator.strip():
-            return creator.strip()
-
-        if not isinstance(creator, dict):
-            continue
-
-        label = creator.get("label") or creator.get("name") or creator.get("title")
-
-        if isinstance(label, str) and label.strip():
-            return label.strip()
-
-    return None
+    return first_text(
+        creator.get("label") or creator.get("name") or creator.get("title")
+        if isinstance(creator, dict)
+        else creator
+        for creator in creators
+    )
 
 
 def first_image(data: dict) -> str | None:
@@ -172,35 +158,22 @@ def first_image(data: dict) -> str | None:
     if not isinstance(images, list):
         return None
 
-    for image in images:
-        if isinstance(image, str) and image.strip():
-            return urljoin(BASE_URL, image.strip())
-
-        if not isinstance(image, dict):
-            continue
-
-        image_url = (
-            image.get("urlImage")
-            or image.get("url")
-            or image.get("contentUrl")
-            or image.get("urlThumbnail")
-        )
-
-        if isinstance(image_url, str) and image_url.strip():
-            return urljoin(BASE_URL, image_url.strip())
-
-    return None
+    image_url = first_text(
+        image.get("urlImage")
+        or image.get("url")
+        or image.get("contentUrl")
+        or image.get("urlThumbnail")
+        if isinstance(image, dict)
+        else image
+        for image in images
+    )
+    return urljoin(BASE_URL, image_url) if image_url else None
 
 
 def record_url(data: dict, fallback_url: str) -> str:
     """Extract the record URL from Louvre JSON."""
-    for key in ("url", "@id", "sameAs"):
-        value = data.get(key)
-
-        if isinstance(value, str) and value.strip():
-            return urljoin(BASE_URL, value.strip())
-
-    return fallback_url
+    url = first_text(map(data.get, ("url", "@id", "sameAs")))
+    return urljoin(BASE_URL, url) if url else fallback_url
 
 
 def parse_page(fallback_url: str, body: str) -> Artwork | None:
@@ -215,18 +188,11 @@ def parse_page(fallback_url: str, body: str) -> Artwork | None:
         logger.warning("louvre: unexpected JSON structure at %s", fallback_url)
         return None
 
-    title = data.get("title")
-
-    if not isinstance(title, str):
-        title = None
-    else:
-        title = title.strip() or None
-
     return Artwork(
         source="louvre",
         url=record_url(data, fallback_url),
         image_url=first_image(data),
-        title=title,
+        title=text(data.get("title")),
         artist=first_creator(data),
         year=full_year(data),
     )

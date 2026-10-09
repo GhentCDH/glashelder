@@ -12,10 +12,9 @@ The index supports ``?page=N`` pagination. We keep following pages until a
 page produces no new artwork URLs.
 """
 
-import json
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -23,7 +22,8 @@ from bs4 import BeautifulSoup
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, enrich_pool
+from . import Backend, Context, enrich_pool, sitemap_locs
+from .parse import artwork_json_ld, text
 
 BASE_URL = "https://www.uffizi.it"
 CATEGORY_INDEXES = {
@@ -37,28 +37,25 @@ ARTWORK_RE = re.compile(r"^/en/artworks/(?!search/?$)[^/?#]+/?$")
 logger = logging.getLogger(__name__)
 
 
-def artwork_urls(html: str) -> list[str]:
+def canonical_artwork_url(href: str) -> str | None:
+    """The canonical form of a Uffizi artwork detail URL, None for anything else."""
+    parsed = urlparse(urljoin(BASE_URL, href.strip()))
+    if parsed.netloc not in {"www.uffizi.it", "uffizi.it"}:
+        return None
+    if not ARTWORK_RE.fullmatch(parsed.path):
+        return None
+    return f"{BASE_URL}{parsed.path.rstrip('/')}"
+
+
+def artwork_urls(hrefs: Iterable[str]) -> list[str]:
+    """The distinct artwork detail URLs among `hrefs`, in order."""
+    return list(dict.fromkeys(filter(None, map(canonical_artwork_url, hrefs))))
+
+
+def index_artwork_urls(html: str) -> list[str]:
     """Extract Uffizi artwork detail URLs from an HTML page."""
     soup = BeautifulSoup(html, "html.parser")
-    urls: list[str] = []
-    seen: set[str] = set()
-
-    for tag in soup.find_all("a", href=True):
-        href = str(tag["href"]).strip()
-        absolute = urljoin(BASE_URL, href)
-        parsed = urlparse(absolute)
-
-        if parsed.netloc not in {"www.uffizi.it", "uffizi.it"}:
-            continue
-        if not ARTWORK_RE.fullmatch(parsed.path):
-            continue
-
-        url = f"{BASE_URL}{parsed.path.rstrip('/')}"
-        if url not in seen:
-            seen.add(url)
-            urls.append(url)
-
-    return urls
+    return artwork_urls(str(tag["href"]) for tag in soup.find_all("a", href=True))
 
 
 async def sitemap_artwork_urls(ctx: Context) -> list[str]:
@@ -68,91 +65,15 @@ async def sitemap_artwork_urls(ctx: Context) -> list[str]:
     artwork anchors in the HTML returned to the scraper. The site's sitemap
     is therefore used as a complete URL index when that happens.
     """
-    sitemap_url = f"{BASE_URL}/sitemap.xml"
-    raw = await fetch_text(ctx.client, sitemap_url, ctx.throttle, ctx.stats)
-
-    # Sitemap files are XML, but fetch_text gives us the response as text.
-    try:
-        from xml.etree import ElementTree
-
-        root = ElementTree.fromstring(raw.lstrip("\ufeff").encode())
-    except Exception:
-        logger.warning("uffizi: could not parse %s", sitemap_url)
-        return []
-
-    urls: list[str] = []
-    seen: set[str] = set()
-
-    for loc in root.iter():
-        if loc.tag.rsplit("}", 1)[-1] != "loc" or not loc.text:
-            continue
-
-        value = loc.text.strip()
-        parsed = urlparse(value)
-        if parsed.netloc not in {"www.uffizi.it", "uffizi.it"}:
-            continue
-        if not ARTWORK_RE.fullmatch(parsed.path):
-            continue
-
-        url = f"{BASE_URL}{parsed.path.rstrip('/')}"
-        if url not in seen:
-            seen.add(url)
-            urls.append(url)
-
-    return urls
-
-
-def parse_json_ld(html: str) -> list[dict[str, Any]]:
-    """Return schema.org JSON-LD objects found on an artwork page."""
-    soup = BeautifulSoup(html, "html.parser")
-    result: list[dict[str, Any]] = []
-
-    def add(value: Any) -> None:
-        if isinstance(value, dict):
-            graph = value.get("@graph")
-            if isinstance(graph, list):
-                for item in graph:
-                    add(item)
-            else:
-                result.append(value)
-        elif isinstance(value, list):
-            for item in value:
-                add(item)
-
-    for tag in soup.find_all("script", type="application/ld+json"):
-        raw = tag.string or tag.get_text()
-        if not raw.strip():
-            continue
-        try:
-            add(json.loads(raw))
-        except json.JSONDecodeError:
-            continue
-
-    return result
-
-
-def _first_json_ld(data: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Pick the JSON-LD object that looks most like the artwork."""
-    for item in data:
-        item_type = item.get("@type")
-        if item_type in {"VisualArtwork", "CreativeWork", "Artwork"}:
-            return item
-        if item.get("name") and (item.get("image") or item.get("creator")):
-            return item
-    return data[0] if data else None
+    return artwork_urls(await sitemap_locs(ctx, f"{BASE_URL}/sitemap.xml"))
 
 
 def _person_name(value: Any) -> str | None:
     if isinstance(value, dict):
-        name = value.get("name")
-        return str(name).strip() if name else None
+        return text(value.get("name"))
     if isinstance(value, list):
-        names = [_person_name(item) for item in value]
-        names = [name for name in names if name]
-        return ", ".join(names) if names else None
-    if isinstance(value, str):
-        return value.strip() or None
-    return None
+        return ", ".join(filter(None, map(_person_name, value))) or None
+    return text(value)
 
 
 def _middle_srcset_url(srcset: str) -> str | None:
@@ -183,10 +104,8 @@ def _middle_srcset_url(srcset: str) -> str | None:
     return candidates[len(candidates) // 2][1]
 
 
-def _image_from_html(html: str, data: dict[str, Any] | None) -> str | None:
+def _image_from_html(soup: BeautifulSoup, data: dict[str, Any] | None) -> str | None:
     """Return a single middle-resolution artwork image URL."""
-    soup = BeautifulSoup(html, "html.parser")
-
     for img in soup.find_all("img"):
         srcset = img.get("srcset")
         if not isinstance(srcset, str) or not srcset.strip():
@@ -229,10 +148,8 @@ def _image_from_html(html: str, data: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _date_from_page(html: str) -> str | None:
+def _date_from_page(soup: BeautifulSoup) -> str | None:
     """Extract the artwork Date value from the Uffizi detail page."""
-    soup = BeautifulSoup(html, "html.parser")
-
     # Look for a label/value pair in the page text.
     for element in soup.find_all(string=re.compile(r"^\s*Date\s*$", re.I)):
         parent = element.parent
@@ -262,8 +179,8 @@ def _date_from_page(html: str) -> str | None:
 
 
 def parse_page(url: str, html: str) -> Artwork | None:
-    data = _first_json_ld(parse_json_ld(html))
     soup = BeautifulSoup(html, "html.parser")
+    data = artwork_json_ld(soup)
 
     title = (data or {}).get("name")
     if not title:
@@ -281,7 +198,7 @@ def parse_page(url: str, html: str) -> Artwork | None:
         if len(headings) > 1:
             artist = headings[1].get_text(" ", strip=True) or None
 
-    image_url = _image_from_html(html, data)
+    image_url = _image_from_html(soup, data)
 
     if image_url is None:
         logger.warning(
@@ -293,7 +210,7 @@ def parse_page(url: str, html: str) -> Artwork | None:
         )
         return None
 
-    date = _date_from_page(html)
+    date = _date_from_page(soup)
 
     return Artwork(
         source="uffizi",
@@ -330,7 +247,7 @@ class Uffizi(Backend):
                 logger.warning("uffizi: failed to fetch %s: %s", index_url, exc)
                 continue
 
-            for url in artwork_urls(html):
+            for url in index_artwork_urls(html):
                 if url not in ctx.seen:
                     discovered.setdefault(url, collection)
 

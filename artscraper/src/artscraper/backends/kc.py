@@ -14,6 +14,7 @@ from urllib.parse import unquote
 from ..client import fetch_json
 from ..model import Artwork
 from . import Backend, Context
+from .parse import text
 
 API_KEY = "***REMOVED***"
 ES_URL = "https://glue-vkc.es.europe-west1.gcp.cloud.es.io"
@@ -84,13 +85,7 @@ def _pit_search_body(
 
 def _text(value: Any) -> str | None:
     """Convert a scalar metadata value to readable text."""
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-
-    if isinstance(value, (int, float)):
-        return str(value)
-
-    return None
+    return str(value) if isinstance(value, (int, float)) else text(value)
 
 
 def _label(value: Any) -> str | None:

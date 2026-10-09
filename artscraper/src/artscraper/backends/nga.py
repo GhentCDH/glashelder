@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from ..client import fetch_text
 from ..model import Artwork
 from . import Backend, Context
+from .parse import first_text
 
 OPEN_DATA_BASE = (
     "https://raw.githubusercontent.com/"
@@ -65,13 +66,7 @@ def csv_rows(text: str) -> list[dict[str, str]]:
 
 def value(row: dict[str, str], *names: str) -> str | None:
     """Return the first non-empty value among possible CSV field names."""
-    for name in names:
-        item = row.get(name)
-
-        if isinstance(item, str) and item.strip():
-            return item.strip()
-
-    return None
+    return first_text(map(row.get, names))
 
 
 def int_value(row: dict[str, str], *names: str) -> int | None:

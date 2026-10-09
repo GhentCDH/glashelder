@@ -60,12 +60,11 @@ def parse_artwork_url(url: str) -> Artwork | None:
     )
 
 
-def parse_image_url(html: str) -> str | None:
+def parse_image_url(soup: BeautifulSoup) -> str | None:
     """Pull the artwork image out of a page's Open Graph tags.
 
     Raises `RestrictedError` for artworks wikiart will not show.
     """
-    soup = BeautifulSoup(html, "html.parser")
     if soup.select_one(".restricted-msg") is not None:
         raise RestrictedError
 
@@ -87,9 +86,10 @@ def parse_page(url: str, html: str) -> Artwork | None:
         # same url shape as an artwork
         return None
 
-    artwork.image_url = parse_image_url(html)
+    soup = BeautifulSoup(html, "html.parser")
+    artwork.image_url = parse_image_url(soup)
 
-    if title := meta_content(BeautifulSoup(html, "html.parser"), "og:title"):
+    if title := meta_content(soup, "og:title"):
         # format: "Autumn - Giuseppe Arcimboldo - WikiArt.org"
         artwork.title = title.split(" - ")[0].strip()
 
