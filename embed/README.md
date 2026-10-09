@@ -7,8 +7,8 @@ Supports CLIP (default, with text search) and DINOv2 (no text support).
 
 ## Commands
 
-Paths and defaults come from `glashelder.toml`, so the arguments are only needed to
-override it.
+Paths and defaults come from `glashelder.toml` (run `uv run glashelder setup` to
+write one), so the arguments are only needed to override it.
 
 ```bash
 # embed the scraped artworks (paths.artworks) into paths.embeddings.reference

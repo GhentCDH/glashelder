@@ -47,18 +47,15 @@ Most other Linux, Windows or MacOS (with apple silicon) systems should be suppor
 
 **NVIDIA GPU (CUDA)**
 
-If you have a Nvidia CUDA GPU on your system, this repository should be plug-and-play.
-When you encounter any CUDA-related issues, chances are your GPU drivers are out of date.
-This repository supports `> CUDA 12.6` out of the box.
-However, if you have older drivers (e.g. `11.8`), you should be able to edit this table in `pyproject.toml`:
+Torch comes from PyPI for everyone, no flags or per-machine edits needed. On Linux
+that is a CUDA build: with a recent enough NVIDIA driver it uses the GPU, and with
+no GPU (or an old driver) it falls back to the CPU, just slower. `uv run glashelder
+setup` checks your driver and tells you which case you are in.
 
-```diff
-[[tool.uv.index]]
-name = "pytorch"
-- url = "https://download.pytorch.org/whl/cpu"
-+ url = "https://download.pytorch.org/whl/cu118"
-explicit = true
-```
+If your driver is too old to update, you can pin an older CUDA build by hand: add
+a `[tool.uv.sources]` entry for `torch`/`torchvision` pointing at one of
+[PyTorch's wheel indexes](https://download.pytorch.org/whl/) (e.g. `cu118`), then
+`uv lock`.
 
 **Apple Silicon (MPS)**
 
@@ -86,6 +83,20 @@ This can be done with `uv`:
 # make .venv, install required packages
 uv sync
 ```
+
+### Setup
+
+```sh
+uv run glashelder setup
+```
+
+Answers a few plain-language questions and writes `glashelder.toml`, which every
+command reads for its artifact locations (see `glashelder.example.toml` for every
+setting and its default). Run it again any time to change an answer; it shows
+your previous answers as defaults.
+
+If you use the Docker Compose setup below, the container reads the `glashelder.toml`
+and `.env` on your host, since `compose.yml` mounts the whole repository.
 
 ### Jupyter Notebooks
 
