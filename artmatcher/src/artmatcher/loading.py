@@ -14,7 +14,7 @@ from common.images import list_images
 from embed import get_device, is_store
 from embed.search import place
 
-from .ml_classifier import MLClassifier
+from .classifier import MLClassifier
 
 logger = logging.getLogger(__name__)
 
