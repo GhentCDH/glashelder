@@ -5,7 +5,7 @@ Authentication works via:
 1. Query parameter `?secret=<value>` - sets a session cookie if valid
 2. Cookie `glashelder_auth` - checked on subsequent requests
 
-The expected secret should be set in GLASHELDER_SECRET environment variable.
+The expected secret is the `secret` config value (`GLASHELDER_SECRET` in the environment).
 """
 
 import hashlib
@@ -16,13 +16,10 @@ import secrets
 # Cookie settings for authentication
 AUTH_COOKIE_NAME = "glashelder_auth"
 AUTH_COOKIE_MAX_AGE = 86400  # 1 day in seconds
+# app.config key that holds the expected secret
+AUTH_SECRET_KEY = "GLASHELDER_SECRET"
 
 logger = logging.getLogger(__name__)
-
-
-def get_secret_from_env() -> str | None:
-    """Get the authentication secret from environment variable."""
-    return os.getenv("GLASHELDER_SECRET")
 
 
 def hash_secret(secret: str) -> str:
@@ -37,8 +34,8 @@ def require_auth(app):
     1. Query parameter `?secret=<value>` - sets a session cookie if valid
     2. Cookie `glashelder_auth` - checked on subsequent requests
 
-    The expected secret should be set in GLASHELDER_SECRET environment variable.
-    If not set, a random secret is generated and logged.
+    The expected secret is the `secret` config value. If not set, a random
+    secret is generated. Either way it is stored in `app.config[AUTH_SECRET_KEY]`.
 
     Args:
         app: Flask application instance
@@ -48,15 +45,17 @@ def require_auth(app):
     """
     from flask import request
 
-    expected_secret = get_secret_from_env()
+    from .config import config
+
+    expected_secret = config().secret
 
     if not expected_secret:
-        logger.warning(
-            "GLASHELDER_SECRET not set - generating a random secret for this session"
-        )
+        logger.warning("no secret configured - generating a random one for this run")
         expected_secret = secrets.token_urlsafe(32)
-        logger.info(f"Access the server with: ?secret={expected_secret}")
+        # the debug reloader's child process inherits this, so it keeps the same secret
+        os.environ["GLASHELDER_SECRET"] = expected_secret
 
+    app.config[AUTH_SECRET_KEY] = expected_secret
     expected_hash = hash_secret(expected_secret)
 
     @app.before_request
