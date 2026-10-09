@@ -1,12 +1,21 @@
 [project]
 name = "preprocessing"
 version = "0.1.0"
-description = "Add your description here"
+description = "Crop and prepare glass plate photos for the matching pipeline."
 readme = "README.md"
 authors = [{ name = "LBT-H", email = "basvercruysse@gmail.com" }]
 requires-python = ">=3.13,<3.14"
-dependencies = ["pillow>=12.0.0", "ultralytics>=8.3.233", "common"]
+dependencies = [
+    "pillow>=12.1.1",
+    "ultralytics>=8.3.233",
+    "common",
+    "click>=8.3.1",
+    "rich>=14.3.2",
+    "pyyaml>=6.0.3",
+    "numpy>=2.3.5",
+    "tqdm>=4.67.3",
+]
 
 [build-system]
-requires = ["uv_build>=0.9.14,<0.10.0"]
+requires = ["uv_build>=0.9.14,<0.13"]
 build-backend = "uv_build"

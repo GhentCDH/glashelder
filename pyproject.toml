@@ -19,19 +19,7 @@ dependencies = [
     "ocr",
     "click>=8.3.1",
     "python-dotenv>=1.1.0",
-    "opencv-python>=4.11.0.86",
     "rich>=13.9.4",
-    "umap-learn>=0.5.7",
-    "transformers>=4.57.0",
-    "pillow>=12.0.0",
-    "torch>=2.6.0",
-    "torchvision>=0.24.0",
-    "rerun-sdk>=0.27.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
-    "jupyter>=1.1.1",
-    "accelerate==1.12.0",
-    "llvmlite>=0.43",
-    "flask>=3.0.0",
-    "ipykernel>=6.31.0",
 ]
 
 [project.scripts]
@@ -103,6 +91,7 @@ known-first-party = [
     "embed",
     "glaswacht",
     "ocr",
+    "artscraper",
 ]
 
 [tool.ty.environment]
@@ -114,10 +103,11 @@ root = [
     "artmatcher",
     "embed",
     "ocr",
+    "artscraper",
 ]
 
 [build-system]
-requires = ["uv_build>=0.9.14,<0.10.0"]
+requires = ["uv_build>=0.9.14,<0.13"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -125,4 +115,9 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.15.1",
     "ty>=0.0.85",
+]
+notebooks = [
+    "jupyter>=1.1.1",
+    "ipykernel>=6.31.0",
+    "rerun-sdk>=0.27.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
