@@ -730,7 +730,6 @@ dependencies = [
     { name = "torchvision", version = "0.26.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "transformers" },
     { name = "umap-learn" },
-    { name = "workspace" },
 ]
 
 [package.dev-dependencies]
@@ -767,7 +766,6 @@ requires-dist = [
     { name = "torchvision", marker = "sys_platform == 'darwin'", specifier = ">=0.24.0" },
     { name = "transformers", specifier = ">=4.57.0" },
     { name = "umap-learn", specifier = ">=0.5.7" },
-    { name = "workspace", specifier = ">=0.3.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -2680,12 +2678,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sprinkles"
-version = "0.4.6"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/06/db/d8480a6438037f70f598199102801e9ac0b5b9a1c4ef7587a9dd2de4a384/sprinkles-0.4.6.tar.gz", hash = "sha256:2c3f46593eb0ed43d1b55ecb154100141eec7e81a85c9f7e93f84382ea72df47", size = 7043, upload-time = "2006-04-18T13:02:46Z" }
-
-[[package]]
 name = "stack-data"
 version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3266,15 +3258,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/bd/f4/c67440c7fb409a71b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/0e/fa3b193432cfc60c93b42f3be03365f5f909d2b3ea410295cf36df739e31/widgetsnbextension-4.0.15-py3-none-any.whl", hash = "sha256:8156704e4346a571d9ce73b84bee86a29906c9abfd7223b7228a28899ccf3366", size = 2196503, upload-time = "2025-11-01T21:15:53.565Z" },
 ]
-
-[[package]]
-name = "workspace"
-version = "0.3.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "sprinkles" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/12/e7/630da05ab53c1165ef68ae77f3e8332cd48107bdc7869222da3b2c240cb0/workspace-0.3.1.tar.gz", hash = "sha256:f3cb31daf7b347ff1789aef19100e84ea52e4b7a873e7b91730f852e7b19aa65", size = 4437, upload-time = "2006-04-03T12:09:29Z" }
 
 [[package]]
 name = "zstandard"
