@@ -476,6 +476,8 @@ def analyze(
         create_2d_visualization,
         create_3d_visualization,
         create_clusterer,
+        is_noise,
+        noise_mask,
         reduce_dimensions,
         save_cluster_statistics,
     )
@@ -556,7 +558,9 @@ def analyze(
         logger.info(f"  Max depth: {max_depth}")
         logger.info(f"  Min cluster size: {min_cluster_size}")
 
-        labels, reduced_embeddings_30d, refinement_tree = hierarchical_cluster(
+        # refined clusters come with coordinates from their own UMAP fit; keep the
+        # global 30D fit so every cluster's statistics are measured in one space
+        labels, _, refinement_tree = hierarchical_cluster(
             embeddings_tensor.cpu().numpy(), labels, reduced_embeddings_30d, config
         )
 
@@ -598,11 +602,7 @@ def analyze(
 
     # Get unique clusters (excluding noise and .noise suffix)
     unique_clusters = sorted(
-        [
-            label
-            for label in set(labels_str)
-            if label != "-1" and not label.endswith(".noise")
-        ],
+        [label for label in set(labels_str) if not is_noise(label)],
         key=lambda x: (x.count("."), x),
     )  # Sort by depth, then name
 
@@ -634,11 +634,7 @@ def analyze(
         )
 
     # Handle noise points (both "-1" and ".noise" suffix)
-    noise_indices = [
-        i
-        for i, label in enumerate(labels_str)
-        if label == "-1" or label.endswith(".noise")
-    ]
+    noise_indices = np.flatnonzero(noise_mask(labels_str)).tolist()
     if noise_indices:
         noise_dir = samples_dir / "noise"
         noise_dir.mkdir(exist_ok=True)

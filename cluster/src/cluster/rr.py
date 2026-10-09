@@ -4,6 +4,8 @@ import numpy as np
 import rerun as rr
 from PIL import Image
 
+from .cluster import noise_mask
+
 RERUN_ID = "cluster"
 
 logger = logging.getLogger(__name__)
@@ -106,21 +108,23 @@ def log_clustered_points_density(
         latent = latent[indices]
         labels = labels[indices]
 
-    unique_labels = np.unique(labels)
-    cmap = _generate_density_colormap(unique_labels, stats, "magma")
+    labels = np.asarray(labels)
+    noise = noise_mask(labels)
+    if noise.any():
+        rr.log(
+            f"{base_path}/noise",
+            rr.Points3D(latent[noise, :3], colors=[128, 128, 128], radii=0.02),
+        )
 
-    for label in unique_labels:
+    clusters = np.unique(labels[~noise])
+    cmap = _generate_density_colormap(clusters, stats, "magma")
+
+    for label in clusters:
         mask = labels == label
-        positions = latent[mask, :3]
-
-        if label == -1:
-            path = f"{base_path}/noise"
-            color = [128, 128, 128]
-        else:
-            path = f"{base_path}/{label}"
-            color = [cmap[label]]
-
-        rr.log(path, rr.Points3D(positions, colors=color, radii=0.02))
+        rr.log(
+            f"{base_path}/{label}",
+            rr.Points3D(latent[mask, :3], colors=[cmap[label]], radii=0.02),
+        )
 
 
 def log_image_3d(
@@ -239,7 +243,9 @@ def _generate_density_colormap(
     colors: dict[str, list[int]] = {}
 
     cmap = plt.get_cmap(cmap_name)
-    max_density: float = max([stat["density"] for stat in stats["clusters"]])
+    max_density: float = max(
+        (stat["density"] for stat in stats["clusters"]), default=0.0
+    )
 
     def _cmap(x: float) -> list[int]:
         rgba = cmap(x)
@@ -260,9 +266,10 @@ def _generate_density_colormap(
             logger.warning(f"Couldn't find stats for cluster {label}")
             return _cmap(0)
 
-        density = cluster["density"]
+        if max_density <= 0:
+            return _cmap(0)
 
-        return _cmap(math.sqrt(density / max_density))
+        return _cmap(math.sqrt(cluster["density"] / max_density))
 
     for label in labels:
         colors[label] = _get_color(label)
