@@ -25,6 +25,24 @@ class HierarchicalConfig:
     min_cluster_size: int = 50
 
 
+def is_noise(label) -> bool:
+    """Whether a cluster label marks noise.
+
+    HDBSCAN marks noise with -1. Hierarchical refinement turns labels into strings,
+    where noise is "-1" or "<parent>.noise".
+    """
+    text = str(label)
+    return text == "-1" or text.endswith(".noise")
+
+
+def noise_mask(labels) -> np.ndarray:
+    """A boolean mask of the noise points in `labels`, numeric or hierarchical."""
+    labels = np.asarray(labels)
+    if labels.dtype.kind in "iu":
+        return labels == -1
+    return np.array([is_noise(label) for label in labels], dtype=bool)
+
+
 def reduce_dimensions(
     embeddings, dimensions: int = 30, n_neighbors: int = 30, min_dist: float = 0.0
 ):
@@ -125,18 +143,9 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
         set(labels_str), key=lambda x: (x.count("."), x)
     )  # Sort by depth, then name
 
-    # Count noise (both "-1" and labels ending with ".noise")
-    n_noise = int(
-        sum(
-            (labels_str == "-1")
-            | np.array([str(label).endswith(".noise") for label in labels_str])
-        )
-    )
-    n_clusters = (
-        len(unique_labels)
-        - int("-1" in unique_labels)
-        - int(any(label.endswith(".noise") for label in unique_labels))
-    )
+    noise = noise_mask(labels_str)
+    n_noise = int(noise.sum())
+    n_clusters = sum(not is_noise(label) for label in unique_labels)
     n_samples = len(labels)
 
     # Overall statistics (ensure all values are native Python types for JSON serialization)
@@ -153,9 +162,7 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
             from sklearn.metrics import silhouette_score
 
             # Only calculate silhouette for non-noise points
-            non_noise_mask = (labels_str != "-1") & ~np.array(
-                [str(label).endswith(".noise") for label in labels_str]
-            )
+            non_noise_mask = ~noise
             if sum(non_noise_mask) > 0:
                 # Create numeric labels for silhouette calculation
                 non_noise_labels = labels_str[non_noise_mask]
@@ -179,7 +186,7 @@ def calculate_cluster_statistics(embeddings, labels, clusterer):
     cluster_stats = []
 
     for label in unique_labels:
-        if label == "-1" or label.endswith(".noise"):
+        if is_noise(label):
             continue  # Skip noise in per-cluster stats
 
         cluster_mask = labels_str == label
@@ -260,35 +267,36 @@ def create_2d_visualization(embeddings_2d, labels, save_path: str = "clusters_2d
     """Create a 2D scatter plot of clusters."""
     plt.figure(figsize=(14, 10))
 
-    unique_labels = sorted(set(labels))
-    n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+    labels = np.asarray(labels)
+    noise = noise_mask(labels)
+    clusters = sorted(set(labels[~noise].tolist()))
+    n_clusters = len(clusters)
+
+    if noise.any():
+        plt.scatter(
+            embeddings_2d[noise, 0],
+            embeddings_2d[noise, 1],
+            c="lightgrey",
+            alpha=0.3,
+            s=20,
+            label="Noise",
+        )
 
     # Plot each cluster with a different color
-    for label in unique_labels:
+    for label in clusters:
         mask = labels == label
-        if label == -1:
-            # Noise points in grey
-            plt.scatter(
-                embeddings_2d[mask, 0],
-                embeddings_2d[mask, 1],
-                c="lightgrey",
-                alpha=0.3,
-                s=20,
-                label="Noise",
-            )
-        else:
-            plt.scatter(
-                embeddings_2d[mask, 0],
-                embeddings_2d[mask, 1],
-                alpha=0.6,
-                s=30,
-                label=f"Cluster {label} ({sum(mask)} points)",
-            )
+        plt.scatter(
+            embeddings_2d[mask, 0],
+            embeddings_2d[mask, 1],
+            alpha=0.6,
+            s=30,
+            label=f"Cluster {label} ({mask.sum()} points)",
+        )
 
     plt.xlabel("UMAP Component 1", fontsize=12)
     plt.ylabel("UMAP Component 2", fontsize=12)
     plt.title(
-        f"Cluster Visualization (2D)\n{n_clusters} clusters, {sum(labels == -1)} noise points",
+        f"Cluster Visualization (2D)\n{n_clusters} clusters, {noise.sum()} noise points",
         fontsize=14,
     )
     plt.grid(True, alpha=0.3)
@@ -309,38 +317,39 @@ def create_3d_visualization(embeddings_3d, labels, save_path: str = "clusters_3d
     fig = plt.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection="3d")
 
-    unique_labels = sorted(set(labels))
-    n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+    labels = np.asarray(labels)
+    noise = noise_mask(labels)
+    clusters = sorted(set(labels[~noise].tolist()))
+    n_clusters = len(clusters)
+
+    if noise.any():
+        ax.scatter(
+            embeddings_3d[noise, 0],
+            embeddings_3d[noise, 1],
+            embeddings_3d[noise, 2],
+            c="lightgrey",
+            alpha=0.3,
+            s=20,
+            label="Noise",
+        )
 
     # Plot each cluster with a different color
-    for label in unique_labels:
+    for label in clusters:
         mask = labels == label
-        if label == -1:
-            # Noise points in grey
-            ax.scatter(
-                embeddings_3d[mask, 0],
-                embeddings_3d[mask, 1],
-                embeddings_3d[mask, 2],
-                c="lightgrey",
-                alpha=0.3,
-                s=20,
-                label="Noise",
-            )
-        else:
-            ax.scatter(
-                embeddings_3d[mask, 0],
-                embeddings_3d[mask, 1],
-                embeddings_3d[mask, 2],
-                alpha=0.6,
-                s=30,
-                label=f"Cluster {label} ({sum(mask)} pts)",
-            )
+        ax.scatter(
+            embeddings_3d[mask, 0],
+            embeddings_3d[mask, 1],
+            embeddings_3d[mask, 2],
+            alpha=0.6,
+            s=30,
+            label=f"Cluster {label} ({mask.sum()} pts)",
+        )
 
     ax.set_xlabel("UMAP Component 1", fontsize=10)
     ax.set_ylabel("UMAP Component 2", fontsize=10)
     ax.set_zlabel("UMAP Component 3", fontsize=10)
     ax.set_title(
-        f"Cluster Visualization (3D)\n{n_clusters} clusters, {sum(labels == -1)} noise points",
+        f"Cluster Visualization (3D)\n{n_clusters} clusters, {noise.sum()} noise points",
         fontsize=14,
     )
 
