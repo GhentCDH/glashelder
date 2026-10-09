@@ -213,26 +213,31 @@ async def stream(
         return [worker(client, todo, throttle) for _ in range(count)]
 
     async def run() -> None:
-        async with httpx.AsyncClient(
-            # waiting for a free connection is expected, not a timeout
-            timeout=httpx.Timeout(TIMEOUT, pool=None),
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
-            limits=httpx.Limits(max_connections=connections),
-        ) as client:
-            await asyncio.gather(
-                *(
-                    w
-                    for name, group in groups.items()
-                    for w in workers(client, name, group)
+        try:
+            async with httpx.AsyncClient(
+                # waiting for a free connection is expected, not a timeout
+                timeout=httpx.Timeout(TIMEOUT, pool=None),
+                follow_redirects=True,
+                headers={"User-Agent": USER_AGENT},
+                limits=httpx.Limits(max_connections=connections),
+            ) as client:
+                await asyncio.gather(
+                    *(
+                        w
+                        for name, group in groups.items()
+                        for w in workers(client, name, group)
+                    )
                 )
-            )
-        await queue.put(None)  # sentinel: nothing more is coming
+        finally:
+            # sentinel: nothing more is coming, also when the run failed
+            if not stop.is_set():
+                await queue.put(None)
 
     runner = asyncio.create_task(run())
     try:
         while (item := await queue.get()) is not None:
             yield item
+        await runner  # surfaces the error of a failed run
     finally:
         stop.set()
         runner.cancel()
