@@ -98,11 +98,17 @@ def train_yolo_model(model, data_yaml, epochs, project_folder, project_name):
     required=True,
     help="This is the path to the folder where cropped images will be saved.",
 )
-def preprocessing_on_image(model_path, image_folder, output_folder):
+@click.option(
+    "-d",
+    "--device",
+    default=None,
+    help="Device to run YOLO on, such as cpu, 0 or mps [default: picked by ultralytics]",
+)
+def preprocessing_on_image(model_path, image_folder, output_folder, device):
     """Detect and crop objects from images using a trained YOLO model."""
     from .yolo_cropper import run_crop_on_batch_of_images as rcbi
 
-    rcbi(model_path, image_folder, output_folder)
+    rcbi(model_path, image_folder, output_folder, device=device)
 
 
 @preprocessing.command()
