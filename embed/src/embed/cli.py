@@ -7,7 +7,7 @@ from urllib.parse import unquote, urlsplit
 import click
 
 from common import ASSETS_DIR, PROJECT_ROOT, require_auth, run_app
-from common.images import is_url
+from common.images import is_url, list_images
 from common.progress import format_bytes
 
 from .embed import EMBEDDING_MODELS, get_device
@@ -135,7 +135,7 @@ def images(image_dir: Path, output: Path | None, **options):
     `paths.embeddings.glashelder`. Images are stored relative to IMAGE_DIR, so
     the store keeps working when the directory is mounted elsewhere.
     """
-    paths = sorted(image_dir.glob("**/*.jpg"))
+    paths = list_images(image_dir, suffixes=(".jpg",))
     logger.info(f"{image_dir}: {len(paths):,} images")
     embed_refs(
         {str(path): str(path.relative_to(image_dir)) for path in paths},

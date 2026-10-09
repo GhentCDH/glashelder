@@ -37,3 +37,24 @@ def test_failed_run_raises_instead_of_hanging(monkeypatch):
     monkeypatch.setattr(images.httpx, "AsyncClient", broken)
     with pytest.raises(RuntimeError, match="no client"):
         collect(["https://example.org/a.jpg"])
+
+
+def test_list_images():
+    folder = Path(tempfile.mkdtemp())
+    for name in ["b.jpg", "a.png", "notes.txt", "sub/c.jpg", "sub/d.tiff", ".x.jpg"]:
+        (folder / name).parent.mkdir(exist_ok=True)
+        (folder / name).touch()
+    names = [str(p.relative_to(folder)) for p in images.list_images(folder)]
+    assert names == ["a.png", "b.jpg", "sub/c.jpg", "sub/d.tiff"]
+    flat = images.list_images(folder, recursive=False, suffixes=(".jpg",))
+    assert flat == [folder / "b.jpg"]
+
+
+def test_thumbnail_keeps_aspect_and_never_grows():
+    folder = Path(tempfile.mkdtemp())
+    Image.new("RGB", (400, 200)).save(folder / "wide.jpg")
+    Image.new("RGB", (10, 20)).save(folder / "small.png")
+    assert images.thumbnail(folder / "wide.jpg", 100).size == (100, 50)
+    assert images.thumbnail(folder / "small.png", 100).size == (10, 20)
+    images.save_resized(folder / "wide.jpg", folder / "out.jpg", 64)
+    assert Image.open(folder / "out.jpg").size == (64, 32)

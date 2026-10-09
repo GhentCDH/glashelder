@@ -1,6 +1,5 @@
 """Shared loading logic for reference/glashelder embeddings and classifiers."""
 
-import glob
 import logging
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -11,6 +10,7 @@ import torch
 
 import embed
 from artscraper import Artwork
+from common.images import list_images
 from embed import get_device, is_store
 from embed.search import place
 
@@ -126,11 +126,13 @@ def load_matching_inputs(
         glashelder_paths: list[str] = glashelder_data["images"]
         logger.info(f"Loaded {len(glashelder_paths)} glashelder images")
     else:
+        if image_dir is None:
+            raise ValueError("Neither glashelder embeddings nor an image dir given")
         logger.info(f"Loading embedder model: {model}")
         embedder = embed.get_embedder(model)
         embedder.load(device)
 
-        glashelder_paths = sorted(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))
+        glashelder_paths = [str(p) for p in list_images(image_dir, suffixes=(".jpg",))]
         logger.info(f"Found {len(glashelder_paths)} glashelder images")
 
         if not glashelder_paths:
