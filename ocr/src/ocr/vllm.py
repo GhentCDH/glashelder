@@ -53,9 +53,15 @@ _SHUFFLE_BUFFER = 512
 
 
 def cache_dir() -> Path:
-    """Transcription cache dir: $XDG_CACHE_HOME/glashelder or ~/.cache/glashelder."""
-    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
-    d = Path(base) / "glashelder" / "transcriptions"
+    """Transcription cache dir: `ocr.cache`, else $XDG_CACHE_HOME/glashelder or ~/.cache/glashelder."""
+    from common.config import config
+
+    configured = config().ocr.cache
+    if configured is not None:
+        d = configured
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+        d = Path(base) / "glashelder" / "transcriptions"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

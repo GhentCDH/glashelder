@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import shutil
 import subprocess
 import tempfile
@@ -20,19 +19,13 @@ from preprocessing.bounding import load_bounding_boxes
 log = logging.getLogger("ocr")
 
 
-def _resolve_concurrency(value: int | None) -> int:
-    """Parallel in-flight requests: CLI value, else $OCR_CONCURRENCY, else 1."""
-    if value is None:
-        value = int(os.environ.get("OCR_CONCURRENCY", "1"))
-    return max(1, value)
-
-
 _CONCURRENCY_OPT = click.option(
     "-j",
     "--concurrency",
-    default=None,
+    default=1,
+    show_default=True,
     type=int,
-    help="Parallel requests to vLLM [env: OCR_CONCURRENCY, default 1]",
+    help="Parallel requests to vLLM [ocr.concurrency]",
 )
 
 
@@ -166,7 +159,7 @@ def many(
     include_input: bool,
     split: bool,
     nocache: bool,
-    concurrency: int | None,
+    concurrency: int,
 ):
     base_url = base_url.rstrip("/")
     console = Console()
@@ -177,7 +170,7 @@ def many(
     output.mkdir(exist_ok=True)
 
     paths = sorted(images.glob("*.jpg"))
-    workers = _resolve_concurrency(concurrency)
+    workers = max(1, concurrency)
     log.info(f"{len(paths)} images found in {str(images)!r} (concurrency {workers})")
 
     def process(image: Path) -> Path:
@@ -203,9 +196,9 @@ def many(
 @click.option(
     "-i",
     "--images",
-    default=lambda: os.environ.get("ASSETS_DIR"),
+    default=None,
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    help="Directory of images to annotate [default: $ASSETS_DIR]",
+    help="Directory of images to annotate [paths.images.glashelder]",
 )
 @click.option(
     "-o",
@@ -241,7 +234,9 @@ def annotate(
 ):
     """Hand-transcribe images in an editor, pre-filled by the VLM, one at a time."""
     if images is None:
-        raise click.UsageError("no --images given and $ASSETS_DIR is not set")
+        raise click.UsageError(
+            "no images: pass --images or set paths.images.glashelder"
+        )
 
     base_url = base_url.rstrip("/")
     console = Console()
@@ -380,7 +375,7 @@ def validate(
     boxes: Path | None,
     model: str | None,
     split: bool,
-    concurrency: int | None,
+    concurrency: int,
 ):
     from ocr.validation import validate as vd
 
@@ -398,7 +393,7 @@ def validate(
 
     box_map = load_bounding_boxes(boxes) if boxes else {}
     gts = list(labels.glob("*.json"))
-    workers = _resolve_concurrency(concurrency)
+    workers = max(1, concurrency)
 
     def predict(annotation: Path) -> tuple[str, tuple[Annotation, Annotation]] | None:
         image = images / annotation.with_suffix(".jpg").name
