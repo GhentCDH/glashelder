@@ -216,7 +216,7 @@ class CLIPEmbedder(EmbeddingModel):
     ) -> tuple[torch.Tensor, list[str]]:
         import torch
 
-        from common.dataloader import get_dataloader
+        from embed.dataloader import get_dataloader
 
         assert self._model is not None, "Model not loaded. Call load() first."
         assert self._processor is not None, "Processor not loaded. Call load() first."
@@ -347,7 +347,7 @@ class DINOv2Embedder(EmbeddingModel):
     ) -> tuple[torch.Tensor, list[str]]:
         import torch
 
-        from common.dataloader import get_dataloader
+        from embed.dataloader import get_dataloader
 
         assert self._model is not None, "Model not loaded. Call load() first."
         assert self._processor is not None, "Processor not loaded. Call load() first."
