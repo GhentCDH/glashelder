@@ -5,7 +5,6 @@ from importlib import import_module
 from pathlib import Path
 
 import click
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.traceback import install
@@ -105,8 +104,10 @@ def cli_defaults() -> dict:
             if value is not None
         }
 
+    matcher = defaults_for(settings.artmatcher)
+    workers = matcher.pop("workers", None)
     matching = {
-        **defaults_for(settings.artmatcher),
+        **matcher,
         **given(
             artworks=paths.artworks,
             glashelder_images=paths.images.glashelder,
@@ -117,8 +118,12 @@ def cli_defaults() -> dict:
         ),
     }
     embedding = defaults_for(settings.embed)
+    ocr_options = {k: v for k, v in defaults_for(settings.ocr).items() if k != "cache"}
+    ocr_no_concurrency = {k: v for k, v in ocr_options.items() if k != "concurrency"}
     return {
-        "artscraper": {"scrape": given(output=paths.artworks)},
+        "artscraper": {
+            "scrape": given(output=paths.artworks),
+        },
         "cluster": {
             "cluster": {
                 **defaults_for(settings.cluster),
@@ -163,9 +168,22 @@ def cli_defaults() -> dict:
             ),
         },
         "artmatcher": {
-            "serve": matching,
-            "batch-classify": matching,
+            "serve": {**matching, **given(search_workers=workers)},
+            "batch-classify": {**matching, **given(workers=workers)},
+            "train-classifier": given(workers=workers),
             "report": given(artworks=paths.artworks),
+        },
+        "glaswacht": {
+            "serve": given(
+                csv_path=settings.glaswacht.results,
+                images_dir=settings.glaswacht.images,
+            ),
+        },
+        "ocr": {
+            "one": ocr_no_concurrency,
+            "many": ocr_options,
+            "annotate": {**ocr_no_concurrency, **given(images=paths.images.glashelder)},
+            "validate": ocr_options,
         },
     }
 
@@ -174,6 +192,4 @@ def cli_defaults() -> dict:
 @click.pass_context
 def main(ctx: click.Context):
     """Run the full glashelder CLI interface."""
-    # before the config is read, so `.env` can hold `GLASHELDER_*` overrides too
-    load_dotenv()
     ctx.default_map = cli_defaults()
