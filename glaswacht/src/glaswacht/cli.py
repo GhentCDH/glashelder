@@ -1,6 +1,9 @@
+from pathlib import Path
+
 import click
 
 from glaswacht.models.safety_model import SafetyModel
+from glaswacht.models.utils import RESULTS_CSV
 
 MODEL_REGISTRY: dict[str, type[SafetyModel]] = {}
 
@@ -81,7 +84,13 @@ def run(path, model_names):
 @click.option("--host", default="0.0.0.0", show_default=True, help="Host to bind to.")
 @click.option("--port", default=5001, show_default=True, help="Port to listen on.")
 @click.option(
-    "--debug/--no-debug", default=True, show_default=True, help="Enable debug mode."
+    "--debug/--no-debug", default=False, show_default=True, help="Enable debug mode."
+)
+@click.option(
+    "--auth/--no-auth",
+    default=True,
+    show_default=True,
+    help="Require the secret url parameter to access the site.",
 )
 @click.option(
     "--open/--no-open",
@@ -90,24 +99,26 @@ def run(path, model_names):
     show_default=True,
     help="Open the site in a browser on startup.",
 )
-@click.option("--csv-path", default=None, help="Override CSV_PATH from web.py.")
-@click.option("--images-dir", default=None, help="Override IMAGES_DIR from web.py.")
-def serve(host, port, debug, open_browser, csv_path, images_dir):
+@click.option(
+    "--csv-path",
+    default=RESULTS_CSV,
+    show_default=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Combined results CSV written by `glaswacht run`.",
+)
+@click.option(
+    "--images-dir",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Folder with the assessed images.",
+)
+def serve(host, port, debug, auth, open_browser, csv_path, images_dir):
     """Serve the validation web interface."""
     import logging
-    import os
-
-    if csv_path is not None:
-        os.environ["RA_CSV_PATH"] = csv_path
-    if images_dir is not None:
-        os.environ["RA_IMAGES_DIR"] = images_dir
-    else:
-        click.echo(
-            "Warning: no --images-dir set, using default path from web.py.", err=True
-        )
 
     from common import run_app
-    from glaswacht.web import app
+    from glaswacht.web import create_app
 
     logging.basicConfig(level=logging.INFO)
+    app = create_app(csv_path, images_dir, auth=auth)
     run_app(app, host, port, open_browser=open_browser, debug=debug)
