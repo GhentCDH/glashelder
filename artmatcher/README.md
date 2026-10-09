@@ -16,8 +16,9 @@ its title, artist, year and source link.
 
 ## Commands
 
-Artifact locations and tuning defaults live in `glashelder.toml` at the repo root,
-so the options below are only needed when overriding it.
+Artifact locations and tuning defaults live in `glashelder.toml` at the repo root
+(run `uv run glashelder setup` to write one), so the options below are only
+needed when overriding it.
 
 ```bash
 # embed what is new in the scrape, fetching the images while the model works
