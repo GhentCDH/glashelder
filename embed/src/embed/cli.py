@@ -6,15 +6,13 @@ from urllib.parse import unquote, urlsplit
 
 import click
 
-from common import ASSETS_DIR, PROJECT_ROOT, run_app
+from common import ASSETS_DIR, run_app
 from common.cli import options, serve_options
 from common.images import is_url, list_images
 from common.progress import format_bytes
 
-from .embed import EMBEDDING_MODELS, get_device
-
-PACKAGE_ROOT = PROJECT_ROOT / "embed"
-EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
+from .device import get_device
+from .models import EMBEDDING_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +159,7 @@ def embed_refs(
     """Bring the store at `output` up to date with `refs` (source -> key in the store)."""
     from common.progress import progress
 
-    from .embed import get_embedder
+    from .models import get_embedder
     from .store import Store, is_store
     from .stream import encode_into, pending
 
@@ -335,7 +333,7 @@ def convert_into(sources, destination: Path, root, dtype, progress) -> str:
     """Do the conversion `convert` describes, returning a summary of the result."""
     import torch
 
-    from .embed import read_embeddings
+    from .io import read_embeddings
     from .store import Store, is_store
 
     def described(source: Path) -> dict:
@@ -504,7 +502,7 @@ def saved_neighbours(store) -> str:
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
 def info(path: Path):
     """Show what an embeddings store or legacy pickle holds."""
-    from .embed import read_embeddings
+    from .io import read_embeddings
     from .store import Store, is_store
 
     data = read_embeddings(path)
@@ -593,7 +591,8 @@ def search(
 
     from common.images import load
 
-    from .embed import get_embedder, load_embeddings
+    from .io import load_embeddings
+    from .models import get_embedder
     from .search import perform_search, place
 
     if embeddings is None:
@@ -639,7 +638,8 @@ def search(
 @embed.command()
 @click.option(
     "--embeddings",
-    default=EMBEDDINGS_PATH,
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
     help="Embedding store or legacy pickle [paths.embeddings.glashelder]",
 )
 @click.option(
@@ -655,314 +655,10 @@ def serve(embeddings, image_dir, **server):
     GLASHELDER_SECRET), then access the server with /?secret=<your-secret> to
     get a session cookie.
     """
-    import io
+    from .web import create_app
 
-    from flask import Flask, redirect, render_template, request, send_from_directory
-    from PIL import Image
-
-    from .embed import get_embedder, load_embeddings
-    from .search import find_similar, perform_search, place
-
-    app = Flask(
-        __name__,
-        template_folder=PACKAGE_ROOT / "templates",
-        static_folder=PACKAGE_ROOT / "static",
-    )
-
-    # Load embeddings and determine model
-    logger.info(f"Loading embeddings from {embeddings}...")
-    device = get_device()
-    logger.info(f"Using device: {device}")
-
-    data = load_embeddings(embeddings, root=image_dir)
-    image_paths = data["images"]
-    image_embeddings = place(
-        data["embeddings"], device, label=str(embeddings), scans_per_query=True
-    )
-    embedding_model_name = data.get("model", "clip")
-
-    logger.info(f"Loaded {len(image_paths)} images")
-    logger.info(f"Embedding model: {embedding_model_name}")
-
-    # Load the embedder for text encoding
-    embedder = get_embedder(embedding_model_name)
-    embedder.load(device)
-
-    supports_text_search = embedder.supports_text
-    if not supports_text_search:
-        logger.warning(
-            f"Model '{embedding_model_name}' does not support text search. "
-            "Text search will be disabled."
+    if embeddings is None:
+        raise click.UsageError(
+            "pass --embeddings or set paths.embeddings.glashelder in glashelder.toml"
         )
-
-    @app.route("/")
-    def index():
-        return render_template("index.html", supports_text_search=supports_text_search)
-
-    @app.route("/search", methods=["POST"])
-    def search_endpoint():
-        prompt = request.form.get("prompt", "").strip()
-        top_k = parse_top_k(request.form.get("top_k"))
-
-        if top_k is None:
-            return render_template(
-                "results.html",
-                error=TOP_K_ERROR,
-                results=[],
-                query_type="text",
-                query_value="",
-            )
-
-        if not prompt:
-            return render_template(
-                "results.html",
-                error="Please enter a search prompt",
-                results=[],
-                query_type="text",
-                query_value="",
-            )
-
-        if not supports_text_search:
-            return render_template(
-                "results.html",
-                error=f"Text search not supported with {embedding_model_name} embeddings. Use CLIP or Qwen3-VL.",
-                results=[],
-                query_type="text",
-                query_value=prompt,
-            )
-
-        try:
-            text_embedding = embedder.encode_text(prompt)
-            top_indices, top_values = perform_search(
-                top_k, text_embedding, image_embeddings, image_paths
-            )
-
-            results = []
-            for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
-                1,
-            ):
-                results.append(
-                    {
-                        "rank": rank,
-                        "index": int(idx),
-                        "score": float(score),
-                        "filename": display_name(image_paths[idx]),
-                    }
-                )
-
-            return render_template(
-                "results.html",
-                results=results,
-                error=None,
-                query_type="text",
-                query_value=prompt,
-            )
-
-        except Exception as e:
-            logger.error(f"Search error: {e}")
-            return render_template(
-                "results.html",
-                error=f"Search failed: {e!s}",
-                results=[],
-                query_type="text",
-                query_value="",
-            )
-
-    @app.route("/search-image", methods=["POST"])
-    def search_image_endpoint():
-        """Search for similar images using an uploaded image"""
-        top_k = parse_top_k(request.form.get("top_k"))
-        if top_k is None:
-            return render_template(
-                "results.html",
-                error=TOP_K_ERROR,
-                results=[],
-                query_type="image",
-                query_value="",
-            )
-
-        # Check for file upload
-        if "image" not in request.files:
-            return render_template(
-                "results.html",
-                error="No image provided",
-                results=[],
-                query_type="image",
-                query_value="",
-            )
-
-        file = request.files["image"]
-        if file.filename == "":
-            return render_template(
-                "results.html",
-                error="No image selected",
-                results=[],
-                query_type="image",
-                query_value="",
-            )
-
-        try:
-            # Load image from upload
-            image_data = file.read()
-            pil_image = Image.open(io.BytesIO(image_data)).convert("RGB")
-
-            # Encode the uploaded image
-            query_embedding = embedder.encode_pil_image(pil_image)
-
-            # Search for similar images
-            top_indices, top_values = perform_search(
-                top_k, query_embedding, image_embeddings, image_paths
-            )
-
-            results = []
-            for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
-                1,
-            ):
-                results.append(
-                    {
-                        "rank": rank,
-                        "index": int(idx),
-                        "score": float(score),
-                        "filename": display_name(image_paths[idx]),
-                    }
-                )
-
-            return render_template(
-                "results.html",
-                results=results,
-                error=None,
-                query_type="image",
-                query_value=file.filename or "uploaded image",
-            )
-
-        except Exception as e:
-            logger.error(f"Image search error: {e}")
-            return render_template(
-                "results.html",
-                error=f"Image search failed: {e!s}",
-                results=[],
-                query_type="image",
-                query_value="",
-            )
-
-    @app.route("/similar/<int:index>")
-    def similar_fullpage(index):
-        """Find images similar to the image at the given index"""
-        top_k = parse_top_k(request.args.get("top_k"))
-
-        if index < 0 or index >= len(image_paths) or top_k is None:
-            return render_template(
-                "results.html",
-                error="Image not found" if top_k is not None else TOP_K_ERROR,
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-        try:
-            top_indices, top_values = find_similar(
-                index, top_k, image_embeddings, image_paths
-            )
-
-            results = []
-            for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
-                1,
-            ):
-                results.append(
-                    {
-                        "rank": rank,
-                        "index": int(idx),
-                        "score": float(score),
-                        "filename": display_name(image_paths[idx]),
-                    }
-                )
-
-            query_filename = display_name(image_paths[index])
-            return render_template(
-                "similar.html",
-                results=results,
-                error=None,
-                query_type="similar",
-                query_value=index,
-                query_filename=query_filename,
-            )
-
-        except Exception as e:
-            logger.error(f"Similar search error: {e}")
-            return render_template(
-                "similar.html",
-                error=f"Search failed: {e!s}",
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-    @app.route("/api/similar/<int:index>")
-    def similar_endpoint(index):
-        """Find images similar to the image at the given index"""
-        top_k = parse_top_k(request.args.get("top_k"))
-
-        if index < 0 or index >= len(image_paths) or top_k is None:
-            return render_template(
-                "results.html",
-                error="Image not found" if top_k is not None else TOP_K_ERROR,
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-        try:
-            top_indices, top_values = find_similar(
-                index, top_k, image_embeddings, image_paths
-            )
-
-            results = []
-            for rank, (idx, score) in enumerate(
-                zip(top_indices.cpu().numpy(), top_values.cpu().numpy(), strict=False),
-                1,
-            ):
-                results.append(
-                    {
-                        "rank": rank,
-                        "index": int(idx),
-                        "score": float(score),
-                        "filename": display_name(image_paths[idx]),
-                    }
-                )
-
-            query_filename = display_name(image_paths[index])
-            return render_template(
-                "results.html",
-                results=results,
-                error=None,
-                query_type="similar",
-                query_value=index,
-                query_filename=query_filename,
-            )
-
-        except Exception as e:
-            logger.error(f"Similar search error: {e}")
-            return render_template(
-                "results.html",
-                error=f"Search failed: {e!s}",
-                results=[],
-                query_type="similar",
-                query_value=index,
-            )
-
-    @app.route("/image/<int:index>")
-    def serve_image(index):
-        """Serve image by index"""
-        if index < 0 or index >= len(image_paths):
-            return "Image not found", 404
-
-        ref = image_paths[index]
-        if is_url(ref):
-            return redirect(ref)
-        image_path = Path(ref)
-        return send_from_directory(image_path.parent, image_path.name)
-
-    run_app(app, **server)
+    run_app(create_app(embeddings, image_dir), **server)
