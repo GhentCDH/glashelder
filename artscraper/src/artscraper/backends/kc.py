@@ -226,8 +226,6 @@ class Kunstcollectie(Backend):
     name = "kunstcollectie"
 
     async def stream(self, ctx: Context) -> AsyncIterator[Artwork]:
-        yielded = 0
-        seen: set[str] = set()
         pit_id = await _open_pit(ctx)
 
         try:
@@ -247,18 +245,13 @@ class Kunstcollectie(Backend):
 
                 for hit in hits:
                     source = hit.get("_source")
-                    if isinstance(source, dict):
-                        artwork = _to_artwork(source)
-                        if (
-                            artwork
-                            and artwork.url not in seen
-                            and artwork.url not in ctx.seen
-                        ):
-                            seen.add(artwork.url)
-                            yield artwork
-                            yielded += 1
-                            if ctx.limit and yielded >= ctx.limit:
-                                return
+                    if not isinstance(source, dict):
+                        continue
+                    artwork = _to_artwork(source)
+                    # records can share a url, so ctx.seen also holds this run's
+                    if artwork and artwork.url not in ctx.seen:
+                        ctx.seen.add(artwork.url)
+                        yield artwork
 
                 search_after = hits[-1]["sort"]
         finally:

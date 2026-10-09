@@ -329,8 +329,6 @@ class Nga(Backend):
             len(images),
         )
 
-        yielded = 0
-
         for row in object_rows:
             if not wanted_object(row):
                 continue
@@ -374,8 +372,3 @@ class Nga(Backend):
                 artist=artist_names(row, constituents),
                 year=date_text(row),
             )
-
-            yielded += 1
-
-            if ctx.limit and yielded >= ctx.limit:
-                return

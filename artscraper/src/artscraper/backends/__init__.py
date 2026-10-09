@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -28,7 +28,11 @@ class Context:
     throttle: Throttle
     stats: Stats
     limit: int = 0
-    """Maximum artworks to yield, 0 for no limit."""
+    """Maximum artworks to yield, 0 for no limit.
+
+    `take` enforces it around the whole stream; backends only use it to keep
+    their fetch pools from running far past it.
+    """
     with_images: bool = True
     """Fetch each artwork's page to find its image URL."""
     workers: int = 10
@@ -102,6 +106,42 @@ async def enrich_pool(
         runner.cancel()
 
 
+async def take(
+    ctx: Context, artworks: AsyncIterator[Artwork]
+) -> AsyncIterator[Artwork]:
+    """Yield from `artworks` until `ctx.limit` is reached, then close it."""
+    try:
+        yielded = 0
+        async for artwork in artworks:
+            yield artwork
+            yielded += 1
+            if yielded == ctx.limit:
+                return
+    finally:
+        if isinstance(artworks, AsyncGenerator):
+            await artworks.aclose()
+
+
+def bare(source: str) -> Callable[[str], Artwork]:
+    """Make an artwork with nothing but its URL, for runs without images."""
+    return lambda url: Artwork(source=source, url=url, image_url=None)
+
+
+async def urls_to_artworks(
+    ctx: Context,
+    urls: list[str],
+    fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
+    from_url: Callable[[str], Artwork | None],
+) -> AsyncIterator[Artwork]:
+    """Fetch every URL's artwork, or with `ctx.with_images` off, make one from the URL."""
+    if ctx.with_images:
+        async for artwork in enrich_pool(ctx, urls, fetch_one, ctx.limit):
+            yield artwork
+    else:
+        for artwork in filter(None, map(from_url, urls)):
+            yield artwork
+
+
 async def stream_sitemaps(
     ctx: Context,
     sitemaps: list[str],
@@ -114,26 +154,11 @@ async def stream_sitemaps(
     thousands of them per source, and only one sitemap's worth needs to be in
     memory at a time.
     """
-    yielded = 0
     for sitemap in sitemaps:
         urls = [url for url in await sitemap_locs(ctx, sitemap) if url not in ctx.seen]
         logger.info("%d urls to scrape from %s", len(urls), sitemap)
-        remaining = ctx.limit - yielded if ctx.limit else 0
-
-        if ctx.with_images:
-            async for artwork in enrich_pool(ctx, urls, fetch_one, remaining):
-                yield artwork
-                yielded += 1
-        else:
-            for url in urls:
-                if (artwork := from_url(url)) is not None:
-                    yield artwork
-                    yielded += 1
-                if ctx.limit and yielded >= ctx.limit:
-                    break
-
-        if ctx.limit and yielded >= ctx.limit:
-            return
+        async for artwork in urls_to_artworks(ctx, urls, fetch_one, from_url):
+            yield artwork
 
 
 def registry() -> dict[str, Backend]:
