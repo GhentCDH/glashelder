@@ -11,7 +11,6 @@ resolution-markers = [
 members = [
     "artmatcher",
     "artscraper",
-    "classification",
     "cluster",
     "common",
     "embed",
@@ -380,29 +379,6 @@ wheels = [
 ]
 
 [[package]]
-name = "classification"
-version = "0.1.0"
-source = { editable = "classification" }
-dependencies = [
-    { name = "common" },
-    { name = "embed" },
-    { name = "pillow" },
-    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
-    { name = "torch", version = "2.11.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "transformers" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "common", editable = "common" },
-    { name = "embed", editable = "embed" },
-    { name = "pillow", specifier = ">=12.0.0" },
-    { name = "torch", marker = "sys_platform != 'darwin'", specifier = ">=2.9.1", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "torch", marker = "sys_platform == 'darwin'", specifier = ">=2.9.1" },
-    { name = "transformers", specifier = ">=4.57.0" },
-]
-
-[[package]]
 name = "click"
 version = "8.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -732,7 +708,6 @@ dependencies = [
     { name = "accelerate" },
     { name = "artmatcher" },
     { name = "artscraper" },
-    { name = "classification" },
     { name = "click" },
     { name = "cluster" },
     { name = "common" },
@@ -770,7 +745,6 @@ requires-dist = [
     { name = "accelerate", specifier = "==1.12.0" },
     { name = "artmatcher", editable = "artmatcher" },
     { name = "artscraper", editable = "artscraper" },
-    { name = "classification", editable = "classification" },
     { name = "click", specifier = ">=8.3.1" },
     { name = "cluster", editable = "cluster" },
     { name = "common", editable = "common" },

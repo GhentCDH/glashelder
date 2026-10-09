@@ -14,7 +14,6 @@ wheels/
 
 # Node
 node_modules
-classification/data
 
 # Other
 *.log
