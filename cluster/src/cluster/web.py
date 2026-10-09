@@ -9,7 +9,7 @@ import numpy as np
 from flask import Flask, Response, render_template, request
 
 from common import require_auth
-from embed import rebase_paths
+from common.paths import rebase_paths
 
 from . import result
 from .result import Clustering

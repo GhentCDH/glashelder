@@ -9,8 +9,6 @@ from .embed import (
     get_embedder,
     load_embeddings,
     read_embeddings,
-    rebase_paths,
-    relativize_image_paths,
     save_embeddings,
 )
 from .store import Store, is_store
@@ -32,7 +30,5 @@ __all__ = [
     "load_embeddings",
     "pending",
     "read_embeddings",
-    "rebase_paths",
-    "relativize_image_paths",
     "save_embeddings",
 ]

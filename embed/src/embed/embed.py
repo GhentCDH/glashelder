@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from PIL import Image
 
 from common.images import is_url
+from common.paths import rebase_paths, relativize_image_paths
 
 if TYPE_CHECKING:
     import torch
@@ -762,73 +763,6 @@ def get_embedder(model_name: str = "clip") -> EmbeddingModel:
             f"Unknown embedding model: {model_name}. Available: {available}"
         )
     return EMBEDDING_MODELS[model_name]()
-
-
-def _common_root(image_paths: list[str]) -> str | None:
-    """Infer the directory all image paths live under, or None if not derivable."""
-    import os.path
-
-    absolute = [p for p in image_paths if p and os.path.isabs(p) and not is_url(p)]
-    if not absolute:
-        return None
-    if len(absolute) == 1:
-        return os.path.dirname(absolute[0])
-    return os.path.commonpath(absolute)
-
-
-def relativize_image_paths(
-    image_paths: list[str], root: str | Path | None
-) -> tuple[list[str], str | None]:
-    """Strip `root` from image paths so they can be rebased on another machine.
-
-    Falls back to the common ancestor of the given paths when `root` is not
-    provided, which is what makes legacy pickles (absolute paths, no stored
-    root) portable as well.
-
-    Returns:
-        Tuple of (relative paths, the root they are relative to).
-    """
-    root_str = str(root) if root is not None else _common_root(image_paths)
-    if root_str is None:
-        return list(image_paths), None
-
-    root_path = Path(root_str)
-    relative = []
-    for p in image_paths:
-        # "" is a placeholder for a missing image; Path("") would become "."
-        # a URL is already portable and must not be mangled into a path
-        if p == "" or is_url(p):
-            relative.append(p)
-            continue
-        candidate = Path(p)
-        if candidate.is_absolute():
-            try:
-                candidate = candidate.relative_to(root_path)
-            except ValueError:
-                logger.warning(f"Image path {p} is not under root {root_str}")
-        relative.append(str(candidate))
-
-    return relative, root_str
-
-
-def rebase_paths(image_paths: list[str], root: str | Path | None) -> list[str]:
-    """Re-root image paths recorded on another machine onto `root`.
-
-    This is the single place where "paths were stored somewhere else" is fixed:
-    the stored paths are made relative to their common ancestor and re-joined
-    with the local image directory. Empty entries (used as placeholders) and
-    already-relative paths are preserved. Returns the paths unchanged when
-    `root` is None.
-    """
-    if root is None:
-        return list(image_paths)
-
-    root_path = Path(root)
-    relative, stored_root = relativize_image_paths(image_paths, None)
-    if stored_root is not None and str(root_path) != stored_root:
-        logger.info(f"Rebasing image paths from {stored_root} onto {root_path}")
-
-    return [str(root_path / p) if p and not is_url(p) else p for p in relative]
 
 
 def read_embeddings(

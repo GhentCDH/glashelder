@@ -13,7 +13,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from embed import rebase_paths
+from common.paths import rebase_paths
 
 from . import result
 from .cluster import (
