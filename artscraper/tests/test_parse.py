@@ -1,5 +1,6 @@
-from artscraper.backends.parse import artwork_json_ld, first_text, parse_json_ld, text
 from bs4 import BeautifulSoup
+
+from artscraper.backends.parse import artwork_json_ld, first_text, parse_json_ld, text
 
 
 def soup(html: str) -> BeautifulSoup:

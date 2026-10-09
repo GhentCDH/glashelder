@@ -3,13 +3,14 @@
 Run with `uv run python artscraper/tests/test_parsers.py`.
 """
 
+from bs4 import BeautifulSoup
+
 from artscraper.backends.cle import parse_metadata as parse_cleveland
 from artscraper.backends.kikirpa import full_image_url
 from artscraper.backends.kikirpa import parse_page as parse_kikirpa
 from artscraper.backends.uffizi import artwork_urls
 from artscraper.backends.uffizi import parse_page as parse_uffizi
 from artscraper.backends.wikiart import parse_artwork_url, parse_image_url
-from bs4 import BeautifulSoup
 
 WIKIART_PAGE = """
 <meta property="og:image" content="https://uploads1.wikiart.org/autumn-1573(1).jpg!Large.jpg" />

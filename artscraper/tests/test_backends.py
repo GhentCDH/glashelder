@@ -2,10 +2,10 @@ import asyncio
 from collections.abc import AsyncIterator
 
 import httpx
+
 from artscraper.backends import Context, bare, take, urls_to_artworks
 from artscraper.client import Stats
 from artscraper.model import Artwork
-
 from common.throttle import Throttle
 
 
