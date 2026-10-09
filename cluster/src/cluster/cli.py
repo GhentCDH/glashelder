@@ -129,14 +129,18 @@ def do_clustering(
 
     if embeddings is None:
         raise click.UsageError(
-            "no embeddings: pass --embeddings or set paths.embeddings.glashelder"
+            "no embeddings: pass --embeddings or set paths.embeddings.glashelder "
+            "(or run `glashelder setup`)"
         )
     if image_dir is None:
         raise click.UsageError(
-            "no image dir: pass --image-dir or set paths.images.glashelder"
+            "no image dir: pass --image-dir or set paths.images.glashelder "
+            "(or run `glashelder setup`)"
         )
     if output is None:
-        raise click.UsageError("no output: pass --output or set paths.clusters")
+        raise click.UsageError(
+            "no output: pass --output or set paths.clusters (or run `glashelder setup`)"
+        )
 
     init_rerun(config().cluster.rerun)
 
@@ -184,7 +188,9 @@ def info(path: Path | None, embeddings: Path | None):
     from .result import read_labels, read_meta, status
 
     if path is None:
-        raise click.UsageError("give a clustering result, or set paths.clusters")
+        raise click.UsageError(
+            "give a clustering result, or set paths.clusters (or run `glashelder setup`)"
+        )
     meta = read_meta(path)
     sizes = Counter(read_labels(path).tolist())
     noise = sizes.pop(-1, 0)
@@ -248,7 +254,9 @@ def serve(clusters: Path | None, image_dir: str | None, **server):
     from .web import create_app
 
     if clusters is None:
-        raise click.UsageError("give --clusters, or set paths.clusters")
+        raise click.UsageError(
+            "give --clusters, or set paths.clusters (or run `glashelder setup`)"
+        )
     run_app(create_app(clusters, image_dir), **server)
 
 
@@ -266,7 +274,9 @@ def report(path: Path | None, image_dir: str | None, samples: int, open_: bool):
     from .report import build
 
     if path is None:
-        raise click.UsageError("give a clustering result, or set paths.clusters")
+        raise click.UsageError(
+            "give a clustering result, or set paths.clusters (or run `glashelder setup`)"
+        )
     pdf = build(path, image_dir, count=samples)
     logger.info(f"Saved the report to {pdf}")
     if open_:
@@ -331,7 +341,8 @@ def analyze(
 
     if image_dir is None:
         raise click.UsageError(
-            "no image dir: pass --image-dir or set paths.images.glashelder"
+            "no image dir: pass --image-dir or set paths.images.glashelder "
+            "(or run `glashelder setup`)"
         )
 
     init_rerun(config().cluster.rerun)

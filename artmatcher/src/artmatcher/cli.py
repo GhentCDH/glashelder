@@ -250,7 +250,7 @@ def serve(
     if glashelder_images is None:
         raise click.UsageError(
             "no glashelder images: pass --glashelder-images or set "
-            "paths.images.glashelder"
+            "paths.images.glashelder (or run `glashelder setup`)"
         )
     # references scraped as URLs need no local directory
     reference_images = Path(reference_images) if reference_images is not None else None
@@ -279,7 +279,8 @@ def serve(
         if reference_embeddings is None:
             raise click.UsageError(
                 "no references: pass --reference-embeddings or set "
-                "paths.embeddings.reference (or use --results-json)"
+                "paths.embeddings.reference (or use --results-json, or run "
+                "`glashelder setup`)"
             )
         # `None` when ml_model isn't given
         ml_classifier_instance = load_classifier(ml_model, threshold)
@@ -461,7 +462,7 @@ def batch_classify(
     if reference_embeddings is None:
         raise click.UsageError(
             "no references: pass --reference-embeddings or set "
-            "paths.embeddings.reference"
+            "paths.embeddings.reference (or run `glashelder setup`)"
         )
     from .batch import FeatureCache, write_output
     from .batch import (
