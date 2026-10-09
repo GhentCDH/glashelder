@@ -11,6 +11,7 @@ from artscraper import Artwork
 from common import ASSETS_DIR, run_app
 from common.cli import options, serve_options
 from common.config import config
+from embed import EMBEDDING_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ REFERENCE_OPTIONS = [
 @click.option(
     "--model",
     default="clip",
-    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    type=click.Choice(sorted(EMBEDDING_MODELS)),
     help="Embedding model to use",
 )
 @click.option("--top-k", default=10, help="Number of top matches to consider")
@@ -264,7 +265,7 @@ def serve(
     sources: tuple[str, ...],
     glashelder_images: str | None,
     glashelder_embeddings: str | None,
-    model: Literal["clip", "dinov2", "qwen3vl"],
+    model: str,
     top_k: int,
     candidates: int,
     threshold: float,
@@ -459,7 +460,7 @@ def serve(
 @click.option(
     "--model",
     default="clip",
-    type=click.Choice(["clip", "dinov2", "qwen3vl"]),
+    type=click.Choice(sorted(EMBEDDING_MODELS)),
     help="Embedding model to use if generating embeddings",
 )
 @click.option(
@@ -486,7 +487,7 @@ def batch_classify(
     cache_path: str,
     cache_save_interval: int,
     timeout: float,
-    model: Literal["clip", "dinov2", "qwen3vl"],
+    model: str,
     artworks: str | None,
 ):
     """Batch classify all glashelder images for artwork matches.

@@ -1,5 +1,6 @@
 from .embed import (
     CLIP_MODEL_ID,
+    EMBEDDING_MODELS,
     CLIPEmbedder,
     DINOv2Embedder,
     EmbeddingModel,
@@ -16,6 +17,7 @@ from .stream import encode_into, encode_stream, pending
 
 __all__ = [
     "CLIP_MODEL_ID",
+    "EMBEDDING_MODELS",
     "CLIPEmbedder",
     "DINOv2Embedder",
     "EmbeddingModel",
