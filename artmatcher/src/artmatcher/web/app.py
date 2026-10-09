@@ -150,8 +150,10 @@ def create_app(
         )
         return {"queue_position": position, "queue_size": len(session.order)}
 
-    def _context(session: LabelSession, item: MatchItem | None) -> dict:
-        base = {
+    def _session_context(session: LabelSession, error: str | None = None) -> dict:
+        """The session part of the page; with an error, the page shows that
+        instead of an item."""
+        return {
             "session_id": session.session_id,
             "dataset_counts": session.dataset.counts(),
             "total_images": source.total_images,
@@ -159,26 +161,10 @@ def create_app(
             "remaining": session.remaining,
             "labeled_indices": session.labeled,
             **_queue(session),
+            "error": error,
         }
-        if item is None:
-            return {
-                **base,
-                "error": "No images found.",
-                "current_index": 0,
-                "glashelder_path": "",
-                "artwork_path": "",
-                "top_match_index": 0,
-                "artwork": None,
-                "alternatives": [],
-                "similarities": [],
-                "is_match": False,
-                "diff": 0.0,
-                "threshold": session.threshold,
-                # no item: the page renders an error, so the badge is unused
-                "classifier_type": "",
-                "features": {},
-            }
 
+    def _context(session: LabelSession, item: MatchItem) -> dict:
         artwork_idx = item.best_index
         # the other top matches, in CLIP order, for a look at what else came close
         alternatives = [
@@ -195,8 +181,7 @@ def create_app(
             if rank != item.rank
         ][:4]
         return {
-            **base,
-            "error": None,
+            **_session_context(session),
             "current_index": item.glashelder_index,
             "glashelder_path": item.glashelder_path,
             "artwork_path": source.artwork_path(artwork_idx),
@@ -244,19 +229,12 @@ def create_app(
         session: LabelSession, item: MatchItem | None, want_match: bool
     ) -> str:
         if item is None:
-            body = render_template(
-                "content.html",
-                error=_exhausted_message(session, want_match),
-                session_id=session.session_id,
-                dataset_counts=session.dataset.counts(),
-                total_images=source.total_images,
-                labeled_count=session.labeled_count,
-                remaining=session.remaining,
-                **_queue(session),
+            return _render_content_with_error(
+                session, _exhausted_message(session, want_match)
             )
-        else:
-            body = render_template("content.html", **_context(session, item))
-        return body + _progress_oob(session)
+        return render_template(
+            "content.html", **_context(session, item)
+        ) + _progress_oob(session)
 
     def _find_next(
         session: LabelSession, want_match: bool, seq: int | None = None
@@ -389,13 +367,12 @@ def create_app(
             session.queue_position = 0
             session.current_item = item
 
-        ctx = _context(session, item)
-        if item is None:
-            ctx["error"] = (
-                _exhausted_message(session, True)
-                if session.total_images
-                else "No images found."
-            )
+        if item is not None:
+            ctx = _context(session, item)
+        elif session.total_images:
+            ctx = _session_context(session, _exhausted_message(session, True))
+        else:
+            ctx = _session_context(session, "No images found.")
         notice = None
         if request.args.get("imported"):
             notice = (
@@ -479,14 +456,7 @@ def create_app(
 
     def _render_content_with_error(session: LabelSession, message: str) -> str:
         return render_template(
-            "content.html",
-            error=message,
-            session_id=session.session_id,
-            dataset_counts=session.dataset.counts(),
-            total_images=source.total_images,
-            labeled_count=session.labeled_count,
-            remaining=session.remaining,
-            **_queue(session),
+            "content.html", **_session_context(session, message)
         ) + _progress_oob(session)
 
     @app.route("/queue-position")
