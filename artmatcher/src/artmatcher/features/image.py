@@ -135,7 +135,7 @@ def _load_views(ref: str) -> tuple[np.ndarray, Image.Image]:
     return bgr, Image.open(io.BytesIO(raw)).convert("RGB")
 
 
-def _pair_features(query_path: str, reference_path: str, orb, bf) -> ImageFeatures:
+def pair_features(query_path: str, reference_path: str, orb, bf) -> ImageFeatures:
     """Image features of a pair, reading each image only once."""
     try:
         query_bgr, query_rgb = _load_views(query_path)

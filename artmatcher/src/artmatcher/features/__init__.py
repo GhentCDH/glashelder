@@ -8,6 +8,7 @@ from .image import (
     OrbFeatures,
     make_orb,
     orb_overlay,
+    pair_features,
 )
 from .similarity import distribution_features
 from .worker import extract_features_batch, pool
@@ -22,5 +23,6 @@ __all__ = [
     "extract_features_batch",
     "make_orb",
     "orb_overlay",
+    "pair_features",
     "pool",
 ]

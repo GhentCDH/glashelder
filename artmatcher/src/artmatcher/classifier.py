@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from rich.console import Console
 
-from .features.image import NO_IMAGE_FEATURES, _pair_features, make_orb
+from .features.image import NO_IMAGE_FEATURES, make_orb, pair_features
 from .features.similarity import _sanitize_features, distribution_features
 from .training import extract_training_features, read_labeled_entries
 
@@ -81,7 +81,7 @@ class MLClassifier:
         """All features for a pair: distribution features plus, when both image
         paths are given, ORB and hash features."""
         image_features = (
-            _pair_features(glashelder_path, artwork_path, *self._get_orb()).as_dict()
+            pair_features(glashelder_path, artwork_path, *self._get_orb()).as_dict()
             if glashelder_path and artwork_path
             else NO_IMAGE_FEATURES
         )
