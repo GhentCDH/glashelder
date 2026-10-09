@@ -187,7 +187,8 @@ def extract_features_batch(
         work_items: List of (index, glashelder_path, wikiart_path, similarities, label)
         workers: Number of parallel workers
         cache: Optional feature cache
-        timeout_per_item: Timeout in seconds per item (default 30s)
+        timeout_per_item: Seconds a worker spends on one item before it falls
+            back to the distribution features only (default 30s)
         cache_save_interval: Save cache to disk every N items (default 100)
         progress: If False, suppress the progress bar and all console output
         executor: A pool to use and leave running, for callers that extract
@@ -247,8 +248,9 @@ def extract_features_batch(
             executor = pool(workers)
 
         try:
+            # the worker itself gives up on an item after `timeout_per_item`
             future_to_item = {
-                executor.submit(_extract_orb_worker, item): item
+                executor.submit(_extract_orb_worker, item, timeout_per_item): item
                 for item in uncached_items
             }
             for future in as_completed(future_to_item, timeout=global_timeout):
@@ -257,21 +259,19 @@ def extract_features_batch(
                 similarities = item[3]
 
                 try:
-                    # Add timeout to prevent hanging on result retrieval
-                    _, features, _ = future.result(timeout=timeout_per_item)
+                    _, features, _ = future.result()
                     results[idx] = features
 
                     # Update cache
                     if cache:
                         cache.set(item[1], item[2], features)
-                except TimeoutError:
-                    logger.warning(f"Timeout extracting features for {item[1]}")
-                    results[idx] = _get_default_features(similarities)
-                    n_failed += 1
                 except Exception as e:
                     logger.warning(f"Error extracting features for {item[1]}: {e}")
                     results[idx] = _get_default_features(similarities)
                     n_failed += 1
+
+                n_completed += 1
+                progress_bar.advance(task)
 
                 # Periodically save cache to disk for crash recovery
                 if (
@@ -280,9 +280,6 @@ def extract_features_batch(
                     and n_completed % cache_save_interval == 0
                 ):
                     cache.save(quiet=True)
-
-                n_completed += 1
-                progress_bar.advance(task)
 
         except TimeoutError:
             # Global timeout - cancel remaining futures and use defaults
