@@ -16,11 +16,8 @@ from common.fs import atomic_write
 from common.paths import rebase_paths
 
 from . import result
-from .cluster import (
-    calculate_cluster_statistics,
-    create_2d_visualization,
-    create_3d_visualization,
-)
+from .plots import create_2d_visualization, create_3d_visualization
+from .stats import calculate_cluster_statistics
 from .thumbs import samples, thumbnail
 
 TEMPLATE = Path(__file__).parent / "templates" / "report.typ"
