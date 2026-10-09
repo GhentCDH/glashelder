@@ -94,17 +94,6 @@ class ClassificationSource(ABC):
         return [self.classify(i, threshold) for i in indices]
 
 
-def _current_keys(result: dict) -> dict:
-    """A batch-classify result, also one written before `wikiart_*` became `artwork_*`."""
-    if "artwork_index" in result:
-        return result
-    return {
-        **result,
-        "artwork_index": result["wikiart_index"],
-        "artwork_path": result["wikiart_path"],
-    }
-
-
 class PrecomputedSource(ClassificationSource):
     """Serves classification items from pre-computed batch_classify results.
 
@@ -120,7 +109,6 @@ class PrecomputedSource(ClassificationSource):
         reference_root,
         artworks: dict[str, Artwork] | None = None,
     ):
-        results = [_current_keys(r) for r in results]
         self._artworks = artworks or {}
 
         glashelder_paths = rebase_paths(

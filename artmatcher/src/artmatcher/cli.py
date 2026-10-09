@@ -326,13 +326,11 @@ def serve(
 
     # If results_json is provided, use pre-computed results mode
     if results_json is not None:
+        from .batch import read_json_output
         from .web.source import PrecomputedSource
 
         logger.info(f"Loading pre-computed results from {results_json}...")
-        with open(results_json) as f:
-            precomputed_data = json.load(f)
-
-        results = precomputed_data["results"]
+        results = read_json_output(results_json)["results"]
         logger.info(f"Loaded {len(results)} pre-computed results")
 
         source = PrecomputedSource(
@@ -352,10 +350,10 @@ def serve(
         try:
             inputs = load_matching_inputs(
                 glashelder_embeddings=glashelder_embeddings,
-                wikiart_embeddings=reference_embeddings,
+                reference_embeddings=reference_embeddings,
                 model=model,
                 image_dir=glashelder_images,
-                wikiart_root=reference_images,
+                reference_root=reference_images,
                 glashelder_root=glashelder_images,
                 artworks=artwork_index,
                 sources=sources,
@@ -430,7 +428,7 @@ def serve(
     type=int,
     default=10,
     show_default=True,
-    help="Top wikiart matches to consider",
+    help="Top reference matches to consider",
 )
 @click.option(
     "--candidates",
@@ -545,11 +543,11 @@ def batch_classify(
     artwork_index = load_artworks(artworks)
     try:
         inputs = load_matching_inputs(
-            wikiart_embeddings=reference_embeddings,
+            reference_embeddings=reference_embeddings,
             glashelder_embeddings=glashelder_embeddings,
             model=model,
             image_dir=glashelder_images,
-            wikiart_root=config().paths.images.reference,
+            reference_root=config().paths.images.reference,
             glashelder_root=glashelder_images,
             artworks=artwork_index,
             sources=sources,
@@ -695,10 +693,11 @@ def report(
     right and how many true matches the run missed. It is one self-contained
     HTML file; a summary is printed here too.
     """
+    from .batch import read_json_output
     from .report import build, render, summary_lines
     from .web.store import normalize_dataset
 
-    data = json.loads(results.read_text())
+    data = read_json_output(results)
     labels = []
     for path in label_files:
         try:

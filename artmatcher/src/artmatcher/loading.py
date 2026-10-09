@@ -1,4 +1,4 @@
-"""Shared loading logic for wikiart/glashelder embeddings and classifiers."""
+"""Shared loading logic for reference/glashelder embeddings and classifiers."""
 
 import glob
 import logging
@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 class MatchingInputs:
     device: str
     model: str  # the reconciled model name actually used
-    wikiart_emb: torch.Tensor
+    reference_emb: torch.Tensor
     artwork_paths: list[str]
     glashelder_emb: torch.Tensor
     glashelder_paths: list[str]
     reference_store: str | None = None
-    """Where `wikiart_emb` came from, if it is all of a store (no --source)."""
+    """Where `reference_emb` came from, if it is all of a store (no --source)."""
     glashelder_store: str | None = None
     """Where `glashelder_emb` came from, if it is a store."""
 
@@ -49,7 +49,7 @@ def top_matches(inputs: MatchingInputs, top_k: int) -> tuple[np.ndarray, np.ndar
             Store.open(inputs.glashelder_store),
             Store.open(inputs.reference_store),
             inputs.glashelder_emb,
-            inputs.wikiart_emb,
+            inputs.reference_emb,
             top_k,
             hint="consider running `glashelder embed neighbours` first "
             "(on a GPU, after every `embed artworks`), so this start does not wait",
@@ -69,7 +69,7 @@ def top_matches(inputs: MatchingInputs, top_k: int) -> tuple[np.ndarray, np.ndar
         )
     similarities, indices = topk(
         inputs.glashelder_emb,
-        inputs.wikiart_emb,
+        inputs.reference_emb,
         top_k,
         description=f"top {top_k} of {len(inputs.artwork_paths):,} references "
         f"for {len(inputs.glashelder_paths):,} images",
@@ -79,11 +79,11 @@ def top_matches(inputs: MatchingInputs, top_k: int) -> tuple[np.ndarray, np.ndar
 
 def load_matching_inputs(
     *,
-    wikiart_embeddings: str,
+    reference_embeddings: str,
     glashelder_embeddings: str | None,
     model: str,
     image_dir: str | None,
-    wikiart_root: str | Path | None = None,
+    reference_root: str | Path | None = None,
     glashelder_root: str | Path | None = None,
     batch_size: int = 64,
     artworks: dict[str, Artwork] | None = None,
@@ -92,22 +92,26 @@ def load_matching_inputs(
     device = get_device()
     logger.info(f"Using device: {device}")
 
-    # Load wikiart embeddings
-    logger.info(f"Loading wikiart embeddings from {wikiart_embeddings}...")
-    wikiart_data = embed.load_embeddings(wikiart_embeddings, root=wikiart_root)
-    wikiart_emb, wikiart_paths = wikiart_data["embeddings"], wikiart_data["images"]
+    logger.info(f"Loading reference embeddings from {reference_embeddings}...")
+    reference_data = embed.load_embeddings(reference_embeddings, root=reference_root)
+    reference_emb, reference_paths = (
+        reference_data["embeddings"],
+        reference_data["images"],
+    )
     if sources:
-        wikiart_emb, wikiart_paths = only_sources(
-            wikiart_emb, wikiart_paths, artworks or {}, sources
+        reference_emb, reference_paths = only_sources(
+            reference_emb, reference_paths, artworks or {}, sources
         )
-    wikiart_emb = place(wikiart_emb, device, label=f"reference {wikiart_embeddings}")
-    embedding_model_name = wikiart_data.get("model", "clip")
-    logger.info(f"Loaded {len(wikiart_paths)} wikiart images")
+    reference_emb = place(
+        reference_emb, device, label=f"reference {reference_embeddings}"
+    )
+    embedding_model_name = reference_data.get("model", "clip")
+    logger.info(f"Loaded {len(reference_paths)} reference images")
     logger.info(f"Embedding model: {embedding_model_name}")
 
     if embedding_model_name != model:
         logger.warning(
-            f"Wikiart embeddings use model '{embedding_model_name}' but --model is '{model}'. "
+            f"Reference embeddings use model '{embedding_model_name}' but --model is '{model}'. "
             f"Using '{embedding_model_name}' for consistency."
         )
         model = embedding_model_name
@@ -142,12 +146,14 @@ def load_matching_inputs(
     return MatchingInputs(
         device=device,
         model=model,
-        wikiart_emb=wikiart_emb,
-        artwork_paths=wikiart_paths,
+        reference_emb=reference_emb,
+        artwork_paths=reference_paths,
         glashelder_emb=glashelder_emb,
         glashelder_paths=glashelder_paths,
         reference_store=(
-            wikiart_embeddings if is_store(wikiart_embeddings) and not sources else None
+            reference_embeddings
+            if is_store(reference_embeddings) and not sources
+            else None
         ),
         glashelder_store=(
             glashelder_embeddings
