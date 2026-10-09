@@ -6,13 +6,13 @@ as `report.pdf` in the result.
 
 import json
 import logging
-import os
 import shutil
 import tempfile
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from common.fs import atomic_write
 from common.paths import rebase_paths
 
 from . import result
@@ -123,8 +123,6 @@ def build(path: Path, image_dir: str | None, *, count: int = 4) -> Path:
         )
         # through a temporary name next to it: the result is often on another disk
         target = Path(path) / result.REPORT
-        temporary = target.with_name(f"{result.REPORT}.tmp")
-        shutil.copyfile(work / "report.pdf", temporary)
-        os.replace(temporary, target)
+        atomic_write(target, (work / "report.pdf").read_bytes())
 
     return target

@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
+
+from common.fs import atomic_writer
 
 from .search import merge, topk
 from .store import Store
@@ -79,10 +80,8 @@ def load(path: Path) -> Neighbours | None:
 
 def save(path: Path, neighbours: Neighbours) -> None:
     path.parent.mkdir(exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    with temporary.open("wb") as file:
+    with atomic_writer(path, binary=True) as file:
         np.savez(file, **asdict(neighbours))
-    os.replace(temporary, path)
 
 
 def usable(
