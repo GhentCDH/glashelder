@@ -50,12 +50,14 @@ def _init_orb_worker() -> None:
 
 
 def _extract_orb_worker(
-    args: tuple[int, str, str, list[float], int], timeout=25
+    args: tuple[int, str, str, list[float], int], timeout: float = 25
 ) -> tuple[int, dict[str, float], int]:
     """Worker function to extract features for a single entry.
 
     Args:
         args: Tuple of (index, glashelder_path, wikiart_path, similarities, label)
+        timeout: Seconds before giving up on the images and returning only the
+            distribution features
 
     Returns:
         Tuple of (index, features_dict, label)
@@ -66,7 +68,7 @@ def _extract_orb_worker(
         raise TimeoutError("Worker timeout")
 
     old = signal.signal(signal.SIGALRM, handler)
-    signal.alarm(timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout)
 
     try:
         idx, glashelder_path, wikiart_path, similarities, label = args
@@ -93,7 +95,7 @@ def _extract_orb_worker(
         features = _extract_distribution_features(similarities) | NO_IMAGE_FEATURES
         return (idx, _sanitize_features(features), label)
     finally:
-        signal.alarm(0)
+        signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, old)
 
 
