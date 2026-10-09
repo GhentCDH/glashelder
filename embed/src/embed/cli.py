@@ -8,9 +8,9 @@ import click
 
 from common import ASSETS_DIR, PROJECT_ROOT, require_auth, run_app
 from common.images import is_url
+from common.progress import format_bytes
 
 from .embed import EMBEDDING_MODELS, get_device
-from .store import format_bytes
 
 PACKAGE_ROOT = PROJECT_ROOT / "embed"
 EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
@@ -162,15 +162,7 @@ def embed_refs(
     rate: float | None,
 ) -> None:
     """Bring the store at `output` up to date with `refs` (source -> key in the store)."""
-    from rich.console import Console
-    from rich.progress import (
-        BarColumn,
-        MofNCompleteColumn,
-        Progress,
-        TextColumn,
-        TimeElapsedColumn,
-        TimeRemainingColumn,
-    )
+    from common.progress import progress
 
     from .embed import get_embedder
     from .store import Store, is_store
@@ -217,14 +209,7 @@ def embed_refs(
     log_limits(todo, per_host, rate)
 
     embedder.load(get_device())
-    columns = (
-        TextColumn("{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    )
-    with Progress(*columns, console=Console(stderr=True)) as bar:
+    with progress(stderr=True) as bar:
         task = bar.add_task("reading", total=len(todo))
         done = encode_into(
             store,
@@ -317,23 +302,24 @@ def convert(sources: tuple[Path, ...], destination: Path, root, dtype):
 
 
 def progress_bars():
-    from rich.console import Console
     from rich.progress import (
         BarColumn,
-        Progress,
         TaskProgressColumn,
         TextColumn,
         TimeElapsedColumn,
         TimeRemainingColumn,
     )
 
-    return Progress(
+    from common.progress import progress
+
+    # no count: some bars count bytes
+    return progress(
         TextColumn("{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         TimeElapsedColumn(),
         TimeRemainingColumn(),
-        console=Console(stderr=True),
+        stderr=True,
     )
 
 

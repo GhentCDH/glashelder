@@ -17,19 +17,10 @@ import numpy as np
 from numpy.typing import NDArray
 from PIL import Image
 from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
 
 from common.images import is_url
 from common.images import load as load_pil
+from common.progress import progress as progress_bars
 
 from .similarity_classifier import poly_diff
 from .stitching import find_homography
@@ -770,16 +761,7 @@ class MLClassifier:
         features_list = []
         labels_list = []
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
+        with progress_bars(console=console) as progress:
             task = progress.add_task(
                 "[cyan]Extracting features...",
                 total=len(entries_with_labels),
@@ -820,16 +802,7 @@ class MLClassifier:
         # Results storage (indexed by original position)
         results: dict[int, tuple[dict[str, float], int]] = {}
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-            console=console,
-        ) as progress:
+        with progress_bars(console=console) as progress:
             task = progress.add_task(
                 "[cyan]Extracting ORB/hash features...",
                 total=n_items,

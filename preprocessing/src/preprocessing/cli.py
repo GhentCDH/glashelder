@@ -141,14 +141,7 @@ def bounding_box(image_dir: Path, crops_dir: Path, output: Path):
 
     import logging
 
-    from rich.progress import (
-        BarColumn,
-        MofNCompleteColumn,
-        Progress,
-        SpinnerColumn,
-        TaskProgressColumn,
-        TextColumn,
-    )
+    from common.progress import progress as progress_bars
 
     log = logging.getLogger(__name__)
 
@@ -163,13 +156,7 @@ def bounding_box(image_dir: Path, crops_dir: Path, output: Path):
             executor.submit(_find_bounding_box, p, crops_dir): p for p in img_paths
         }
         try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                MofNCompleteColumn(),
-                TaskProgressColumn(),
-            ) as progress:
+            with progress_bars() as progress:
                 task = progress.add_task(
                     "finding bounding boxes from crops", total=len(img_paths)
                 )
