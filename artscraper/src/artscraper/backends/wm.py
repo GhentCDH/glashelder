@@ -23,7 +23,6 @@ The following thesaurus categories (under *Object name* >
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -31,6 +30,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
+from ..client import fetch_json
 from ..model import Artwork
 from . import Backend, Context
 
@@ -117,36 +117,9 @@ def _search_spec(cn: str, label: str, first: int) -> dict:
 
 
 async def _post_json(ctx: Context, url: str, payload: dict) -> dict:
-    """POST JSON via *ctx.client* and return the parsed response.
-
-    Mirrors the throttle pattern used by :func:`fetch_text` in
-    ``artscraper.client``.  The ASMX endpoint sometimes returns a
-    content-type that the HTTP client's ``resp.json()`` rejects, so we
-    read the body as text and parse with :func:`json.loads`.
-    """
-    throttle = ctx.throttle
-    acquire = getattr(throttle, "acquire", None)
-    if acquire is not None:
-        await acquire()
-    try:
-        resp = await ctx.client.post(
-            url, json=payload, headers={"Content-Type": "application/json"}
-        )
-        resp.raise_for_status()
-        result = json.loads(resp.text)
-        record = getattr(ctx.stats, "record", None)
-        if record is not None:
-            record(success=True)
-        return result
-    except Exception:
-        record = getattr(ctx.stats, "record", None)
-        if record is not None:
-            record(success=False)
-        raise
-    finally:
-        release = getattr(throttle, "release", None)
-        if release is not None:
-            release()
+    return await fetch_json(
+        ctx.client, ctx.throttle, ctx.stats, "POST", url, json=payload
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -319,9 +292,12 @@ class Wereldmuseum(Backend):
                     if rec["is_copyright"]:
                         continue
                     rid = rec["record_id"]
-                    if not rid or rid in ctx.seen:
+                    if not rid:
                         continue
-                    ctx.seen.add(rid)
+                    url = f"{HANDLE_BASE}/{rid}"
+                    if url in ctx.seen:
+                        continue
+                    ctx.seen.add(url)
 
                     image_url = _full_image_url(rec["image_src"])
                     if not image_url:
@@ -329,7 +305,7 @@ class Wereldmuseum(Backend):
 
                     yield Artwork(
                         source="wereldmuseum",
-                        url=f"{HANDLE_BASE}/{rid}",
+                        url=url,
                         image_url=image_url,
                         title=rec["title"],
                         artist=rec["artist"],
