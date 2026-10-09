@@ -32,8 +32,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from common.fs import atomic_write, atomic_writer
-from embed.neighbours import queries_hash
-from embed.store import Store
+from embed.store import Store, queries_hash
 
 META, POINTS, REPORT = "meta.json", "points.parquet", "report.pdf"
 ANNOTATIONS = "annotations.json"
