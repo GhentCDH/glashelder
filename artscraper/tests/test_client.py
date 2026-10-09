@@ -2,9 +2,9 @@ import asyncio
 
 import httpx
 import pytest
-from artscraper.client import Stats, fetch_json
 
 from artscraper import client
+from artscraper.client import Stats, fetch_json
 from common.throttle import Throttle
 
 
