@@ -139,8 +139,7 @@ def train_classifier(
             workers=workers,
         )
     except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        return
+        raise click.ClickException(str(e)) from e
 
     classifier.save(output_model)
 
@@ -210,7 +209,8 @@ def reference_options(command):
     "--ml-model",
     type=click.Path(exists=True),
     default=None,
-    help="Path to trained ML model (.pkl file). Required if --classifier=ml",
+    help="Path to trained ML model (.pkl file). Without it, matches are judged "
+    "by CLIP similarity alone",
 )
 @click.option(
     "--search-workers",
@@ -307,7 +307,8 @@ def serve(
     Use --results-json to load pre-computed results from batch_classify.
     The threshold can still be adjusted interactively in the UI.
 
-    Or use --classifier=ml with --ml-model to compute on the fly.
+    Without it, matches are computed on the fly, by the ML classifier when
+    --ml-model is given and by CLIP similarity alone otherwise.
     Use --search-workers to parallelize ORB/hash extraction during search.
     """
     if glashelder_images is None:
@@ -603,13 +604,15 @@ def batch_classify(
 @click.option(
     "--input",
     "-i",
-    type=str,
+    type=click.Path(exists=True, dir_okay=False),
+    required=True,
     help="The `json` file containing the results from batch-classify",
 )
 @click.option(
     "--output-dir",
     "-o",
-    type=str,
+    type=click.Path(file_okay=False),
+    required=True,
     help="The output directory where plots' pngs will be stored",
 )
 def plot_results(input, output_dir):
