@@ -31,6 +31,7 @@ from rich.progress import (
 from common.images import is_url
 from common.images import load as load_pil
 
+from .similarity_classifier import poly_diff
 from .stitching import find_homography
 
 logger = logging.getLogger(__name__)
@@ -42,11 +43,16 @@ _worker_orb = None
 _worker_bf = None
 
 
+def make_orb() -> tuple:
+    """The ORB detector and the matcher for its descriptors, as `(orb, bf)`."""
+    orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
+    return orb, cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+
+
 def _init_orb_worker() -> None:
     """Initialize worker process with ORB detector and BFMatcher."""
     global _worker_orb, _worker_bf
-    _worker_orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
-    _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    _worker_orb, _worker_bf = make_orb()
 
 
 def _extract_orb_worker(
@@ -74,15 +80,11 @@ def _extract_orb_worker(
         idx, glashelder_path, wikiart_path, similarities, label = args
 
         # Initialize if needed (shouldn't happen with initializer, but be safe)
-        if _worker_orb is None:
-            _worker_orb = cv2.ORB_create(  # ty: ignore[unresolved-attribute]
-                nfeatures=1000
-            )
-        if _worker_bf is None:
-            _worker_bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+        if _worker_orb is None or _worker_bf is None:
+            _init_orb_worker()
 
         features = (
-            _extract_distribution_features(similarities)
+            distribution_features(similarities)
             | _pair_features(
                 glashelder_path, wikiart_path, _worker_orb, _worker_bf
             ).as_dict()
@@ -92,7 +94,7 @@ def _extract_orb_worker(
     except TimeoutError:
         idx, glashelder_path, _, similarities, label = args
         logger.warning(f"Worker timeout for {glashelder_path}")
-        features = _extract_distribution_features(similarities) | NO_IMAGE_FEATURES
+        features = distribution_features(similarities) | NO_IMAGE_FEATURES
         return (idx, _sanitize_features(features), label)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
@@ -126,8 +128,8 @@ def _sanitize_features(features: dict[str, float]) -> dict[str, float]:
     return sanitized
 
 
-def _extract_distribution_features(similarities: list[float]) -> dict[str, float]:
-    """Extract distribution shape features from similarity scores (standalone function)."""
+def distribution_features(similarities: list[float]) -> dict[str, float]:
+    """Distribution shape features of the top-k similarity scores (descending)."""
     features = {}
     sims = np.array(similarities)
     n = len(sims)
@@ -166,26 +168,7 @@ def _extract_distribution_features(similarities: list[float]) -> dict[str, float
     features["sim_min"] = float(np.min(sims[:10])) if n > 0 else 0.0
     features["sim_range"] = features["sim_0"] - features["sim_min"]
 
-    # Poly diff
-    if len(similarities) >= 2:
-        rest_list = similarities[1:]
-        n_rest = len(rest_list)
-        if n_rest == 1:
-            weights = np.array([1.0])
-        else:
-            max_distance = n_rest - 1
-            sigma = max_distance / np.sqrt(-2 * np.log(0.3))
-            indices = np.arange(n_rest)
-            weights = np.exp(-0.5 * (indices / sigma) ** 2)
-            weights = weights / weights.sum()
-        x = np.arange(n_rest)
-        try:
-            coeffs = np.polyfit(x, rest_list, 1, w=weights)
-            features["poly_diff"] = similarities[0] - coeffs[-1]
-        except (np.linalg.LinAlgError, ValueError):
-            features["poly_diff"] = 0.0
-    else:
-        features["poly_diff"] = 0.0
+    features["poly_diff"] = poly_diff(similarities)
 
     # Ratio with minimum denominator threshold
     min_denom = 1e-6
@@ -360,8 +343,7 @@ def orb_overlay(
     """
     query_img, _ = _load_views(query_path)
     ref_img, _ = _load_views(reference_path)
-    orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    orb, bf = make_orb()
     query_kp, ref_kp, good_matches = _orb_matches(
         cv2.cvtColor(query_img, cv2.COLOR_BGR2GRAY),
         cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY),
@@ -564,116 +546,19 @@ class FeatureExtractor:
     """Extract features for ML classification from similarities and image paths."""
 
     def __init__(self):
-        self._orb = None
-        self._bf = None
+        self._orb: tuple | None = None
 
-    def _get_orb(self):
-        """Lazy initialization of ORB detector."""
+    def _get_orb(self) -> tuple:
+        """The ORB detector and matcher, made on first use."""
         if self._orb is None:
-            self._orb = cv2.ORB_create(nfeatures=1000)  # ty: ignore[unresolved-attribute]
+            self._orb = make_orb()
         return self._orb
-
-    def _get_bf(self):
-        """Lazy initialization of BFMatcher for ORB."""
-        if self._bf is None:
-            self._bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-        return self._bf
 
     def extract_distribution_features(
         self, similarities: list[float]
     ) -> dict[str, float]:
-        """Extract distribution shape features from similarity scores.
-
-        Args:
-            similarities: List of top-k similarity scores (descending order)
-
-        Returns:
-            Dictionary of distribution features
-        """
-        features = {}
-
-        # Ensure we have enough similarities
-        sims = np.array(similarities)
-        n = len(sims)
-
-        # Top similarities
-        features["sim_0"] = float(sims[0]) if n > 0 else 0.0
-        features["sim_1"] = float(sims[1]) if n > 1 else 0.0
-        features["sim_2"] = float(sims[2]) if n > 2 else 0.0
-
-        # Gaps between top similarities (key discriminators)
-        features["gap_01"] = features["sim_0"] - features["sim_1"]
-        features["gap_02"] = features["sim_0"] - features["sim_2"]
-        features["gap_12"] = features["sim_1"] - features["sim_2"]
-
-        # Distribution shape features (using similarities[1:10])
-        rest = sims[1:10] if n > 1 else np.array([0.0])
-        features["mean_1to9"] = float(np.mean(rest))
-        features["std_1to9"] = float(np.std(rest)) if len(rest) > 1 else 0.0
-
-        # Z-score of top similarity with minimum std threshold
-        std_threshold = 1e-6
-        if features["std_1to9"] > std_threshold:
-            features["sim_0_zscore"] = (
-                features["sim_0"] - features["mean_1to9"]
-            ) / features["std_1to9"]
-        else:
-            features["sim_0_zscore"] = 0.0
-
-        # Decay rate (linear slope of similarities[1:10])
-        if len(rest) > 1:
-            x = np.arange(len(rest))
-            try:
-                coeffs = np.polyfit(x, rest, 1)
-                features["decay_rate"] = float(coeffs[0])
-            except (np.linalg.LinAlgError, ValueError):
-                features["decay_rate"] = 0.0
-        else:
-            features["decay_rate"] = 0.0
-
-        # Min and range
-        features["sim_min"] = float(np.min(sims[:10])) if n > 0 else 0.0
-        features["sim_range"] = features["sim_0"] - features["sim_min"]
-
-        # Poly diff (SimpleClassifier's diff value)
-        features["poly_diff"] = self._compute_poly_diff(similarities)
-
-        # Ratio features with minimum denominator threshold
-        min_denom = 1e-6
-        features["sim_ratio_01"] = (
-            features["sim_0"] / max(features["sim_1"], min_denom)
-            if features["sim_1"] > min_denom
-            else 1.0
-        )
-
-        return features
-
-    def _compute_poly_diff(self, similarities: list[float]) -> float:
-        """Compute the polynomial diff value used by SimpleClassifier."""
-        if len(similarities) < 2:
-            return 0.0
-
-        rest = similarities[1:]
-        n = len(rest)
-
-        # Gaussian weights with minimum value 0.3
-        if n == 1:
-            weights = np.array([1.0])
-        else:
-            max_distance = n - 1
-            sigma = max_distance / np.sqrt(-2 * np.log(0.3))
-            indices = np.arange(n)
-            weights = np.exp(-0.5 * (indices / sigma) ** 2)
-            weights = weights / weights.sum()
-
-        # Fit weighted linear polynomial
-        x = np.arange(n)
-        try:
-            coeffs = np.polyfit(x, rest, 1, w=weights)
-            at_zero = coeffs[-1]  # Intercept
-            return similarities[0] - at_zero
-        except (np.linalg.LinAlgError, ValueError):
-            return 0.0
+        """See `distribution_features`."""
+        return distribution_features(similarities)
 
     def extract_all_features(
         self,
@@ -692,9 +577,7 @@ class FeatureExtractor:
             Dictionary with all features (distribution + image features)
         """
         image_features = (
-            _pair_features(
-                glashelder_path, wikiart_path, self._get_orb(), self._get_bf()
-            ).as_dict()
+            _pair_features(glashelder_path, wikiart_path, *self._get_orb()).as_dict()
             if glashelder_path and wikiart_path
             else NO_IMAGE_FEATURES
         )
