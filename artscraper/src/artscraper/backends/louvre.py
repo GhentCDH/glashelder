@@ -3,10 +3,11 @@ import csv
 import io
 import json
 import logging
-import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from urllib.parse import quote, urljoin
+
+from common.config import config
 
 from ..client import fetch_text
 from ..model import Artwork
@@ -15,26 +16,20 @@ from .parse import first_text, text
 
 BASE_URL = "https://collections.louvre.fr"
 
-EXPORT_CSV_ENV = "LOUVRE_EXPORT_CSV"
-EXPORT_DIR_ENV = "LOUVRE_EXPORT_DIR"
-DEFAULT_EXPORT_DIR: str | None = None
-"""Folder of export CSVs used when neither environment variable is set."""
-
 logger = logging.getLogger(__name__)
 
 
 def export_csv_paths() -> list[Path]:
     """Return configured export CSV files in stable order."""
-    if configured_csv := os.environ.get(EXPORT_CSV_ENV):
-        return [Path(configured_csv)]
-
-    export_dir = os.environ.get(EXPORT_DIR_ENV, DEFAULT_EXPORT_DIR)
-    if not export_dir:
+    louvre_export = config().artscraper.louvre_export
+    if louvre_export is None:
         raise ValueError(
-            f"louvre: no export CSVs configured. Set {EXPORT_DIR_ENV} to the "
-            f"folder with the Louvre export CSV files, or {EXPORT_CSV_ENV} to one CSV file."
+            "louvre: no export CSVs configured. Set artscraper.louvre_export to "
+            "the folder with the Louvre export CSV files, or to one CSV file."
         )
-    return sorted(Path(export_dir).glob("*.csv"))
+    if louvre_export.is_file():
+        return [louvre_export]
+    return sorted(louvre_export.glob("*.csv"))
 
 
 def artwork_url(ark: str) -> str:
@@ -214,8 +209,8 @@ class Louvre(Backend):
         if not paths:
             raise FileNotFoundError(
                 "louvre: no export CSV files found. Export the Louvre "
-                "collection pages manually and save the CSV files into "
-                f"the {EXPORT_DIR_ENV} folder, or set {EXPORT_CSV_ENV} to one CSV file."
+                "collection pages manually and point artscraper.louvre_export "
+                "at the folder (or one CSV file)."
             )
 
         seen_arks: set[str] = set()
