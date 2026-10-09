@@ -10,7 +10,7 @@ from flask import Flask, Response, redirect, render_template, request, send_file
 from common import require_auth
 from common.images import is_url
 
-from .session import LabelSession
+from .session import LabelSession, bucket_for
 from .source import ClassificationSource, MatchItem
 from .store import (
     SessionStore,
@@ -353,27 +353,8 @@ def create_app(
             }
             # an image opened again by its number replaces its label, rather than
             # adding a second one that would weigh double in training
-            for bucket in (
-                session.dataset.positives,
-                session.dataset.negatives,
-                session.dataset.false_positives,
-                session.dataset.false_negatives,
-            ):
-                bucket[:] = [
-                    old
-                    for old in bucket
-                    if old.get("glashelder_index") != item.glashelder_index
-                ]
-            if is_correct:
-                if item.is_match:
-                    session.dataset.positives.append(entry)
-                else:
-                    session.dataset.negatives.append(entry)
-            else:
-                if item.is_match:
-                    session.dataset.false_positives.append(entry)
-                else:
-                    session.dataset.false_negatives.append(entry)
+            session.dataset.forget(item.glashelder_index)
+            session.dataset.bucket(bucket_for(is_correct, item.is_match)).append(entry)
 
             session.labeled.add(item.glashelder_index)
             store.save(session)

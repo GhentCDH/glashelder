@@ -11,7 +11,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .session import LabelDataset, LabelSession
+from .session import BUCKETS, LabelDataset, LabelSession, was_match
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +35,6 @@ def slugify_session_name(name: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9_-]", "", slug)
     slug = re.sub(r"-{2,}", "-", slug).strip("-_")
     return slug[:64]
-
-
-BUCKETS = ("positives", "negatives", "false_positives", "false_negatives")
-
-# Which buckets hold entries the classifier had called a match. Older exports
-# don't store `is_match` per entry, but the bucket an entry sits in says the
-# same thing, so it can be filled back in on import.
-BUCKET_WAS_MATCH = {
-    "positives": True,
-    "false_positives": True,
-    "negatives": False,
-    "false_negatives": False,
-}
 
 
 def normalize_dataset(data: dict) -> LabelDataset:
@@ -78,7 +65,8 @@ def normalize_dataset(data: dict) -> LabelDataset:
             if not isinstance(entry, dict):
                 raise ValueError(f"Bucket {name!r} contains a non-object entry")
             entry = dict(entry)
-            entry.setdefault("is_match", BUCKET_WAS_MATCH[name])
+            # older exports imply `is_match` through the bucket
+            entry.setdefault("is_match", was_match(name))
             # labels from before `wikiart_*` became `artwork_*`
             for old, new in (
                 ("wikiart_path", "artwork_path"),
