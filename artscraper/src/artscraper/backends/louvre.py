@@ -15,20 +15,25 @@ from .parse import first_text, text
 
 BASE_URL = "https://collections.louvre.fr"
 
-DEFAULT_EXPORT_CSV = "louvre_export.csv"
-DEFAULT_EXPORT_DIR = "/Volumes/LG-JP-BCKUP/hannah/louvre_exports"
+EXPORT_CSV_ENV = "LOUVRE_EXPORT_CSV"
+EXPORT_DIR_ENV = "LOUVRE_EXPORT_DIR"
+DEFAULT_EXPORT_DIR: str | None = None
+"""Folder of export CSVs used when neither environment variable is set."""
 
 logger = logging.getLogger(__name__)
 
 
 def export_csv_paths() -> list[Path]:
     """Return configured export CSV files in stable order."""
-    configured_csv = os.environ.get("LOUVRE_EXPORT_CSV")
-
-    if configured_csv:
+    if configured_csv := os.environ.get(EXPORT_CSV_ENV):
         return [Path(configured_csv)]
 
-    export_dir = os.environ.get("LOUVRE_EXPORT_DIR", DEFAULT_EXPORT_DIR)
+    export_dir = os.environ.get(EXPORT_DIR_ENV, DEFAULT_EXPORT_DIR)
+    if not export_dir:
+        raise ValueError(
+            f"louvre: no export CSVs configured. Set {EXPORT_DIR_ENV} to the "
+            f"folder with the Louvre export CSV files, or {EXPORT_CSV_ENV} to one CSV file."
+        )
     return sorted(Path(export_dir).glob("*.csv"))
 
 
@@ -210,8 +215,7 @@ class Louvre(Backend):
             raise FileNotFoundError(
                 "louvre: no export CSV files found. Export the Louvre "
                 "collection pages manually and save the CSV files into "
-                f"{os.environ.get('LOUVRE_EXPORT_DIR', DEFAULT_EXPORT_DIR)}, "
-                "or set LOUVRE_EXPORT_CSV to one CSV file."
+                f"the {EXPORT_DIR_ENV} folder, or set {EXPORT_CSV_ENV} to one CSV file."
             )
 
         seen_arks: set[str] = set()
@@ -242,24 +246,8 @@ class Louvre(Backend):
         urls = [url for url in map(artwork_url, arks) if url not in ctx.seen]
         logger.info("louvre: %d unseen records from export", len(urls))
 
-        async def fetch_one(
-            fetch_ctx: Context,
-            url: str,
-        ) -> Artwork | None:
-            try:
-                body = await fetch_text(
-                    fetch_ctx.client,
-                    json_url(url),
-                    fetch_ctx.throttle,
-                    fetch_ctx.stats,
-                )
-            except Exception:
-                logger.exception(
-                    "louvre: failed to fetch %s",
-                    json_url(url),
-                )
-                return None
-
+        async def fetch_one(ctx: Context, url: str) -> Artwork | None:
+            body = await fetch_text(ctx.client, json_url(url), ctx.throttle, ctx.stats)
             return parse_page(url, body)
 
         async for artwork in urls_to_artworks(ctx, urls, fetch_one, bare(self.name)):
