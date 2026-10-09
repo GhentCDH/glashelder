@@ -55,12 +55,6 @@ def parse_output(output_text, model_type="lava"):
             if "```json" in output_text:
                 json_str = output_text.split("```json")[1].replace("```", "").strip()
 
-        elif model_type.lower() == "lava":
-            # Lava: Search for JSON after "assistant" marker
-            assistant_idx = output_text.rfind("assistant")
-            if assistant_idx != -1:
-                output_text = output_text[assistant_idx:]
-
         # Default extraction: find balanced JSON braces (used by lava, qwen, or fallback for pixtral)
         if not json_str:
             start_idx = output_text.find("{")
