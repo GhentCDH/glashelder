@@ -6,7 +6,7 @@ from urllib.parse import unquote, urlsplit
 
 import click
 
-from common import ASSETS_DIR, run_app
+from common import run_app
 from common.cli import options, serve_options
 from common.images import is_url, list_images
 from common.progress import format_bytes
@@ -564,8 +564,8 @@ def info(path: Path):
 )
 @click.option(
     "--image-dir",
-    default=ASSETS_DIR,
-    help="Directory the embedded images live in on this machine",
+    default=None,
+    help="Directory the embedded images live in on this machine [paths.images.glashelder]",
 )
 @click.option("--top-k", default=10, show_default=True, help="Matches to return")
 @click.option(
@@ -644,8 +644,8 @@ def search(
 )
 @click.option(
     "--image-dir",
-    default=ASSETS_DIR,
-    help="Directory the embedded images live in on this machine",
+    default=None,
+    help="Directory the embedded images live in on this machine [paths.images.glashelder]",
 )
 @serve_options(5000)
 def serve(embeddings, image_dir, **server):

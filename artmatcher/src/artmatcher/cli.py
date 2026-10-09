@@ -7,7 +7,7 @@ from typing import Literal
 
 import click
 
-from common import ASSETS_DIR, run_app
+from common import run_app
 from common.cli import options, serve_options
 from common.config import config
 from embed import EMBEDDING_MODELS
@@ -117,8 +117,9 @@ REFERENCE_OPTIONS = [
         "--glashelder-images",
         "-i",
         type=click.Path(exists=True, file_okay=False),
-        default=ASSETS_DIR,
-        help="Directory the glashelder images live in on this machine",
+        default=None,
+        help="Directory the glashelder images live in on this machine "
+        "[paths.images.glashelder]",
     ),
 ]
 
@@ -149,7 +150,11 @@ REFERENCE_OPTIONS = [
     "the ones before them are no match; the most confident one is shown",
 )
 @click.option(
-    "--threshold", default=0.2, help="Diff threshold for match classification"
+    "--threshold",
+    type=float,
+    default=0.5,
+    show_default=True,
+    help="Diff threshold for match classification",
 )
 @click.option(
     "--ml-model",
