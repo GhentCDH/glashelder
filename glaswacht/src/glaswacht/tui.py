@@ -1,19 +1,22 @@
 import logging
+import os
+import secrets
 import subprocess
 import sys
 import threading
 from io import TextIOWrapper
 from pathlib import Path
+from urllib.parse import urlencode
 
 from textual.app import App
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Static
 
-from glaswacht.models.utils import get_prompt
+from glaswacht.models.utils import RESULTS_CSV, get_prompt
 from glaswacht.orchestrator import ModelStatus, Orchestrator
 
-_LOG_PATH = Path(__file__).parent / "glaswacht.log"
+_LOG_PATH = Path("glaswacht.log")
 logger = logging.getLogger("glaswacht")
 logger.setLevel(logging.DEBUG)
 _fh = logging.FileHandler(_LOG_PATH)
@@ -160,12 +163,12 @@ class ContentPanel(Static):
             f"[{_SEPIA_MID}]{text}[/{_SEPIA_MID}]"
         )
 
-    def show_webviewer(self):
+    def show_webviewer(self, url: str):
         self.update(
             f"[bold {_SEPIA_BRIGHT}][ VALIDATE USING WEBVIEWER ][/bold {_SEPIA_BRIGHT}]\n\n"
             f"[{_SEPIA_MID}]The validation web server is running.[/{_SEPIA_MID}]\n\n"
             f"[{_SEPIA_MID}]Open in your browser:[/{_SEPIA_MID}] "
-            f"[bold {_SEPIA_BRIGHT}]http://localhost:5001[/bold {_SEPIA_BRIGHT}]"
+            f"[bold {_SEPIA_BRIGHT}]{url}[/bold {_SEPIA_BRIGHT}]"
         )
 
 
@@ -200,7 +203,7 @@ class MenuItem(Static):
 
 
 _MENU_LABELS = ["RUN", "TAXONOMY", "VALIDATE USING WEBVIEWER", "QUIT"]
-_WEB_PY_PATH = Path(__file__).parent / "web.py"
+_WEB_PORT = 5001
 
 
 class MonitorApp(App):
@@ -268,6 +271,7 @@ class MonitorApp(App):
         self._content_mode = "votes"  # "votes" | "taxonomy" | "webviewer"
         self._web_process: subprocess.Popen | None = None
         self._web_log_fh: TextIOWrapper | None = None
+        self._web_secret = secrets.token_urlsafe(32)
 
     def compose(self):
         yield GlaswachtHeader(id="header")
@@ -382,18 +386,42 @@ class MonitorApp(App):
             self.content_panel.show_taxonomy()
 
     def _start_webviewer(self):
+        if self._image_path is None:
+            self.notify(
+                "No --path provided. Use: glaswacht tui --path <dir>",
+                severity="error",
+            )
+            return
+        images_dir = Path(self._image_path)
+        if images_dir.is_file():
+            images_dir = images_dir.parent
+
         # Only launch if not already running
         if self._web_process is None or self._web_process.poll() is not None:
             self._web_log_fh = open(_LOG_PATH, "a")
             self._web_process = subprocess.Popen(
-                [sys.executable, str(_WEB_PY_PATH)],
+                [
+                    sys.executable,
+                    "-m",
+                    "glaswacht",
+                    "serve",
+                    "--no-open",
+                    "--images-dir",
+                    str(images_dir),
+                    "--csv-path",
+                    str(RESULTS_CSV),
+                    "--port",
+                    str(_WEB_PORT),
+                ],
                 stdout=self._web_log_fh,
                 stderr=self._web_log_fh,
+                env={**os.environ, "GLASHELDER_SECRET": self._web_secret},
             )
         logger.info("Webviewer started (pid=%s)", self._web_process.pid)
         self._content_mode = "webviewer"
         if self.content_panel:
-            self.content_panel.show_webviewer()
+            query = urlencode({"secret": self._web_secret})
+            self.content_panel.show_webviewer(f"http://localhost:{_WEB_PORT}/?{query}")
 
     def _update_display(self):
         state = self.orchestrator.get_state()

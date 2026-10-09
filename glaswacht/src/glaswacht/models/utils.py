@@ -7,6 +7,9 @@ from pathlib import Path
 
 _MODELS_DIR = Path(__file__).parent
 
+# combined results of a run, relative to the working directory; also what `serve` reads
+RESULTS_CSV = Path("combined_risk_assessment_results.csv")
+
 
 def get_prompt(prompt_file=None):
     if prompt_file is None:
@@ -182,7 +185,7 @@ def calculate_majority_vote(ratings: list[str]) -> str:
 
 def write_combined_csv(
     assessments: dict,
-    output_csv: str = "combined_risk_assessment_results.csv",
+    output_csv: str | Path = RESULTS_CSV,
 ) -> None:
     """Write combined assessment results from all models to a single CSV.
 
