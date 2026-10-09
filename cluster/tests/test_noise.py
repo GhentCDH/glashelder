@@ -3,12 +3,8 @@ import numpy as np
 
 matplotlib.use("Agg")
 
-from cluster.cluster import (
-    calculate_cluster_statistics,
-    create_2d_visualization,
-    is_noise,
-    noise_mask,
-)
+from cluster.plots import create_2d_visualization
+from cluster.stats import calculate_cluster_statistics, is_noise, noise_mask
 
 HIERARCHICAL = np.array(["-1", "0", "0", "1.0", "1.0", "1.noise", "2.1.noise"], object)
 
