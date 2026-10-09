@@ -487,12 +487,8 @@ async def _scrape_materials(
     fetch_one: Callable[[Context, str], Awaitable[Artwork | None]],
 ) -> AsyncIterator[Artwork]:
     seen_ids: set[int] = set()
-    total_yielded = 0
 
     for medium in MATERIALS:
-        if ctx.limit and total_yielded >= ctx.limit:
-            return
-
         logger.info(
             "metmuseum: searching medium %s",
             medium,
@@ -524,26 +520,10 @@ async def _scrape_materials(
             if not todo:
                 continue
 
-            remaining = ctx.limit - total_yielded if ctx.limit else 0
-
-            async for artwork in enrich_pool(
-                ctx,
-                todo,
-                fetch_one,
-                remaining,
-            ):
+            async for artwork in enrich_pool(ctx, todo, fetch_one, ctx.limit):
                 yield artwork
-                total_yielded += 1
 
-                if ctx.limit and total_yielded >= ctx.limit:
-                    return
-
-        logger.info(
-            "metmuseum: %s done, %d IDs seen, %d artworks yielded",
-            medium,
-            len(seen_ids),
-            total_yielded,
-        )
+        logger.info("metmuseum: %s done, %d IDs seen", medium, len(seen_ids))
 
 
 class MetMuseum(Backend):
@@ -571,13 +551,8 @@ class MetMuseum(Backend):
                 return None
 
         try:
-            yielded = 0
             async for artwork in _scrape_materials(ctx, fetch_or_record):
                 yield artwork
-                yielded += 1
-
-            if ctx.limit and yielded >= ctx.limit:
-                return
 
             # Failures from this and earlier runs get one more go; ones that
             # fail again stay in the file without being appended twice.
@@ -592,8 +567,7 @@ class MetMuseum(Backend):
                 return
 
             logger.info("metmuseum: retrying %d previously failed objects", len(todo))
-            remaining = ctx.limit - yielded if ctx.limit else 0
-            async for artwork in enrich_pool(ctx, todo, fetch, remaining):
+            async for artwork in enrich_pool(ctx, todo, fetch, ctx.limit):
                 yield artwork
         finally:
             if resolved:

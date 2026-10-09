@@ -10,7 +10,7 @@ from urllib.parse import quote, urljoin
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, enrich_pool
+from . import Backend, Context, bare, urls_to_artworks
 from .parse import first_text, text
 
 BASE_URL = "https://collections.louvre.fr"
@@ -239,38 +239,8 @@ class Louvre(Backend):
             len(paths),
         )
 
-        urls: list[str] = []
-
-        for ark in arks:
-            url = artwork_url(ark)
-
-            if url not in ctx.seen:
-                urls.append(url)
-
-        logger.info(
-            "louvre: %d unseen records from export",
-            len(urls),
-        )
-
-        if not urls:
-            return
-
-        yielded = 0
-
-        if not ctx.with_images:
-            for url in urls:
-                yield Artwork(
-                    source="louvre",
-                    url=url,
-                    image_url=None,
-                )
-
-                yielded += 1
-
-                if ctx.limit and yielded >= ctx.limit:
-                    return
-
-            return
+        urls = [url for url in map(artwork_url, arks) if url not in ctx.seen]
+        logger.info("louvre: %d unseen records from export", len(urls))
 
         async def fetch_one(
             fetch_ctx: Context,
@@ -292,10 +262,5 @@ class Louvre(Backend):
 
             return parse_page(url, body)
 
-        async for artwork in enrich_pool(ctx, urls, fetch_one):
+        async for artwork in urls_to_artworks(ctx, urls, fetch_one, bare(self.name)):
             yield artwork
-
-            yielded += 1
-
-            if ctx.limit and yielded >= ctx.limit:
-                return

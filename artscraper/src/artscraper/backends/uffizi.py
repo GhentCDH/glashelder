@@ -22,7 +22,7 @@ from bs4 import BeautifulSoup
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, enrich_pool, sitemap_locs
+from . import Backend, Context, bare, sitemap_locs, urls_to_artworks
 from .parse import artwork_json_ld, text
 
 BASE_URL = "https://www.uffizi.it"
@@ -269,20 +269,14 @@ class Uffizi(Backend):
                 len(discovered),
             )
 
-        if ctx.with_images:
-            async for artwork in enrich_pool(
-                ctx, list(discovered), fetch_one, ctx.limit
-            ):
-                yield artwork
-        else:
-            # Without fetching detail pages there is no reliable way to know
-            # the collection for sitemap URLs. Only use directly discovered
-            # category URLs in this mode.
-            yielded = 0
-            for url, collection in discovered.items():
-                if collection is None:
-                    continue
-                yield Artwork(source="uffizi", url=url, image_url=None)
-                yielded += 1
-                if ctx.limit and yielded >= ctx.limit:
-                    return
+        # Runs without images only keep URLs found on the category pages:
+        # without the detail page there is no reliable way to know the
+        # collection of a sitemap URL.
+        url_only = bare(self.name)
+        async for artwork in urls_to_artworks(
+            ctx,
+            list(discovered),
+            fetch_one,
+            lambda url: url_only(url) if discovered[url] else None,
+        ):
+            yield artwork

@@ -246,12 +246,7 @@ class Wereldmuseum(Backend):
     name = "wereldmuseum"
 
     async def stream(self, ctx: Context) -> AsyncIterator[Artwork]:
-        yielded = 0
-
         for label, cn in CATEGORIES.items():
-            if ctx.limit and yielded >= ctx.limit:
-                return
-
             logger.info("wereldmuseum: category %s (%s)", label, cn)
             first = 1
 
@@ -311,23 +306,10 @@ class Wereldmuseum(Backend):
                         artist=rec["artist"],
                         year=rec["year"],
                     )
-                    yielded += 1
                     page_yielded += 1
 
-                    if ctx.limit and yielded >= ctx.limit:
-                        logger.info(
-                            "wereldmuseum: %s — %d cells, %d yielded "
-                            "(page %d, total %d) — limit reached",
-                            label,
-                            len(records),
-                            page_yielded,
-                            (first - 1) // PAGE_SIZE + 1,
-                            total,
-                        )
-                        return
-
                 logger.info(
-                    "wereldmuseum: %s — %d cells, %d yielded (page %d, total %d)",
+                    "wereldmuseum: %s, %d cells, %d yielded (page %d, total %d)",
                     label,
                     len(records),
                     page_yielded,

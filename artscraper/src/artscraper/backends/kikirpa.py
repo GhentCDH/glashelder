@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, sitemap_locs, stream_sitemaps
+from . import Backend, Context, bare, sitemap_locs, stream_sitemaps
 from .parse import artwork_json_ld
 
 BASE_URL = "https://balat.kikirpa.be"
@@ -64,9 +64,6 @@ class Kikirpa(Backend):
             html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
             return parse_page(url, html)
 
-        def bare(url: str) -> Artwork:
-            # the sitemaps carry no metadata at all, so this is url-only
-            return Artwork(source="kikirpa", url=url, image_url=None)
-
-        async for artwork in stream_sitemaps(ctx, sitemaps, fetch_one, bare):
+        # the sitemaps carry no metadata at all, so without images this is url-only
+        async for artwork in stream_sitemaps(ctx, sitemaps, fetch_one, bare(self.name)):
             yield artwork

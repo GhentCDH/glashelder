@@ -13,7 +13,7 @@ from urllib.parse import quote, urlencode
 
 from ..client import fetch_text
 from ..model import Artwork
-from . import Backend, Context, enrich_pool
+from . import Backend, Context, bare, urls_to_artworks
 from .parse import first_text, text
 
 BASE_URL = "https://archive.org"
@@ -245,7 +245,13 @@ class Cleveland(Backend):
         self,
         ctx: Context,
     ) -> AsyncIterator[Artwork]:
-        yielded = 0
+        async def fetch_one(ctx: Context, url: str) -> Artwork | None:
+            identifier = url.rstrip("/").rsplit("/", 1)[-1]
+            body = await fetch_text(
+                ctx.client, metadata_url(identifier), ctx.throttle, ctx.stats
+            )
+            return parse_metadata(identifier, body)
+
         discovered: set[str] = set()
         cursor: str | None = None
 
@@ -275,56 +281,12 @@ class Cleveland(Backend):
             )
 
             urls = [
-                artwork_url(identifier)
-                for identifier in new_identifiers
-                if artwork_url(identifier) not in ctx.seen
+                url for url in map(artwork_url, new_identifiers) if url not in ctx.seen
             ]
-
-            if ctx.with_images:
-                remaining = ctx.limit - yielded if ctx.limit else None
-
-                async def fetch_one(
-                    ctx: Context,
-                    url: str,
-                ) -> Artwork | None:
-                    identifier = url.rstrip("/").rsplit("/", 1)[-1]
-
-                    body = await fetch_text(
-                        ctx.client,
-                        metadata_url(identifier),
-                        ctx.throttle,
-                        ctx.stats,
-                    )
-
-                    return parse_metadata(
-                        identifier,
-                        body,
-                    )
-
-                async for artwork in enrich_pool(
-                    ctx,
-                    urls,
-                    fetch_one,
-                    remaining,
-                ):
-                    yield artwork
-                    yielded += 1
-
-                    if ctx.limit and yielded >= ctx.limit:
-                        return
-
-            else:
-                for url in urls:
-                    yield Artwork(
-                        source="cleveland",
-                        url=url,
-                        image_url=None,
-                    )
-
-                    yielded += 1
-
-                    if ctx.limit and yielded >= ctx.limit:
-                        return
+            async for artwork in urls_to_artworks(
+                ctx, urls, fetch_one, bare(self.name)
+            ):
+                yield artwork
 
             # The scrape API returns no cursor once the result set is
             # exhausted. This -- not batch size or dedup counts -- is the

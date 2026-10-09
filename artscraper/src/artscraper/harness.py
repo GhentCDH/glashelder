@@ -11,7 +11,7 @@ from pathlib import Path
 
 from common.throttle import Throttle
 
-from .backends import Context, registry
+from .backends import Context, registry, take
 from .client import Stats, make_client
 from .index import open_text, read
 from .model import Artwork
@@ -97,7 +97,7 @@ async def scrape(
                 report(
                     name, None, ctx.stats
                 )  # register the backend before its first item
-            async for artwork in backends[name].stream(ctx):
+            async for artwork in take(ctx, backends[name].stream(ctx)):
                 ctx.stats.items += 1
                 sink.write(json.dumps(asdict(artwork), ensure_ascii=False) + "\n")
                 if report:
