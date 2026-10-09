@@ -5,15 +5,14 @@ Assesses the content safety of images using multiple vision-language models (LLa
 ## Commands
 
 ```bash
-# launch the Glaswacht TUI monitor — runs all three models
+# launch the Glaswacht TUI monitor, runs all three models
 uv run glashelder glaswacht tui --path ./images
 
-# run a single model
-uv run glashelder glaswacht run-lavaguard --path ./images
-uv run glashelder glaswacht run-qwen --path ./images
-uv run glashelder glaswacht run-pixtral --path ./images
+# run one or more models directly
+uv run glashelder glaswacht run --path ./images --model lavaguard
+uv run glashelder glaswacht run --path ./images --model qwen3 --model pixtral
 
-# start the validation web interface
+# start the validation web interface (port 5003 by default)
 uv run glashelder glaswacht serve --images-dir ./images
 ```
 
