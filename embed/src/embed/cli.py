@@ -2,6 +2,7 @@ import logging
 import pickle
 from collections import Counter
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import click
 
@@ -15,6 +16,29 @@ PACKAGE_ROOT = PROJECT_ROOT / "embed"
 EMBEDDINGS_PATH = PACKAGE_ROOT / "embeddings.pkl"
 
 logger = logging.getLogger(__name__)
+
+
+def display_name(ref: str) -> str:
+    """The last part of an image reference, a path or a URL, for display."""
+    if not is_url(ref):
+        return Path(ref).name
+    parts = urlsplit(ref)
+    return unquote(parts.path.rstrip("/").rpartition("/")[2]) or parts.netloc
+
+
+TOP_K_ERROR = "The number of results must be a positive whole number"
+
+
+def parse_top_k(value: str | None, default: int = 12) -> int | None:
+    """`top_k` from a form or query string, or `None` when it is not a positive
+    whole number."""
+    if value is None or not value.strip():
+        return default
+    try:
+        top_k = int(value)
+    except ValueError:
+        return None
+    return top_k if top_k > 0 else None
 
 
 @click.group()
@@ -619,11 +643,12 @@ def search(
         zip(indices.tolist(), scores.tolist(), strict=True), 1
     ):
         ref = refs[index]
-        destination = output_dir / f"{rank:02d}_score{score:.3f}_{Path(ref).name}"
+        prefix = f"{rank:02d}_score{score:.3f}"
+        name = display_name(ref)
         if is_url(ref):
-            load(ref).save(destination.with_suffix(".jpg"))
+            load(ref).save(output_dir / f"{prefix}_{Path(name).stem}.jpg")
         else:
-            shutil.copy(ref, destination)
+            shutil.copy(ref, output_dir / f"{prefix}_{name}")
         logger.info(f"{rank}. {ref} (similarity: {score:.4f})")
     logger.info(f"Saved the matches to {output_dir}")
 
@@ -656,7 +681,7 @@ def serve(embeddings, image_dir, host, port, open_browser):
     """
     import io
 
-    from flask import Flask, render_template, request, send_from_directory
+    from flask import Flask, redirect, render_template, request, send_from_directory
     from PIL import Image
 
     from .embed import get_embedder, load_embeddings
@@ -704,7 +729,16 @@ def serve(embeddings, image_dir, host, port, open_browser):
     @app.route("/search", methods=["POST"])
     def search_endpoint():
         prompt = request.form.get("prompt", "").strip()
-        top_k = int(request.form.get("top_k", 12))
+        top_k = parse_top_k(request.form.get("top_k"))
+
+        if top_k is None:
+            return render_template(
+                "results.html",
+                error=TOP_K_ERROR,
+                results=[],
+                query_type="text",
+                query_value="",
+            )
 
         if not prompt:
             return render_template(
@@ -740,7 +774,7 @@ def serve(embeddings, image_dir, host, port, open_browser):
                         "rank": rank,
                         "index": int(idx),
                         "score": float(score),
-                        "filename": Path(image_paths[idx]).name,
+                        "filename": display_name(image_paths[idx]),
                     }
                 )
 
@@ -765,7 +799,15 @@ def serve(embeddings, image_dir, host, port, open_browser):
     @app.route("/search-image", methods=["POST"])
     def search_image_endpoint():
         """Search for similar images using an uploaded image"""
-        top_k = int(request.form.get("top_k", 12))
+        top_k = parse_top_k(request.form.get("top_k"))
+        if top_k is None:
+            return render_template(
+                "results.html",
+                error=TOP_K_ERROR,
+                results=[],
+                query_type="image",
+                query_value="",
+            )
 
         # Check for file upload
         if "image" not in request.files:
@@ -810,7 +852,7 @@ def serve(embeddings, image_dir, host, port, open_browser):
                         "rank": rank,
                         "index": int(idx),
                         "score": float(score),
-                        "filename": Path(image_paths[idx]).name,
+                        "filename": display_name(image_paths[idx]),
                     }
                 )
 
@@ -835,12 +877,12 @@ def serve(embeddings, image_dir, host, port, open_browser):
     @app.route("/similar/<int:index>")
     def similar_fullpage(index):
         """Find images similar to the image at the given index"""
-        top_k = int(request.args.get("top_k", 12))
+        top_k = parse_top_k(request.args.get("top_k"))
 
-        if index < 0 or index >= len(image_paths):
+        if index < 0 or index >= len(image_paths) or top_k is None:
             return render_template(
                 "results.html",
-                error="Image not found",
+                error="Image not found" if top_k is not None else TOP_K_ERROR,
                 results=[],
                 query_type="similar",
                 query_value=index,
@@ -861,11 +903,11 @@ def serve(embeddings, image_dir, host, port, open_browser):
                         "rank": rank,
                         "index": int(idx),
                         "score": float(score),
-                        "filename": Path(image_paths[idx]).name,
+                        "filename": display_name(image_paths[idx]),
                     }
                 )
 
-            query_filename = Path(image_paths[index]).name
+            query_filename = display_name(image_paths[index])
             return render_template(
                 "similar.html",
                 results=results,
@@ -888,12 +930,12 @@ def serve(embeddings, image_dir, host, port, open_browser):
     @app.route("/api/similar/<int:index>")
     def similar_endpoint(index):
         """Find images similar to the image at the given index"""
-        top_k = int(request.args.get("top_k", 12))
+        top_k = parse_top_k(request.args.get("top_k"))
 
-        if index < 0 or index >= len(image_paths):
+        if index < 0 or index >= len(image_paths) or top_k is None:
             return render_template(
                 "results.html",
-                error="Image not found",
+                error="Image not found" if top_k is not None else TOP_K_ERROR,
                 results=[],
                 query_type="similar",
                 query_value=index,
@@ -914,11 +956,11 @@ def serve(embeddings, image_dir, host, port, open_browser):
                         "rank": rank,
                         "index": int(idx),
                         "score": float(score),
-                        "filename": Path(image_paths[idx]).name,
+                        "filename": display_name(image_paths[idx]),
                     }
                 )
 
-            query_filename = Path(image_paths[index]).name
+            query_filename = display_name(image_paths[index])
             return render_template(
                 "results.html",
                 results=results,
@@ -944,7 +986,10 @@ def serve(embeddings, image_dir, host, port, open_browser):
         if index < 0 or index >= len(image_paths):
             return "Image not found", 404
 
-        image_path = Path(image_paths[index])
+        ref = image_paths[index]
+        if is_url(ref):
+            return redirect(ref)
+        image_path = Path(ref)
         return send_from_directory(image_path.parent, image_path.name)
 
     run_app(app, host, port, open_browser=open_browser)

@@ -30,6 +30,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class NoImagesError(ValueError):
+    """None of the images given to `encode_images` could be read."""
+
+
+def concat(embeddings: list[torch.Tensor], image_paths: list[str]) -> torch.Tensor:
+    """The batches of `encode_images` as one tensor."""
+    import torch
+
+    if not embeddings:
+        raise NoImagesError(f"none of the {len(image_paths)} images could be read")
+    return torch.cat(embeddings)
+
+
 def get_device() -> str:
     """Get the best available device for tensor operations."""
     import torch
@@ -96,6 +109,9 @@ class EmbeddingModel(ABC):
             Tuple of:
             - Tensor of shape (n_images, embedding_dim) with L2-normalized embeddings.
             - List of successfully processed image paths (may be fewer than input if some failed).
+
+        Raises:
+            NoImagesError: None of the images could be read.
         """
         ...
 
@@ -232,7 +248,7 @@ class CLIPEmbedder(EmbeddingModel):
             all_embeddings.append(embeddings.cpu())
             processed_paths.extend(batch["path"])
 
-        return torch.cat(all_embeddings), processed_paths
+        return concat(all_embeddings, image_paths), processed_paths
 
     def encode_text(self, text: str) -> torch.Tensor | None:
         import torch
@@ -356,7 +372,7 @@ class DINOv2Embedder(EmbeddingModel):
             all_embeddings.append(embeddings.cpu())
             processed_paths.extend(batch["path"])
 
-        return torch.cat(all_embeddings), processed_paths
+        return concat(all_embeddings, image_paths), processed_paths
 
     def encode_pil_image(self, image: Image.Image) -> torch.Tensor:
         return self._encode_pil(image)
