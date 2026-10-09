@@ -9,7 +9,7 @@ from rich.console import Console
 
 from common.progress import progress as progress_bars
 
-from .features.image import NO_IMAGE_FEATURES, _pair_features, make_orb
+from .features.image import NO_IMAGE_FEATURES, make_orb, pair_features
 from .features.similarity import _sanitize_features, distribution_features
 from .features.worker import extract_features_batch
 
@@ -34,7 +34,7 @@ def _entry_features(entry: dict, extract_image_features: bool, orb_bf: tuple) ->
     artwork_path = entry.get("artwork_path") if extract_image_features else None
 
     image_features = (
-        _pair_features(glashelder_path, artwork_path, *orb_bf).as_dict()
+        pair_features(glashelder_path, artwork_path, *orb_bf).as_dict()
         if glashelder_path and artwork_path
         else NO_IMAGE_FEATURES
     )

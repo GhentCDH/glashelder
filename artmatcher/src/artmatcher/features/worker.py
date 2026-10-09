@@ -11,7 +11,7 @@ from rich.progress import TaskID
 
 from common.progress import progress as progress_bars
 
-from .image import NO_IMAGE_FEATURES, _pair_features, make_orb
+from .image import NO_IMAGE_FEATURES, make_orb, pair_features
 from .similarity import _sanitize_features, distribution_features
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def _extract_orb_worker(
 
         features = (
             distribution_features(similarities)
-            | _pair_features(
+            | pair_features(
                 glashelder_path, artwork_path, _worker_orb, _worker_bf
             ).as_dict()
         )
