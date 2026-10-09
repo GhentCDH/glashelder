@@ -58,12 +58,16 @@ def require_auth(app):
     app.config[AUTH_SECRET_KEY] = expected_secret
     expected_hash = hash_secret(expected_secret)
 
+    def matches(value: str) -> bool:
+        # bytes, since compare_digest rejects non-ASCII str
+        return secrets.compare_digest(value.encode(), expected_hash.encode())
+
     @app.before_request
     def check_auth():
         # Check query parameter first
         provided_secret = request.args.get("secret")
         if provided_secret:
-            if hash_secret(provided_secret) == expected_hash:
+            if matches(hash_secret(provided_secret)):
                 # Valid secret in query - will set cookie in after_request
                 request.auth_valid = True
                 request.set_auth_cookie = True
@@ -73,7 +77,7 @@ def require_auth(app):
 
         # Check cookie
         auth_cookie = request.cookies.get(AUTH_COOKIE_NAME)
-        if auth_cookie and auth_cookie == expected_hash:
+        if auth_cookie and matches(auth_cookie):
             request.auth_valid = True
             request.set_auth_cookie = False
             return None
