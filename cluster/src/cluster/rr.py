@@ -2,7 +2,8 @@ import logging
 
 import numpy as np
 import rerun as rr
-from PIL import Image
+
+from common.images import thumbnail
 
 from .cluster import noise_mask
 
@@ -143,11 +144,7 @@ def log_image_3d(
         size: Half-width/height of the image rectangle in 3D space.
     """
 
-    img = Image.open(image_path).convert("RGB")
-    ratio = 150 / img.width
-    new_height = int(img.height * ratio)
-    img = img.resize((150, new_height), Image.Resampling.NEAREST)
-    img_array = np.array(img)
+    img_array = np.array(thumbnail(image_path, 150))
 
     # Create a flat rectangle at the position, facing the camera (z-axis)
     x, y, z = position[:3]

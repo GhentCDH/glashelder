@@ -1,4 +1,3 @@
-import glob
 import logging
 import os
 import shutil
@@ -8,10 +7,10 @@ from pathlib import Path
 import click
 import numpy as np
 from dotenv import load_dotenv
-from PIL import Image
 
 # local source
 from common import ASSETS_DIR, PROJECT_ROOT, run_app
+from common.images import list_images, save_resized
 from embed import get_device
 
 # TODO: put some default images in `./images/` as exampels
@@ -22,35 +21,6 @@ PACKAGE_ROOT = PROJECT_ROOT / "cluster"
 EMBEDDINGS_PATH = PROJECT_ROOT / "embed" / "embeddings.pkl"
 
 logger = logging.getLogger(__name__)
-
-
-def resize_image_to_max_dimension(src_path: str, dst_path: str, max_dim: int = 512):
-    """
-    Resize an image to fit within max_dim x max_dim while preserving aspect ratio.
-
-    Args:
-        src_path: Source image path
-        dst_path: Destination image path
-        max_dim: Maximum width or height in pixels
-    """
-    img = Image.open(src_path)
-    quality = 75
-
-    # Calculate new dimensions while preserving aspect ratio
-    width, height = img.size
-    if width <= max_dim and height <= max_dim:
-        # Image is already small enough, just copy it
-        img.save(dst_path, quality=quality)
-        return
-
-    # Calculate scaling factor
-    scale = min(max_dim / width, max_dim / height)
-    new_width = int(width * scale)
-    new_height = int(height * scale)
-
-    # Resize using high-quality resampling
-    resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    resized_img.save(dst_path, quality=quality)
 
 
 @click.group()
@@ -267,7 +237,7 @@ def do_clustering(
         for idx in sample_indices:
             src_path = image_paths[idx]
             dst_path = cluster_dir / Path(src_path).name
-            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+            save_resized(src_path, dst_path, 512)
 
         print(
             f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
@@ -284,7 +254,7 @@ def do_clustering(
             src_path = image_paths[idx]
             filename = Path(src_path).name
             dst_path = noise_dir / filename
-            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+            save_resized(src_path, dst_path, 512)
 
         print(
             f"Noise: {len(noise_indices)} total images, saved {min(2, len(noise_indices))} samples"
@@ -511,8 +481,8 @@ def analyze(
         embedder.load(device)
         embedding_model_name = embedder.name
         embedding_model_id = embedder.model_id
-        input_paths = list(glob.glob(f"{image_dir}/**/*.jpg", recursive=True))[
-            :sample_size
+        input_paths = [
+            str(p) for p in list_images(image_dir, suffixes=(".jpg",))[:sample_size]
         ]
         logger.info("Generating image embeddings...")
         embeddings_tensor, image_paths = embedder.encode_images(input_paths, batch_size)
@@ -628,7 +598,7 @@ def analyze(
             src_path = image_paths[idx]
             filename = Path(src_path).name
             dst_path = cluster_dir / filename
-            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+            save_resized(src_path, dst_path, 512)
 
         logger.info(
             f"Cluster {cluster_id}: {len(cluster_indices)} total images, saved {len(sample_indices)} samples"
@@ -645,7 +615,7 @@ def analyze(
             src_path = image_paths[idx]
             filename = Path(src_path).name
             dst_path = noise_dir / filename
-            resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+            save_resized(src_path, dst_path, 512)
 
         logger.info(
             f"Noise: {len(noise_indices)} total images, saved {min(2, len(noise_indices))} samples"
@@ -667,7 +637,7 @@ def analyze(
                 src_path = image_paths[idx]
                 filename = Path(src_path).name
                 dst_path = noise_cluster_dir / filename
-                resize_image_to_max_dimension(src_path, str(dst_path), max_dim=512)
+                save_resized(src_path, dst_path, 512)
 
             logger.info(
                 f"Cluster {noise_cluster_id}: {len(noise_cluster_indices)} total images, saved {min(4, len(noise_cluster_indices))} samples"

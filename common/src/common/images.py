@@ -11,6 +11,7 @@ full reference set is tens of gigabytes and every image is normally read once.
 """
 
 import asyncio
+import glob
 import hashlib
 import io
 import logging
@@ -32,6 +33,8 @@ MAX_ATTEMPTS = 3
 GONE = (404, 410)
 """Statuses that say the image is not there, cost the server little, and will not
 change by asking again."""
+SUFFIXES = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
+"""What `list_images` takes for an image by default."""
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +115,44 @@ def load(ref: str | Path, *, cache: bool | None = None) -> Image.Image:
     if cached is not None:
         store(url, raw)
     return decode(raw)
+
+
+def thumbnail(ref: str | Path, size: int | tuple[int, int]) -> Image.Image:
+    """`ref` scaled down to fit in `size`, keeping its aspect ratio. Never scales up."""
+    box = (size, size) if isinstance(size, int) else size
+    if is_url(ref):
+        image = load(ref)
+    else:
+        image = Image.open(ref)
+        # a JPEG decodes straight at 1/2, 1/4 or 1/8 scale: much less to read
+        image.draft("RGB", box)
+        image = image.convert("RGB")
+    image.thumbnail(box)
+    return image
+
+
+def save_resized(
+    ref: str | Path, dst: str | Path, max_dim: int, quality: int = 75
+) -> None:
+    """Save `ref` to `dst`, scaled down to fit in `max_dim` x `max_dim`."""
+    thumbnail(ref, max_dim).save(dst, quality=quality)
+
+
+def list_images(
+    root: str | Path, *, recursive: bool = True, suffixes: tuple[str, ...] = SUFFIXES
+) -> list[Path]:
+    """The images under `root`, sorted.
+
+    Suffixes match case-sensitively. Like `glob`, hidden files and directories are
+    left out (macOS leaves `._name.jpg` files on network shares).
+    """
+    root = Path(root)
+    pattern = "**/*" if recursive else "*"
+    return sorted(
+        root / name
+        for name in glob.glob(pattern, root_dir=root, recursive=recursive)
+        if name.endswith(suffixes)
+    )
 
 
 _clients: dict[int, httpx.Client] = {}
