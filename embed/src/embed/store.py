@@ -31,6 +31,8 @@ from pathlib import Path
 
 import numpy as np
 
+from common.fs import atomic_write, atomic_writer
+
 META, VECTORS, HASHES, REFS = "meta.json", "vectors.bin", "hashes.bin", "refs.txt"
 FAILURES = "failures.jsonl"
 VERSION = 1
@@ -239,15 +241,13 @@ class Store:
         if not failures:
             path.unlink(missing_ok=True)
             return
-        temporary = self.path / f"{FAILURES}.tmp"
-        temporary.write_text(
+        atomic_write(
+            path,
             "".join(
                 json.dumps({"ref": ref, "reason": why}, ensure_ascii=False) + "\n"
                 for ref, why in failures.items()
             ),
-            encoding="utf-8",
         )
-        os.replace(temporary, path)
 
     def prune(self, keep: Collection[str]) -> int:
         """Drop every row whose ref is not in `keep`. Shifts the rows after it."""
@@ -262,9 +262,12 @@ class Store:
         self._edited()
         vectors = self.vectors()
         hashes = (self.path / HASHES).read_bytes()
+        refs = [self._refs[i] for i in kept]
+        # all three are replaced when the block ends, in reverse: vectors, hashes, refs
         with (
-            (self.path / f"{VECTORS}.tmp").open("wb") as vector_file,
-            (self.path / f"{HASHES}.tmp").open("wb") as hash_file,
+            atomic_writer(self.path / REFS) as ref_file,
+            atomic_writer(self.path / HASHES, binary=True) as hash_file,
+            atomic_writer(self.path / VECTORS, binary=True) as vector_file,
         ):
             # in chunks: the matrix may be larger than RAM
             for start in range(0, len(kept), PRUNE_CHUNK):
@@ -275,13 +278,8 @@ class Store:
                         hashes[i * HASH_BYTES : (i + 1) * HASH_BYTES] for i in chunk
                     )
                 )
-        del vectors
-        refs = [self._refs[i] for i in kept]
-        (self.path / f"{REFS}.tmp").write_text(
-            "".join(f"{ref}\n" for ref in refs), encoding="utf-8"
-        )
-        for name in (VECTORS, HASHES, REFS):
-            os.replace(self.path / f"{name}.tmp", self.path / name)
+            ref_file.write("".join(f"{ref}\n" for ref in refs))
+            del vectors
 
         self._refs, self._rows = refs, None
         return removed
@@ -296,9 +294,7 @@ class Store:
         return self._rows
 
     def _write_meta(self) -> None:
-        temporary = self.path / f"{META}.tmp"
-        temporary.write_text(json.dumps(self.meta, indent=2))
-        os.replace(temporary, self.path / META)
+        atomic_write(self.path / META, json.dumps(self.meta, indent=2))
 
     def _recover(self) -> list[str]:
         """The committed refs, cutting off whatever an interrupted write left behind."""

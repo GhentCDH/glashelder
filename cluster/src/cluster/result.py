@@ -31,6 +31,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from common.fs import atomic_write, atomic_writer
 from embed.neighbours import queries_hash
 from embed.store import Store
 
@@ -89,12 +90,11 @@ def save(path: str | Path, clustering: Clustering) -> None:
 
     # meta goes first and comes back last: without it, the directory is no result
     (path / META).unlink(missing_ok=True)
-    temporary = path / f"{POINTS}.tmp"
-    pq.write_table(_table(clustering), temporary)
-    os.replace(temporary, path / POINTS)
-    temporary = path / f"{META}.tmp"
-    temporary.write_text(json.dumps({"version": VERSION, **clustering.meta}, indent=2))
-    os.replace(temporary, path / META)
+    with atomic_writer(path / POINTS, binary=True) as file:
+        pq.write_table(_table(clustering), file)
+    atomic_write(
+        path / META, json.dumps({"version": VERSION, **clustering.meta}, indent=2)
+    )
 
 
 def read_meta(path: str | Path) -> dict:
@@ -215,8 +215,8 @@ def read_annotations(path: str | Path) -> Annotations:
 def write_annotations(path: str | Path, annotations: Annotations) -> None:
     path = Path(path)
     names, groups, soft = annotations.names, annotations.groups, annotations.soft
-    temporary = path / f"{ANNOTATIONS}.tmp"
-    temporary.write_text(
+    atomic_write(
+        path / ANNOTATIONS,
         json.dumps(
             {
                 "clustering": identity(read_meta(path)),
@@ -232,9 +232,7 @@ def write_annotations(path: str | Path, annotations: Annotations) -> None:
             indent=2,
             ensure_ascii=False,
         ),
-        encoding="utf-8",
     )
-    os.replace(temporary, path / ANNOTATIONS)
 
 
 def status(meta: dict, store: Store) -> str:

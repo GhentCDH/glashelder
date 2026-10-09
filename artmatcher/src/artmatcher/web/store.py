@@ -11,6 +11,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from common.fs import atomic_writer
+
 from .session import BUCKETS, LabelDataset, LabelSession, was_match
 
 logger = logging.getLogger(__name__)
@@ -173,11 +175,9 @@ class SessionStore:
             "dataset": session.dataset.as_dict(),
         }
 
-        tmp = path.with_suffix(".json.tmp")
         try:
-            with open(tmp, "w") as f:
+            with atomic_writer(path) as f:
                 json.dump(payload, f, indent=2)
-            os.replace(tmp, path)
         except OSError as e:
             logger.error(f"Could not save session {session.session_id} to {path}: {e}")
 
@@ -199,10 +199,8 @@ class SessionStore:
                 with open(new_path) as f:
                     data = json.load(f)
                 data["session_id"] = new_id
-                tmp = new_path.with_suffix(".json.tmp")
-                with open(tmp, "w") as f:
+                with atomic_writer(new_path) as f:
                     json.dump(data, f, indent=2)
-                os.replace(tmp, new_path)
             except (OSError, json.JSONDecodeError) as e:
                 logger.error(
                     f"Renamed {old_id} to {new_id} but could not rewrite it: {e}"

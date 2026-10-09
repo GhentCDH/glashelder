@@ -23,6 +23,7 @@ import httpx
 from PIL import Image, ImageFile
 
 from .config import config
+from .fs import atomic_write
 from .throttle import Throttle
 
 USER_AGENT = "glashelder/2.0 (sysadmin.ghentcdh@ugent.be)"
@@ -88,9 +89,7 @@ def store(url: str, raw: bytes, cache_dir: Path | None = None) -> Path:
     """Write a fetched image into the cache, atomically."""
     path = cache_path(url, cache_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_bytes(raw)
-    os.replace(temporary, path)
+    atomic_write(path, raw)
     return path
 
 
