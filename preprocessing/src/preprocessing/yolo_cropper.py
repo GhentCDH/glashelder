@@ -1,5 +1,7 @@
 import logging
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from itertools import chain
 from pathlib import Path
 
@@ -7,13 +9,22 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-Image.MAX_IMAGE_PIXELS = None  # Remove decompression bomb limit
-
 logger = logging.getLogger(__name__)
 
 
+@contextmanager
+def unlimited_pixels() -> Generator[None]:
+    """Lift Pillow's decompression bomb limit, for the large scans this crops."""
+    limit = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = None
+    try:
+        yield
+    finally:
+        Image.MAX_IMAGE_PIXELS = limit
+
+
 class YOLOCropper:
-    def __init__(self, model_path, device="gpu"):
+    def __init__(self, model_path, device: str | None = None):
         from ultralytics import YOLO
 
         self.model_path = model_path
@@ -50,7 +61,7 @@ def run_crop_on_batch_of_images(
     model_path,
     image_folder,
     output_folder,
-    device="cpu",
+    device: str | None = None,
     batch_size=20,
     num_workers=4,
     prefetch=10,
@@ -90,7 +101,10 @@ def run_crop_on_batch_of_images(
 
     # Use ThreadPoolExecutor to parallelize image loading
     batch = []
-    with ThreadPoolExecutor(max_workers=num_workers) as loader_executor:
+    with (
+        unlimited_pixels(),
+        ThreadPoolExecutor(max_workers=num_workers) as loader_executor,
+    ):
         # Submit initial batch of image loading tasks
         future_to_path = {
             loader_executor.submit(load_image, path): path
