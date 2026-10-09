@@ -35,8 +35,9 @@ def resolve_subset(path: Path, source, root: str | Path | None) -> list[int]:
     by its file name, in that order. Lines that match nothing are reported, so a
     typo or a list for another image directory does not go unnoticed.
     """
+    served = list(source.indices)
     by_key: dict[str, int] = {}
-    for index in range(source.total_images):
+    for index in served:
         image = Path(source.glashelder_path(index) or "")
         by_key.setdefault(image.name, index)
         by_key[str(image)] = index
@@ -51,7 +52,7 @@ def resolve_subset(path: Path, source, root: str | Path | None) -> list[int]:
     if not found:
         raise click.ClickException(
             f"none of the {len(wanted):,} images in {path} are among the "
-            f"{source.total_images:,} glashelder images being served"
+            f"{len(served):,} glashelder images being served"
         )
     logger.info(f"labeling a subset: {len(found):,} images from {path}")
     if missing:

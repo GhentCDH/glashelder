@@ -36,7 +36,7 @@ def create_app(
     With `subset` (glashelder indices), every session only walks through those
     images; they keep their indices in the full set, so labels stay compatible.
     """
-    sample = sorted(set(subset)) if subset is not None else range(source.total_images)
+    sample = sorted(set(subset)) if subset is not None else list(source.indices)
     app = Flask(
         __name__,
         template_folder=Path(__file__).parent.parent / "templates",
@@ -79,7 +79,7 @@ def create_app(
 
     def _index_by_name() -> dict[str, int]:
         if not index_by_name:
-            for index in range(source.total_images):
+            for index in source.indices:
                 path = source.glashelder_path(index)
                 if path:
                     index_by_name.setdefault(Path(path).name, index)
@@ -99,7 +99,7 @@ def create_app(
             index = by_name.get(Path(path).name) if path else None
             if index is None:
                 stored = entry.get("glashelder_index")
-                if isinstance(stored, int) and 0 <= stored < source.total_images:
+                if isinstance(stored, int) and source.glashelder_path(stored):
                     index = stored
             if index is None:
                 unresolved.append(path or str(entry.get("glashelder_index")))
@@ -600,6 +600,10 @@ def create_app(
             )
 
         index = number - 1
+        if source.glashelder_path(index) is None:
+            return _render_content_with_error(
+                session, f"There is no image {number} in these results."
+            )
         if not session.includes(index):
             return _render_content_with_error(
                 session, f"Image {number} is not part of the subset this server labels."
