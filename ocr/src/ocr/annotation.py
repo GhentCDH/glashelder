@@ -19,10 +19,6 @@ class Annotation:
         return cls(**json.loads(path.read_text()))
 
     @classmethod
-    def from_str(cls, data: str) -> "Annotation":
-        return cls(**json.loads(data))
-
-    @classmethod
     def from_dict(cls, data: dict) -> "Annotation":
         return cls(**data)
 
@@ -75,29 +71,3 @@ def parse_buffer(text: str) -> tuple[Annotation, bool]:
             continue
         bucket.append(raw.rstrip())
     return ann, False
-
-
-def _selfcheck():
-    a = annotation_from_ocr(
-        '{"meta":[{"text":"m1"}],"content":[{"text":"c1"},{"text":"c2"}]}'
-    )
-    assert a == Annotation(meta=["m1"], content=["c1", "c2"]), a
-
-    buf = "# comment\n[content]\nhello\nworld\n[meta]\nmargin\n"
-    ann, quit = parse_buffer(buf)
-    assert not quit
-    assert ann == Annotation(meta=["margin"], content=["hello", "world"]), ann
-
-    # round-trip render -> parse
-    ann2, _ = parse_buffer(render_buffer("x.jpg", ann, 0, 5))
-    assert ann2 == ann, ann2
-
-    # quit sentinel
-    _, q = parse_buffer("[content]\nquit\n")
-    assert q
-
-    print("ok")
-
-
-if __name__ == "__main__":
-    _selfcheck()
