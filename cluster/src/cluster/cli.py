@@ -3,19 +3,13 @@ from pathlib import Path
 
 # installed packages
 import click
-from dotenv import load_dotenv
 
 # local source
-from common import ASSETS_DIR, PROJECT_ROOT, run_app
+from common import run_app
 from common.cli import serve_options
 from embed import EMBEDDING_MODELS
 
-# TODO: put some default images in `./images/` as exampels
-DEFAULT_IMAGES = "images/"
 CLUSTER_IMAGE_SAMPLES_OUTPUT_DIR = "clustered_samples"
-CLUSTERS_PATH = "glashelder.clusters"
-PACKAGE_ROOT = PROJECT_ROOT / "cluster"
-EMBEDDINGS_PATH = PROJECT_ROOT / "embed" / "embeddings.pkl"
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +17,6 @@ logger = logging.getLogger(__name__)
 @click.group()
 def cluster():
     """Cluster images using embedding similarity."""
-    load_dotenv()
-    pass
 
 
 @cluster.command(
@@ -33,19 +25,21 @@ def cluster():
     "The defaults of the UMAP and HDBSCAN options come from [cluster] in glashelder.toml.",
 )
 @click.option(
-    "--embeddings", default=EMBEDDINGS_PATH, help="Path of the embeddings pkl file"
+    "--embeddings",
+    default=None,
+    help="Path of the embeddings pkl file [paths.embeddings.glashelder]",
 )
 @click.option(
     "--image-dir",
-    default=ASSETS_DIR,
-    help="Directory the embedded images live in on this machine",
+    default=None,
+    help="Directory the embedded images live in on this machine [paths.images.glashelder]",
 )
 @click.option(
     "-s",
     "--output",
     type=click.Path(path_type=Path),
-    default=CLUSTERS_PATH,
-    help="Directory the clustering result is saved in",
+    default=None,
+    help="Directory the clustering result is saved in [paths.clusters]",
 )
 @click.option(
     "-o",
@@ -120,7 +114,7 @@ def do_clustering(
     soft,
     soft_top,
 ):
-    import os
+    from common.config import config
 
     from .pipeline import (
         ClusterOptions,
@@ -133,7 +127,18 @@ def do_clustering(
     )
     from .rr import init_rerun
 
-    init_rerun(os.getenv("RERUN_ADDR"))
+    if embeddings is None:
+        raise click.UsageError(
+            "no embeddings: pass --embeddings or set paths.embeddings.glashelder"
+        )
+    if image_dir is None:
+        raise click.UsageError(
+            "no image dir: pass --image-dir or set paths.images.glashelder"
+        )
+    if output is None:
+        raise click.UsageError("no output: pass --output or set paths.clusters")
+
+    init_rerun(config().cluster.rerun)
 
     options = ClusterOptions(
         embeddings=embeddings,
@@ -270,10 +275,14 @@ def report(path: Path | None, image_dir: str | None, samples: int, open_: bool):
 
 @cluster.command()
 @click.option(
-    "--image-dir", default=ASSETS_DIR, help="Directory containing images to search"
+    "--image-dir",
+    default=None,
+    help="Directory containing images to search [paths.images.glashelder]",
 )
 @click.option(
-    "--embeddings", default=EMBEDDINGS_PATH, help="Path to embeddings pickle file"
+    "--embeddings",
+    default=None,
+    help="Path to embeddings pickle file [paths.embeddings.glashelder]",
 )
 @click.option("--sample-size", default=100000, help="Amount of images to cluster")
 @click.option("--batch-size", default=64, help="Batch size for embeddings generation")
@@ -313,13 +322,19 @@ def analyze(
     model,
 ):
     """Analyze clustering results and generate statistics and visualizations."""
-    import os
     from datetime import datetime
+
+    from common.config import config
 
     from .analysis import AnalyzeOptions, run
     from .rr import init_rerun
 
-    init_rerun(os.getenv("RERUN_ADDR"))
+    if image_dir is None:
+        raise click.UsageError(
+            "no image dir: pass --image-dir or set paths.images.glashelder"
+        )
+
+    init_rerun(config().cluster.rerun)
 
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
