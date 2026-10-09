@@ -103,6 +103,8 @@ class Embed:
 class Cluster:
     """Parameters of `cluster cluster`: UMAP, then HDBSCAN on its output."""
 
+    rerun: str | None = None
+    """Rerun viewer address to log the clustering to, e.g. `rerun+http://host:9876/proxy`."""
     n_neighbors: int = 30
     """UMAP `n_neighbors`: higher keeps more of the global structure."""
     min_dist: float = 0.0
@@ -131,6 +133,32 @@ class Artmatcher:
 
 
 @dataclass(slots=True)
+class Glaswacht:
+    results: Path = Path("combined_risk_assessment_results.csv")
+    """CSV `glaswacht run` writes and `glaswacht serve` reads."""
+    images: Path | None = None
+    """Folder of assessed images `glaswacht serve` shows."""
+
+
+@dataclass(slots=True)
+class Ocr:
+    base_url: str = "http://localhost:8000"
+    """vLLM service base URL."""
+    model: str | None = None
+    """Model id; unset prompts for one interactively when the command needs it."""
+    concurrency: int = 1
+    """Parallel in-flight requests to vLLM."""
+    cache: Path | None = None
+    """Transcription cache dir. Unset keeps `$XDG_CACHE_HOME/glashelder/transcriptions`."""
+
+
+@dataclass(slots=True)
+class Artscraper:
+    louvre_export: Path | None = None
+    """Louvre export CSV, or a directory of them."""
+
+
+@dataclass(slots=True)
 class Config:
     secret: str | None = None
     """Secret for the serve commands' authentication. Unset means a random one
@@ -140,6 +168,9 @@ class Config:
     embed: Embed = field(default_factory=Embed)
     cluster: Cluster = field(default_factory=Cluster)
     artmatcher: Artmatcher = field(default_factory=Artmatcher)
+    glaswacht: Glaswacht = field(default_factory=Glaswacht)
+    ocr: Ocr = field(default_factory=Ocr)
+    artscraper: Artscraper = field(default_factory=Artscraper)
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":
