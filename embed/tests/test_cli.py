@@ -1,7 +1,7 @@
 import pytest
 
 from embed.cli import display_name, parse_top_k
-from embed.embed import NoImagesError, concat
+from embed.models.base import NoImagesError, concat
 
 
 @pytest.mark.parametrize(
