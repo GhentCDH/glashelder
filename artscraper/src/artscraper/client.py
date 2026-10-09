@@ -8,6 +8,8 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from json import loads
+from typing import Any
 
 import httpx
 
@@ -90,10 +92,17 @@ def make_client(concurrency: int) -> httpx.AsyncClient:
     )
 
 
-async def fetch_bytes(
-    client: httpx.AsyncClient, url: str, throttle: Throttle, stats: Stats
-) -> bytes:
-    """Fetch a URL, retrying transient failures with exponential backoff."""
+async def _request(
+    client: httpx.AsyncClient,
+    throttle: Throttle,
+    stats: Stats,
+    method: str,
+    url: str,
+    *,
+    json: Any = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    """Send a request, retrying transient failures with exponential backoff."""
     backoff = INITIAL_BACKOFF
     last: Exception | None = None
 
@@ -108,7 +117,7 @@ async def fetch_bytes(
             stats.in_flight += 1
             started = time.monotonic()
             try:
-                response = await client.get(url)
+                response = await client.request(method, url, json=json, headers=headers)
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 last = e
                 continue
@@ -117,7 +126,7 @@ async def fetch_bytes(
                 stats.finished(time.monotonic() - started)
 
         if response.is_success:
-            return response.content
+            return response
 
         if response.status_code == 429:
             retry_after = response.headers.get("retry-after")
@@ -142,6 +151,35 @@ async def fetch_bytes(
 
     stats.errors += 1
     raise last or RuntimeError(f"{url}: out of attempts")
+
+
+async def fetch_bytes(
+    client: httpx.AsyncClient, url: str, throttle: Throttle, stats: Stats
+) -> bytes:
+    """Fetch a URL, retrying transient failures with exponential backoff."""
+    response = await _request(client, throttle, stats, "GET", url)
+    return response.content
+
+
+async def fetch_json(
+    client: httpx.AsyncClient,
+    throttle: Throttle,
+    stats: Stats,
+    method: str,
+    url: str,
+    *,
+    json: Any = None,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    """Send a request with the same throttling and retries as `fetch_bytes`, parse the JSON reply.
+
+    The body is parsed from text because some endpoints (Wereldmuseum's ASMX
+    service) send a content type that `Response.json()` rejects.
+    """
+    response = await _request(
+        client, throttle, stats, method, url, json=json, headers=headers
+    )
+    return loads(response.text)
 
 
 async def fetch_text(
