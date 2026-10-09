@@ -34,6 +34,9 @@ clipcluster/clustered.png
 *.env
 !example.env
 
+# Personal config, see glashelder.example.toml
+glashelder.toml
+
 # Clustering reports
 cluster_analysis_*
 clipcluster/**/*.pdf

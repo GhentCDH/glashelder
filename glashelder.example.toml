@@ -1,0 +1,66 @@
+# Project-wide artifact locations, read by `common.config`.
+# Every value can be overridden from the environment, e.g.
+#   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
+#
+# `glashelder.toml` is not committed: run `uv run glashelder setup` to write your
+# own from a few plain-language questions, or copy this file and edit the paths.
+
+[paths]
+artworks = "data/artworks.json.zst"                              # artscraper output, doubles as the metadata index
+ml_model = "data/models/artmatcher.pkl"
+clusters = "data/clusters/glashelder-clip.clusters"              # cluster cluster output
+
+[paths.images]
+glashelder = "/path/to/glass-plate-photos"
+# reference = "/path/to/reference-artwork-images"   # only when references are local files
+cache = "data/image-cache" # only used when image caching is on
+
+[paths.embeddings]
+glashelder = "data/embeddings/glashelder-clip.store"
+reference = "data/embeddings/artworks-clip.store"
+
+[images]
+concurrency = 16 # image fetches in flight, over all hosts
+per_host = 4     # image fetches in flight to one host
+rate = 5.0       # requests per second to one host, 0 for no limit
+cache = false    # a full reference set on disk is tens of gigabytes
+
+# limits for one host, where it can take more (or less) than the defaults above
+# [images.hosts."uploads.wikiart.org"]
+# per_host = 8
+# rate = 20.0
+
+[embed]
+model = "clip"
+batch_size = 64
+
+[cluster]
+n_neighbors = 30     # UMAP: higher keeps more global structure
+min_dist = 0.0       # UMAP: 0 packs similar images tightly
+dimensions = 30      # UMAP output that HDBSCAN clusters
+min_cluster_size = 30
+# min_samples = 10   # HDBSCAN: higher makes more noise, unset means min_cluster_size
+# rerun = "rerun+http://host:9876/proxy"   # rerun viewer address for `cluster cluster`
+
+[artmatcher]
+workers = 45
+threshold = 0.82
+top_k = 10
+candidates = 3
+
+# web password for the serve commands, better set from the environment
+# (GLASHELDER_SECRET in .env) than written here
+# secret = "changeme"
+
+# [glaswacht]
+# results = "combined_risk_assessment_results.csv"   # glaswacht run output, glaswacht serve input
+# images = "/path/to/assessed-images"
+
+# [ocr]
+# base_url = "http://localhost:8000"   # vLLM service base URL
+# model = "some-model-id"
+# concurrency = 1
+# cache = "/path/to/transcription-cache"
+
+# [artscraper]
+# louvre_export = "/path/to/louvre-export.csv"
