@@ -56,7 +56,11 @@ def create_app(clusters: Path, image_dir: str | None) -> Flask:
         f"Serving {len(images):,} points in {len(sizes):,} clusters from {clusters}"
     )
 
-    app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
+    app = Flask(
+        __name__,
+        template_folder=Path(__file__).parent / "templates",
+        static_folder=Path(__file__).parent / "static",
+    )
 
     @lru_cache(maxsize=4096)
     def cached_thumbnail(row: int, size: int) -> bytes:
