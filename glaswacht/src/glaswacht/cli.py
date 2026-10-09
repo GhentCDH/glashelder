@@ -83,9 +83,16 @@ def run(path, model_names):
 @click.option(
     "--debug/--no-debug", default=True, show_default=True, help="Enable debug mode."
 )
+@click.option(
+    "--open/--no-open",
+    "open_browser",
+    default=True,
+    show_default=True,
+    help="Open the site in a browser on startup.",
+)
 @click.option("--csv-path", default=None, help="Override CSV_PATH from web.py.")
 @click.option("--images-dir", default=None, help="Override IMAGES_DIR from web.py.")
-def serve(host, port, debug, csv_path, images_dir):
+def serve(host, port, debug, open_browser, csv_path, images_dir):
     """Serve the validation web interface."""
     import logging
     import os
@@ -99,10 +106,8 @@ def serve(host, port, debug, csv_path, images_dir):
             "Warning: no --images-dir set, using default path from web.py.", err=True
         )
 
+    from common import run_app
     from glaswacht.web import app
 
     logging.basicConfig(level=logging.INFO)
-    logging.getLogger(__name__).info(
-        f"Starting validation server on http://{host}:{port}"
-    )
-    app.run(host=host, port=port, debug=debug)
+    run_app(app, host, port, open_browser=open_browser, debug=debug)
