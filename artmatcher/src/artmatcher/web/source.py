@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from embed import rebase_paths
+from common.paths import rebase_paths
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

@@ -156,7 +156,8 @@ def do_clustering(
     from collections import Counter
     from datetime import datetime
 
-    from embed import Store, is_store, read_embeddings, rebase_paths
+    from common.paths import rebase_paths
+    from embed import Store, is_store, read_embeddings
 
     from .cluster import create_clusterer, reduce_dimensions, soft_memberships
     from .result import Clustering, fingerprint, save
