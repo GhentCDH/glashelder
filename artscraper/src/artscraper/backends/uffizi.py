@@ -26,11 +26,12 @@ from ..model import Artwork
 from . import Backend, Context, enrich_pool
 
 BASE_URL = "https://www.uffizi.it"
-INDEX_URLS = (
-    f"{BASE_URL}/en/the-uffizi/prints-and-drawings/artworks",
-    f"{BASE_URL}/en/the-uffizi/painting/artworks",
-    f"{BASE_URL}/en/the-uffizi/sculpture/artworks",
-)
+CATEGORY_INDEXES = {
+    f"{BASE_URL}/en/the-uffizi/prints-and-drawings/artworks": "department of prints and drawings",
+    f"{BASE_URL}/en/the-uffizi/painting/artworks": "painting",
+    f"{BASE_URL}/en/the-uffizi/sculpture/artworks": "sculpture",
+}
+"""Category index pages and the collection each one covers."""
 
 ARTWORK_RE = re.compile(r"^/en/artworks/(?!search/?$)[^/?#]+/?$")
 logger = logging.getLogger(__name__)
@@ -58,43 +59,6 @@ def artwork_urls(html: str) -> list[str]:
             urls.append(url)
 
     return urls
-
-
-def _collection_from_page(html: str) -> str | None:
-    """Read the artwork Collection value from the rendered detail page."""
-    soup = BeautifulSoup(html, "html.parser")
-
-    # The Uffizi detail pages render:
-    #   Date -> ... -> Museum -> ... -> Collection -> Painting/Sculpture/...
-    # Try the semantic HTML first.
-    text = soup.get_text(" ", strip=True)
-    match = re.search(
-        r"\bCollection\s+(Painting|Sculpture|Department of Prints and Drawings)\b",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if match:
-        return match.group(1).lower()
-
-    # JSON-LD sometimes contains the collection as category/keywords.
-    for data in parse_json_ld(html):
-        for key in ("about", "genre", "category", "keywords"):
-            value = data.get(key)
-            values = value if isinstance(value, list) else [value]
-            for item in values:
-                if isinstance(item, dict):
-                    item = item.get("name")
-                if not isinstance(item, str):
-                    continue
-                lowered = item.lower()
-                if "prints and drawings" in lowered:
-                    return "department of prints and drawings"
-                if lowered == "painting":
-                    return "painting"
-                if lowered == "sculpture":
-                    return "sculpture"
-
-    return None
 
 
 async def sitemap_artwork_urls(ctx: Context) -> list[str]:
@@ -297,11 +261,7 @@ def _date_from_page(html: str) -> str | None:
     return None
 
 
-def parse_page(
-    url: str,
-    html: str,
-    expected_collection: str | None = None,
-) -> Artwork | None:
+def parse_page(url: str, html: str) -> Artwork | None:
     data = _first_json_ld(parse_json_ld(html))
     soup = BeautifulSoup(html, "html.parser")
 
@@ -346,14 +306,10 @@ def parse_page(
         or (data or {}).get("datePublished"),
     )
 
-    return Artwork(
-        source="uffizi",
-        url=(data or {}).get("url") or url,
-        image_url=image_url,
-        title=title,
-        artist=artist,
-        year=(data or {}).get("dateCreated") or (data or {}).get("datePublished"),
-    )
+
+async def fetch_one(ctx: Context, url: str) -> Artwork | None:
+    html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
+    return parse_page(url, html)
 
 
 class Uffizi(Backend):
@@ -363,36 +319,20 @@ class Uffizi(Backend):
         # First try the supplied category index pages. On the current Uffizi
         # site these pages are client-rendered, so the HTML may contain zero
         # artwork links. In that case fall back to the site's sitemap.
-        category_indexes = (
-            (
-                f"{BASE_URL}/en/the-uffizi/prints-and-drawings/artworks",
-                "department of prints and drawings",
-            ),
-            (
-                f"{BASE_URL}/en/the-uffizi/painting/artworks",
-                "painting",
-            ),
-            (
-                f"{BASE_URL}/en/the-uffizi/sculpture/artworks",
-                "sculpture",
-            ),
-        )
 
-        discovered: list[tuple[str, str | None]] = []
-        seen: set[str] = set()
+        # artwork URL to its collection, None when it came from the sitemap
+        discovered: dict[str, str | None] = {}
 
-        for index_url, collection in category_indexes:
+        for index_url, collection in CATEGORY_INDEXES.items():
             try:
                 html = await fetch_text(ctx.client, index_url, ctx.throttle, ctx.stats)
             except Exception as exc:
                 logger.warning("uffizi: failed to fetch %s: %s", index_url, exc)
                 continue
 
-            urls = artwork_urls(html)
-            for url in urls:
-                if url not in ctx.seen and url not in seen:
-                    seen.add(url)
-                    discovered.append((url, collection))
+            for url in artwork_urls(html):
+                if url not in ctx.seen:
+                    discovered.setdefault(url, collection)
 
         # The current /artworks category pages are JS-rendered and may return
         # no links to fetch_text(). Use the sitemap as a complete URL index.
@@ -404,41 +344,25 @@ class Uffizi(Backend):
                 sitemap_urls = []
 
             for url in sitemap_urls:
-                if url not in ctx.seen and url not in seen:
-                    seen.add(url)
-                    discovered.append((url, None))
+                if url not in ctx.seen:
+                    discovered.setdefault(url, None)
 
             logger.info(
                 "uffizi: sitemap fallback discovered %d artwork URLs",
                 len(discovered),
             )
 
-        async def fetch_one(
-            ctx: Context, item: tuple[str, str | None]
-        ) -> Artwork | None:
-            url, _expected_collection = item
-
-            html = await fetch_text(ctx.client, url, ctx.throttle, ctx.stats)
-
-            return parse_page(url, html, None)
-
         if ctx.with_images:
-            # enrich_pool expects URLs, so wrap the tuple in a local fetcher.
-            async def fetch_wrapped(ctx: Context, url: str) -> Artwork | None:
-                for candidate, collection in discovered:
-                    if candidate == url:
-                        return await fetch_one(ctx, (candidate, collection))
-                return None
-
-            urls = [url for url, _ in discovered]
-            async for artwork in enrich_pool(ctx, urls, fetch_wrapped, ctx.limit):
+            async for artwork in enrich_pool(
+                ctx, list(discovered), fetch_one, ctx.limit
+            ):
                 yield artwork
         else:
             # Without fetching detail pages there is no reliable way to know
             # the collection for sitemap URLs. Only use directly discovered
             # category URLs in this mode.
             yielded = 0
-            for url, collection in discovered:
+            for url, collection in discovered.items():
                 if collection is None:
                     continue
                 yield Artwork(source="uffizi", url=url, image_url=None)
