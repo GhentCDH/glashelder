@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
     from artscraper import Artwork
 
+    from ..classifier import MLClassifier
     from ..loading import MatchingInputs
-    from ..ml_classifier import MLClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class ClassificationSource(ABC):
 
     def artwork(self, index: int) -> dict | None:
         """The scraped record behind a reference, as JSON for the templates."""
-        from ..batch import artwork_of
+        from ..artworks import artwork_of
 
         found = artwork_of(self.artwork_path(index), getattr(self, "_artworks", None))
         return dataclasses.asdict(found) if found is not None else None

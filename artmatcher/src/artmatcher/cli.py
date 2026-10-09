@@ -7,62 +7,14 @@ from typing import Literal
 
 import click
 
-from artscraper import Artwork
 from common import ASSETS_DIR, run_app
 from common.cli import options, serve_options
 from common.config import config
 from embed import EMBEDDING_MODELS
 
+from .artworks import load_artworks, resolve_subset
+
 logger = logging.getLogger(__name__)
-
-
-def load_artworks(path: str | Path | None) -> dict[str, Artwork]:
-    """The artwork records a scrape produced, keyed by the reference they describe."""
-    if path is None or not Path(path).is_file():
-        if path is not None:
-            logger.warning(f"no artworks at {path}, results will carry no metadata")
-        return {}
-
-    import artscraper
-
-    found = artscraper.index(path)
-    logger.info(f"loaded metadata for {len(found)} artwork references from {path}")
-    return found
-
-
-def resolve_subset(path: Path, source, root: str | Path | None) -> list[int]:
-    """The glashelder indices of the images a `--subset` file lists.
-
-    A line matches an image by its path relative to `root`, by its full path, or
-    by its file name, in that order. Lines that match nothing are reported, so a
-    typo or a list for another image directory does not go unnoticed.
-    """
-    served = list(source.indices)
-    by_key: dict[str, int] = {}
-    for index in served:
-        image = Path(source.glashelder_path(index) or "")
-        by_key.setdefault(image.name, index)
-        by_key[str(image)] = index
-        if root is not None and image.is_relative_to(root):
-            by_key[str(image.relative_to(root))] = index
-
-    lines = [line.split("#", 1)[0].strip() for line in path.read_text().splitlines()]
-    wanted = [line for line in lines if line]
-    found = {by_key[line] for line in wanted if line in by_key}
-    missing = [line for line in wanted if line not in by_key]
-
-    if not found:
-        raise click.ClickException(
-            f"none of the {len(wanted):,} images in {path} are among the "
-            f"{len(served):,} glashelder images being served"
-        )
-    logger.info(f"labeling a subset: {len(found):,} images from {path}")
-    if missing:
-        logger.warning(
-            f"{len(missing):,} lines in {path} match no glashelder image, "
-            f"for example {missing[:3]}"
-        )
-    return sorted(found)
 
 
 @click.group()
@@ -126,9 +78,7 @@ def train_classifier(
     Example:
         glashelder artmatcher train-classifier labeling_dataset.json model.pkl --workers 48
     """
-    from .ml_classifier import (
-        MLClassifier,
-    )
+    from .classifier import MLClassifier
 
     classifier = MLClassifier()
 
@@ -508,11 +458,7 @@ def batch_classify(
             "no references: pass --reference-embeddings or set "
             "paths.embeddings.reference"
         )
-    from .batch import (
-        FeatureCache,
-        write_csv_output,
-        write_json_output,
-    )
+    from .batch import FeatureCache, write_output
     from .batch import (
         batch_classify as do_batch_classify,
     )
@@ -557,19 +503,7 @@ def batch_classify(
     )
 
     # Write output
-    output_path = Path(output)
-    if output_format == "json":
-        write_json_output(result, output_path, artworks=artwork_index)
-    elif output_format == "csv":
-        csv_path = output_path.with_suffix(".csv")
-        write_csv_output(result, csv_path, artworks=artwork_index)
-    else:  # both
-        write_json_output(
-            result, output_path.with_suffix(".json"), artworks=artwork_index
-        )
-        write_csv_output(
-            result, output_path.with_suffix(".csv"), artworks=artwork_index
-        )
+    write_output(result, output, output_format, artworks=artwork_index)
 
     # Save cache if enabled
     if cache:

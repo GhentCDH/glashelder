@@ -629,7 +629,7 @@ def create_app(
         """
         import cv2
 
-        from ..ml_classifier import orb_overlay
+        from ..features import orb_overlay
 
         query, reference = (
             source.glashelder_path(index),

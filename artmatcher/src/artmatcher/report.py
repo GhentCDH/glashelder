@@ -21,7 +21,7 @@ import numpy as np
 from artscraper import Artwork
 from common.images import is_url
 
-from .batch import artwork_of
+from .artworks import artwork_of
 from .web.session import LabelDataset
 
 NEAR = 0.05
