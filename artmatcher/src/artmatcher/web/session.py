@@ -1,6 +1,33 @@
 import dataclasses
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+
+_BUCKETS = {
+    "positives": (True, True),
+    "negatives": (True, False),
+    "false_positives": (False, True),
+    "false_negatives": (False, False),
+}
+"""Each bucket as (the classifier was right, the classifier called a match)."""
+
+BUCKETS = tuple(_BUCKETS)
+
+
+def was_match(bucket: str) -> bool:
+    """Whether the classifier had called the pairs in a bucket a match."""
+    return _BUCKETS[bucket][1]
+
+
+def truth(bucket: str) -> bool:
+    """Whether the pairs in a bucket truly match, by their label."""
+    correct, said_match = _BUCKETS[bucket]
+    return correct == said_match
+
+
+def bucket_for(correct: bool, was_match: bool) -> str:
+    """The bucket of a label: was the classifier right, and did it call a match."""
+    return next(name for name, key in _BUCKETS.items() if key == (correct, was_match))
 
 
 @dataclass
@@ -12,27 +39,30 @@ class LabelDataset:
     false_positives: list[dict] = field(default_factory=list)
     false_negatives: list[dict] = field(default_factory=list)
 
+    def bucket(self, name: str) -> list[dict]:
+        return getattr(self, name)
+
     def counts(self) -> dict[str, int]:
         """Per-bucket counts plus a "total" key."""
-        return {
-            "positives": len(self.positives),
-            "negatives": len(self.negatives),
-            "false_positives": len(self.false_positives),
-            "false_negatives": len(self.false_negatives),
-            "total": len(self.positives)
-            + len(self.negatives)
-            + len(self.false_positives)
-            + len(self.false_negatives),
-        }
+        counts = {name: len(self.bucket(name)) for name in BUCKETS}
+        return counts | {"total": sum(counts.values())}
 
     def entries(self) -> list[dict]:
         """Every entry across all four buckets."""
-        return [
-            *self.positives,
-            *self.negatives,
-            *self.false_positives,
-            *self.false_negatives,
-        ]
+        return [entry for name in BUCKETS for entry in self.bucket(name)]
+
+    def labeled(self) -> Iterator[tuple[dict, bool]]:
+        """Every entry with whether its pair truly matches."""
+        return ((entry, truth(name)) for name in BUCKETS for entry in self.bucket(name))
+
+    def forget(self, glashelder_index: int) -> None:
+        """Drop every label of an image."""
+        for name in BUCKETS:
+            self.bucket(name)[:] = [
+                entry
+                for entry in self.bucket(name)
+                if entry.get("glashelder_index") != glashelder_index
+            ]
 
     def as_dict(self) -> dict[str, list[dict]]:
         return dataclasses.asdict(self)

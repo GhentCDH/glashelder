@@ -671,29 +671,15 @@ class MLClassifier:
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.model_selection import cross_val_score
 
-        # Load dataset
+        from .web.store import normalize_dataset
+
         console.print(f"[cyan]Loading dataset from {dataset_path}...[/cyan]")
         with open(dataset_path) as f:
-            dataset = json.load(f)
+            dataset = normalize_dataset(json.load(f))
 
-        # Collect all entries with their labels
-        entries_with_labels: list[tuple[dict, int]] = []
-
-        # True positives (classifier correct when predicting match)
-        for entry in dataset.get("positives", []):
-            entries_with_labels.append((entry, 1))
-
-        # True negatives (classifier correct when predicting no match)
-        for entry in dataset.get("negatives", []):
-            entries_with_labels.append((entry, 0))
-
-        # False positives (classifier said match but was wrong) -> actual negative
-        for entry in dataset.get("false_positives", []):
-            entries_with_labels.append((entry, 0))
-
-        # False negatives (classifier said no match but was wrong) -> actual positive
-        for entry in dataset.get("false_negatives", []):
-            entries_with_labels.append((entry, 1))
+        entries_with_labels = [
+            (entry, int(truth)) for entry, truth in dataset.labeled()
+        ]
 
         n_entries = len(entries_with_labels)
         console.print(f"[cyan]Found {n_entries} labeled samples[/cyan]")

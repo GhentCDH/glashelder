@@ -195,20 +195,13 @@ def _accuracy(
 ) -> Accuracy:
     # what each label says about the pair it was made for; a later label of
     # the same image (another session, a relabel) replaces an earlier one
-    truth_buckets = {
-        "positives": True,
-        "false_negatives": True,
-        "negatives": False,
-        "false_positives": False,
-    }
     by_index = {r["glashelder_index"]: i for i, r in enumerate(results)}
     by_name = {Path(r["glashelder_path"]).name: i for i, r in enumerate(results)}
-    labeled: dict[int | str, tuple[dict, bool]] = {}
-    for dataset in labels:
-        for bucket, truth in truth_buckets.items():
-            for entry in getattr(dataset, bucket):
-                key = entry.get("glashelder_index", entry.get("glashelder_path"))
-                labeled[key] = (entry, truth)
+    labeled: dict[int | str, tuple[dict, bool]] = {
+        entry.get("glashelder_index", entry.get("glashelder_path")): (entry, truth)
+        for dataset in labels
+        for entry, truth in dataset.labeled()
+    }
 
     comparable: list[tuple[int, bool]] = []
     not_in_results = other_artwork = 0
