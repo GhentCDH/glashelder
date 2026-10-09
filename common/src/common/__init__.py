@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .auth import require_auth
+from .serve import run_app
 
 load_dotenv()
 
@@ -13,4 +14,4 @@ PROJECT_ROOT: Path = Path(__file__).parent.parent.parent.parent
 assets_env_var = os.getenv("ASSETS_DIR")
 ASSETS_DIR: Path | None = Path(assets_env_var) if assets_env_var is not None else None
 
-__all__ = ["ASSETS_DIR", "PROJECT_ROOT", "require_auth"]
+__all__ = ["ASSETS_DIR", "PROJECT_ROOT", "require_auth", "run_app"]

@@ -8,7 +8,7 @@ from typing import Literal
 import click
 
 from artscraper import Artwork
-from common import ASSETS_DIR
+from common import ASSETS_DIR, run_app
 from common.config import config
 
 logger = logging.getLogger(__name__)
@@ -254,6 +254,12 @@ def reference_options(command):
     "--debug", is_flag=True, help="Enable the Flask debugger and auto-reloader."
 )
 @click.option(
+    "--open/--no-open",
+    "open_browser",
+    default=True,
+    help="Open the site in a browser on startup",
+)
+@click.option(
     "--session-dir",
     type=click.Path(file_okay=False),
     default="labeling-sessions",
@@ -287,13 +293,15 @@ def serve(
     artworks: str | None,
     auth: bool,
     debug: bool,
+    open_browser: bool,
     session_dir: str,
     subset: Path | None,
 ):
     """Start a web interface for labeling artwork matches.
 
-    Authentication is required when `--auth` is set. Set the GLASHELDER_SECRET environment variable,
-    then access the server with /?secret=<your-secret> to get a session cookie.
+    Authentication is required when `--auth` is set. Set the `secret` config value
+    (or GLASHELDER_SECRET), then access the server with /?secret=<your-secret> to
+    get a session cookie.
 
     Use --results-json to load pre-computed results from batch_classify.
     The threshold can still be adjusted interactively in the UI.
@@ -376,9 +384,7 @@ def serve(
         source, threshold=threshold, auth=auth, session_dir=session_dir, subset=chosen
     )
 
-    logger.info(f"Starting Flask server on {host}:{port}...")
-    logger.info(f"Open http://localhost:{port} in your browser")
-    app.run(host=host, port=port, debug=debug)
+    run_app(app, host, port, open_browser=open_browser, debug=debug)
 
 
 @artmatcher.command()

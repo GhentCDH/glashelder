@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from PIL import Image
 
 # local source
-from common import ASSETS_DIR, PROJECT_ROOT
+from common import ASSETS_DIR, PROJECT_ROOT, run_app
 from embed import get_device
 
 # TODO: put some default images in `./images/` as exampels
@@ -370,6 +370,12 @@ def info(path: Path | None, embeddings: Path | None):
     "--auth", is_flag=True, help="Enable secret url parameter based authentication."
 )
 @click.option("--debug", is_flag=True, help="Run Flask in debug mode")
+@click.option(
+    "--open/--no-open",
+    "open_browser",
+    default=True,
+    help="Open the site in a browser on startup",
+)
 def serve(
     clusters: Path | None,
     image_dir: str | None,
@@ -377,6 +383,7 @@ def serve(
     port: int,
     auth: bool,
     debug: bool,
+    open_browser: bool,
 ):
     """Show a clustering result in the browser, and give its clusters names and groups.
 
@@ -387,7 +394,7 @@ def serve(
     if clusters is None:
         raise click.UsageError("give --clusters, or set paths.clusters")
     app = create_app(clusters, image_dir, auth=auth)
-    app.run(host=host, port=port, debug=debug)
+    run_app(app, host, port, open_browser=open_browser, debug=debug)
 
 
 @cluster.command()
