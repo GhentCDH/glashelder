@@ -12,7 +12,6 @@ dependencies = [
     "common",
     "cluster",
     "glaswacht",
-    "classification",
     "preprocessing",
     "embed",
     "artmatcher",
@@ -45,7 +44,6 @@ python-preference = "only-managed"
 [tool.uv.sources]
 common = { workspace = true }
 cluster = { workspace = true }
-classification = { workspace = true }
 preprocessing = { workspace = true }
 glaswacht = { workspace = true }
 artmatcher = { workspace = true }
@@ -64,7 +62,6 @@ explicit = true
 members = [
     "cluster",
     "common",
-    "classification",
     "preprocessing",
     "glaswacht",
     "artmatcher",
@@ -102,7 +99,6 @@ known-first-party = [
     "glashelder",
     "common",
     "cluster",
-    "classification",
     "preprocessing",
     "artmatcher",
     "embed",
@@ -114,7 +110,6 @@ known-first-party = [
 root = [
     "common",
     "cluster",
-    "classification",
     "preprocessing",
     "glaswacht",
     "artmatcher",

@@ -46,10 +46,6 @@ COMMANDS: dict[str, tuple[str, str]] = {
         "artscraper.cli:artscraper",
         "Scrape an index of artworks from external data sources.",
     ),
-    "classification": (
-        "classification.cli:classification",
-        "Classify images using CLIP zero-shot classification.",
-    ),
     "cluster": (
         "cluster.cli:cluster",
         "Cluster images using embedding similarity.",

@@ -16,11 +16,12 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY common ./common
 COPY embed ./embed
-COPY classification ./classification
 COPY cluster ./cluster
 COPY preprocessing ./preprocessing
 COPY glaswacht ./glaswacht
 COPY artmatcher ./artmatcher
+COPY artscraper ./artscraper
+COPY ocr ./ocr
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
