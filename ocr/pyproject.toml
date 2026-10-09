@@ -11,6 +11,7 @@ authors = [
 dependencies = [
   "click>=8.3.1",
   "rapidfuzz>=3.14.5",
+  "common",
 ]
 
 [build-system]

@@ -22,6 +22,7 @@ Local images are stored relative to `root`, so a store made on one machine works
 on another; URLs are stored as they are.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -45,6 +46,14 @@ logger = logging.getLogger(__name__)
 
 def is_store(path: str | Path) -> bool:
     return (Path(path) / META).is_file()
+
+
+def queries_hash(refs: Sequence[str], edits: int) -> str:
+    """Fingerprint of a set of query refs and the query store's `edits`."""
+    digest = hashlib.blake2b(f"{edits}\n".encode(), digest_size=16)
+    for ref in refs:
+        digest.update(f"{ref}\n".encode())
+    return digest.hexdigest()
 
 
 class Store:

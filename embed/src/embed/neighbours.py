@@ -16,7 +16,6 @@ different set of queries) starts over from scratch.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -28,7 +27,7 @@ import torch
 from common.fs import atomic_writer
 
 from .search import merge, topk
-from .store import Store
+from .store import Store, queries_hash
 
 DIRECTORY = "neighbours"
 
@@ -50,13 +49,6 @@ class Neighbours:
     queries_hash: str
     """Fingerprint of those query refs and the query store's `edits`."""
     model_id: str
-
-
-def queries_hash(refs: Sequence[str], edits: int) -> str:
-    digest = hashlib.blake2b(f"{edits}\n".encode(), digest_size=16)
-    for ref in refs:
-        digest.update(f"{ref}\n".encode())
-    return digest.hexdigest()
 
 
 def path_for(references: Store, queries: Store) -> Path:
