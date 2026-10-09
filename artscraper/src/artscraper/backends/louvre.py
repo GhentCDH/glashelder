@@ -327,9 +327,6 @@ class Louvre(Backend):
             return parse_page(url, body)
 
         async for artwork in enrich_pool(ctx, urls, fetch_one):
-            if artwork is None:
-                continue
-
             yield artwork
 
             yielded += 1
