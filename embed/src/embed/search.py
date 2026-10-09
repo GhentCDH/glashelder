@@ -19,7 +19,7 @@ import torch
 from rich.console import Console
 from rich.progress import track
 
-from .store import format_bytes
+from common.progress import format_bytes
 
 REF_CHUNK = 262_144
 """Reference rows per step."""

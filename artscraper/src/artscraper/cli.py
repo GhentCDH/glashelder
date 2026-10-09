@@ -10,15 +10,15 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
-    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
     TaskID,
     TextColumn,
     TimeElapsedColumn,
-    TimeRemainingColumn,
 )
 from rich.table import Table
+
+from common.progress import progress as progress_bars
 
 from .backends import registry
 from .client import Stats
@@ -78,13 +78,7 @@ class TuiView:
         self.limit = limit
         self.seen: dict[str, Stats] = {}
         self.tasks: dict[str, TaskID] = {}
-        self.bars = Progress(
-            TextColumn("{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-        )
+        self.bars = progress_bars()
 
     def report(self, name: str, _artwork: Artwork | None, stats: Stats) -> None:
         self.seen[name] = stats
@@ -173,7 +167,7 @@ def scrape_command(backends, concurrency, rate, limit, with_images, jsonl, outpu
             BarColumn(bar_width=10),
             TimeElapsedColumn(),
         ]
-        with Progress(*columns, console=console) as progress:
+        with progress_bars(*columns, console=console) as progress:
             run(
                 names,
                 progress_reporter(progress),

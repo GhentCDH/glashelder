@@ -13,19 +13,10 @@ from typing import Any
 
 import numpy as np
 from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TaskID,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
+from rich.progress import TaskID
 
 from artscraper import Artwork
+from common.progress import progress as progress_bars
 
 from .ml_classifier import (
     NO_IMAGE_FEATURES,
@@ -223,16 +214,7 @@ def extract_features_batch(
     global_timeout = max(300, len(uncached_items) * timeout_per_item / workers)
 
     progress_cm = (
-        Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-            console=console,
-        )
+        progress_bars(console=console)
         if progress
         else contextlib.nullcontext(_NullProgress())
     )

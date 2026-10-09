@@ -17,17 +17,8 @@ from typing import TYPE_CHECKING
 import click
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
 
+from common.progress import progress as progress_bars
 from ocr.annotation import Annotation, annotation_from_ocr, parse_buffer, render_buffer
 from ocr.prompt import TYPES
 from preprocessing.bounding import BoundingBox, load_bounding_boxes
@@ -693,16 +684,7 @@ def validate(
             return None
 
     pairs = {}
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
+    with progress_bars(console=console) as progress:
         task = progress.add_task("Predicting...", total=len(gts))
         with ThreadPoolExecutor(max_workers=workers) as ex:
             for res in ex.map(predict, gts):
