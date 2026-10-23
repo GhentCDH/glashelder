@@ -10,7 +10,7 @@ repos:
   hooks:
     - id: example-config
       name: glashelder.example.toml matches the config defaults
-      entry: uv run glashelder config example --check
+      entry: uv run glashelder config example --fix
       language: system
       files: ^(glashelder\.example\.toml|common/src/common/config(_example)?\.py)$
       pass_filenames: false
