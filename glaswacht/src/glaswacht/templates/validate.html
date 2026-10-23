@@ -301,29 +301,29 @@
             </div>
           </div>
 
-          <!-- Qwen3-VL-7B -->
+          <!-- Qwen3-VL-8B -->
           <div class="model-section">
-            <div class="model-header">Qwen3-VL-7B</div>
+            <div class="model-header">Qwen3-VL-8B</div>
             <div class="info-panel">
               <div class="info-item">
                 <div class="info-label">Rating</div>
                 <div class="info-value">
-                  {% if result.qwen_rating == "Safe" %}
-                    <span class="rating-safe">{{ result.qwen_rating }}</span>
-                  {% elif result.qwen_rating == "Potentially Problematic" %}
-                    <span class="rating-potentially-problematic">{{ result.qwen_rating }}</span>
+                  {% if result.qwen3_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.qwen3_rating }}</span>
+                  {% elif result.qwen3_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.qwen3_rating }}</span>
                   {% else %}
-                    <span class="rating-unsafe">{{ result.qwen_rating }}</span>
+                    <span class="rating-unsafe">{{ result.qwen3_rating }}</span>
                   {% endif %}
                 </div>
               </div>
               <div class="info-item">
                 <div class="info-label">Category</div>
-                <div class="info-value">{{ result.qwen_category }}</div>
+                <div class="info-value">{{ result.qwen3_category }}</div>
               </div>
               <div class="info-item">
                 <div class="info-label">Rationale</div>
-                <div class="info-value rationale-text">{{ result.qwen_rationale }}</div>
+                <div class="info-value rationale-text">{{ result.qwen3_rationale }}</div>
               </div>
             </div>
           </div>
