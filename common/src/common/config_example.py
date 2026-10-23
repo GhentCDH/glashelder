@@ -222,7 +222,13 @@ def example(output: Path | None, check: bool, fix: bool) -> None:
         click.echo(f"wrote {output}")
         return
     if found := differences(output):
-        click.echo(f"{output} does not match the defaults in common.config:", err=True)
+        click.echo(
+            click.style(
+                f"{output} does not match the defaults in common.config:", fg="red"
+            ),
+            err=True,
+            color=True,
+        )
         click.echo("\n".join(f"  {line}" for line in found), err=True)
         if fix and not check:
             atomic_write(output, render())
@@ -232,6 +238,11 @@ def example(output: Path | None, check: bool, fix: bool) -> None:
                 "run `uv run glashelder config example` to write it again", err=True
             )
         sys.exit(1)
+
+    click.echo(
+        click.style("example config file matches config options", fg="green"),
+        color=True,
+    )
 
 
 if __name__ == "__main__":
