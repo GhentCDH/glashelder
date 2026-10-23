@@ -105,6 +105,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "prek>=0.5.7",
     "pytest>=8.3",
     "ruff>=0.15.1",
     "ty>=0.0.85",
