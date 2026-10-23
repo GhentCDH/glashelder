@@ -21,3 +21,6 @@ jobs:
 
       - name: Format check
         run: uvx ruff format --check
+
+      - name: Example config check
+        run: uv run --package common python -m common.config_example example --check
