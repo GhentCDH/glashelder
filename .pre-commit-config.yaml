@@ -6,3 +6,11 @@ repos:
     - id: ruff-check
       args: [--fix]
     - id: ruff-format
+- repo: local
+  hooks:
+    - id: example-config
+      name: glashelder.example.toml matches the config defaults
+      entry: uv run glashelder config example --check
+      language: system
+      files: ^(glashelder\.example\.toml|common/src/common/config(_example)?\.py)$
+      pass_filenames: false
