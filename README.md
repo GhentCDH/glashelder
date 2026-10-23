@@ -174,3 +174,22 @@ whether it fits in RAM or VRAM on this machine. Old `.pkl` embeddings still load
 
 Make sure you have the command runner `just` installed, and run `just new <experiment_name>`.
 This will add a new directory and workspace member named `experiment_name`.
+
+## Commit hooks
+
+Before your first commit, install the git hooks once:
+
+```sh
+uv run prek install
+```
+
+[`prek`](https://github.com/j178/prek) comes with the dev dependencies of `uv sync`
+and runs the hooks in `.pre-commit-config.yaml` on each commit:
+
+- `ruff check --fix` and `ruff format`
+- `glashelder config example --fix`, which writes `glashelder.example.toml` again when
+  its values do not match the defaults in `common/src/common/config.py`
+
+A hook that changes a file stops the commit: look at the change, stage it, and commit
+again. CI runs the same checks, without the fixes. To run the hooks on every file
+without a commit, use `uv run prek run --all-files`.
