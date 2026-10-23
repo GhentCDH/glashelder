@@ -207,17 +207,33 @@ def config() -> None:
     is_flag=True,
     help="Write nothing, fail if the example's values differ from the defaults",
 )
-def example(output: Path | None, check: bool) -> None:
+@click.option(
+    "--fix",
+    is_flag=True,
+    help="Like --check, but write the example again when it fails",
+)
+def example(output: Path | None, check: bool, fix: bool) -> None:
     """Write every setting with its default to glashelder.example.toml."""
     from .fs import atomic_write
 
     output = output or PROJECT_ROOT / EXAMPLE_NAME
-    if not check:
+    if not (check or fix):
         atomic_write(output, render())
         click.echo(f"wrote {output}")
         return
     if found := differences(output):
         click.echo(f"{output} does not match the defaults in common.config:", err=True)
         click.echo("\n".join(f"  {line}" for line in found), err=True)
-        click.echo("run `uv run glashelder config example` to write it again", err=True)
+        if fix and not check:
+            atomic_write(output, render())
+            click.echo(f"wrote {output} again", err=True)
+        else:
+            click.echo(
+                "run `uv run glashelder config example` to write it again", err=True
+            )
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    # without the glashelder CLI, so CI needs only this package's dependencies
+    config()
