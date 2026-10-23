@@ -58,6 +58,9 @@ class Paths:
     clusters: Path | None = None
     """Clustering result of the glashelder embeddings, see `cluster cluster`."""
     ml_model: Path | None = None
+    """Set this when you want to train a model with `glashelder artmatcher
+    train-classifier DATASET`. It saves the trained model to this path, and the
+    labeling interface uses that model the next time it runs."""
 
 
 @dataclass(slots=True)

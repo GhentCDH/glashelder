@@ -49,6 +49,10 @@ COMMANDS: dict[str, tuple[str, str]] = {
         "cluster.cli:cluster",
         "Cluster images using embedding similarity.",
     ),
+    "config": (
+        "common.config_example:config",
+        "Show the settings glashelder.toml can hold.",
+    ),
     "embed": ("embed.cli:embed", "Generate and manage image embeddings."),
     "ocr": ("ocr.cli:ocr", "Read text from images."),
     "preprocessing": (
@@ -196,8 +200,8 @@ def cli_defaults() -> dict:
 @click.pass_context
 def main(ctx: click.Context):
     """Run the full glashelder CLI interface."""
-    if ctx.invoked_subcommand == "setup":
-        # a broken or missing toml must not block the command that writes one
+    if ctx.invoked_subcommand in ("setup", "config"):
+        # a broken or missing toml must not block the commands that write one
         return
     from common.config import find_config
 
