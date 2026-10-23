@@ -11,17 +11,17 @@ from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import unquote
 
+from common.config import config
+
 from ..client import fetch_json
 from ..model import Artwork
 from . import Backend, Context
 from .parse import text
 
-API_KEY = "***REMOVED***"
 ES_URL = "https://glue-vkc.es.europe-west1.gcp.cloud.es.io"
 PIT_URL = f"{ES_URL}/production_vkc_records/_pit?keep_alive=2m"
 CLOSE_PIT_URL = f"{ES_URL}/_pit"
 SEARCH_URL = f"{ES_URL}/_search"
-AUTH_HEADERS = {"authorization": f"ApiKey {API_KEY}"}
 PAGE_SIZE = 24
 SOURCE_FIELDS = [
     "slug",
@@ -44,6 +44,16 @@ EXCLUDED_IMAGE_FRAGMENTS = ["public/11885", "public@27254"]
 logger = logging.getLogger(__name__)
 
 
+def _auth_headers() -> dict[str, str]:
+    api_key = config().artscraper.kc_api_key
+    if not api_key:
+        raise ValueError(
+            "kc: no API key configured. Set artscraper.kc_api_key or "
+            "GLASHELDER_ARTSCRAPER__KC_API_KEY."
+        )
+    return {"authorization": f"ApiKey {api_key}"}
+
+
 async def _es(ctx: Context, method: str, url: str, body: Any = None) -> Any:
     return await fetch_json(
         ctx.client,
@@ -52,7 +62,7 @@ async def _es(ctx: Context, method: str, url: str, body: Any = None) -> Any:
         method,
         url,
         json=body,
-        headers=AUTH_HEADERS,
+        headers=_auth_headers(),
     )
 
 

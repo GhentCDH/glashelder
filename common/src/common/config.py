@@ -159,6 +159,8 @@ class Ocr:
 class Artscraper:
     louvre_export: Path | None = None
     """Louvre export CSV, or a directory of them."""
+    kc_api_key: str = ""
+    """Elastic Cloud API key for the Vlaamse Kunstcollectie index."""
 
 
 @dataclass(slots=True)

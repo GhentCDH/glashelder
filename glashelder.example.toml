@@ -122,3 +122,6 @@ concurrency = 1
 [artscraper]
 # Louvre export CSV, or a directory of them.
 # louvre_export = <path>
+
+# Elastic Cloud API key for the Vlaamse Kunstcollectie index.
+kc_api_key = ""
