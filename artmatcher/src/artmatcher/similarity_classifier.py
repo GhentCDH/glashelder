@@ -131,7 +131,8 @@ def poly_diff(similarities: list[float]) -> float:
         )
     except (np.linalg.LinAlgError, ValueError):
         return 0.0
-    return similarities[0] - coeffs[-1]
+    # a plain float, not numpy's: labels carrying these end up as JSON
+    return float(similarities[0] - coeffs[-1])
 
 
 class ClassificationResult:
@@ -152,7 +153,7 @@ class SimpleClassifier:
     def classify(self, similarities: list[float]) -> ClassificationResult:
         diff = poly_diff(similarities)
         return ClassificationResult(
-            is_match=diff > self.threshold,
-            diff=diff,
+            is_match=bool(diff > self.threshold),
+            diff=float(diff),
             threshold=self.threshold,
         )

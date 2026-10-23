@@ -1,5 +1,7 @@
 """The poly diff shared by the simple classifier and the ML features."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -41,3 +43,11 @@ def test_known_value():
 @pytest.mark.parametrize("similarities", [[], [0.7]])
 def test_too_short(similarities):
     assert poly_diff(similarities) == 0.0
+
+
+def test_verdict_is_plain_python():
+    """Labels go into the session file verbatim, so numpy's scalars would not do."""
+    result = SimpleClassifier().classify([0.82, 0.51, 0.43, 0.41])
+    assert type(result.is_match) is bool
+    assert type(result.diff) is float
+    json.dumps({"is_match": result.is_match, "diff": result.diff})
