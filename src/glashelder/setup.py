@@ -192,23 +192,30 @@ def toml_string(value: Path | str) -> str:
 
 
 def render_toml(images: Path, layout: Layout) -> str:
+    from common.config_example import comment, docstrings, render_commented
+
+    ml_model_doc = "\n".join(comment(docstrings()["Paths"]["ml_model"]))
     return f"""\
-# written by `glashelder setup`; every other setting and its default:
-# glashelder.example.toml
+# written by `glashelder setup`. Every other setting is below, commented out with
+# its default: uncomment one to change it. The secret is in .env.
 
 [paths]
 artworks = {toml_string(layout.artworks)}
-ml_model = {toml_string(layout.ml_model)}
 clusters = {toml_string(layout.clusters)}
+
+{ml_model_doc}
+# ml_model = {toml_string(layout.ml_model)}
 
 [paths.images]
 glashelder = {toml_string(images)}
 cache = {toml_string(layout.image_cache)}
+# reference = <path>   # only when the reference artwork images are local files
 
 [paths.embeddings]
 glashelder = {toml_string(layout.embeddings_glashelder)}
 reference = {toml_string(layout.embeddings_reference)}
-"""
+
+{render_commented(skip={"paths"})}"""
 
 
 @click.command()

@@ -1,66 +1,124 @@
-# Project-wide artifact locations, read by `common.config`.
-# Every value can be overridden from the environment, e.g.
-#   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
+# Every setting glashelder reads, with its default. A commented-out setting is
+# unset by default. Generated from `common/src/common/config.py` by
+# `uv run glashelder config example`, so change the schema there, not this file.
 #
 # `glashelder.toml` is not committed: run `uv run glashelder setup` to write your
-# own from a few plain-language questions, or copy this file and edit the paths.
+# own from a few plain-language questions, or copy the settings you change from
+# here. Every value can be overridden from the environment, e.g.
+#   GLASHELDER_PATHS__IMAGES__GLASHELDER=/mnt/other/images
+
+# Secret for the serve commands' authentication. Unset means a random one
+# per run. Better set from the environment (`GLASHELDER_SECRET`) than in the file.
+# secret = <str>
 
 [paths]
-artworks = "data/artworks.json.zst"                              # artscraper output, doubles as the metadata index
-ml_model = "data/models/artmatcher.pkl"
-clusters = "data/clusters/glashelder-clip.clusters"              # cluster cluster output
+# Artscraper output, which doubles as the artwork metadata index.
+artworks = "artworks.json.zst"
+
+# Clustering result of the glashelder embeddings, see `cluster cluster`.
+# clusters = <path>
+
+# Set this when you want to train a model with `glashelder artmatcher
+# train-classifier DATASET`. It saves the trained model to this path, and the
+# labeling interface uses that model the next time it runs.
+# ml_model = <path>
 
 [paths.images]
-glashelder = "/path/to/glass-plate-photos"
-# reference = "/path/to/reference-artwork-images"   # only when references are local files
-cache = "data/image-cache" # only used when image caching is on
+# Directory holding the glass plate images.
+# glashelder = <path>
+
+# Directory holding the reference artwork images, if they are local at all.
+# reference = <path>
+
+# Where fetched images land, only used when image caching is enabled.
+cache = ".image-cache"
 
 [paths.embeddings]
-glashelder = "data/embeddings/glashelder-clip.store"
-reference = "data/embeddings/artworks-clip.store"
+# glashelder = <path>
+
+# Embeddings of the reference artworks to match against.
+# reference = <path>
 
 [images]
-concurrency = 16 # image fetches in flight, over all hosts
-per_host = 4     # image fetches in flight to one host
-rate = 5.0       # requests per second to one host, 0 for no limit
-cache = false    # a full reference set on disk is tens of gigabytes
+# Image fetches in flight, over all hosts together.
+concurrency = 16
 
-# limits for one host, where it can take more (or less) than the defaults above
-# [images.hosts."uploads.wikiart.org"]
-# per_host = 8
-# rate = 20.0
+# Image fetches in flight to any one host.
+per_host = 4
+
+# Requests per second to any one host, 0 for no limit.
+rate = 5.0
+
+# Keep fetched images on disk. Off: a full reference set is tens of gigabytes.
+cache = false
+
+# Limits for specific hosts, e.g. `[images.hosts."uploads.wikiart.org"]`.
+# Fetch limits for one host, overriding the `[images]` ones where set.
+# [images.hosts."<name>"]
+# per_host = <int>
+# rate = <float>
 
 [embed]
+# Embedding model for `embed artworks` and `embed images`.
 model = "clip"
 batch_size = 64
 
+# Parameters of `cluster cluster`: UMAP, then HDBSCAN on its output.
 [cluster]
-n_neighbors = 30     # UMAP: higher keeps more global structure
-min_dist = 0.0       # UMAP: 0 packs similar images tightly
-dimensions = 30      # UMAP output that HDBSCAN clusters
+# Rerun viewer address to log the clustering to, e.g. `rerun+http://host:9876/proxy`.
+# rerun = <str>
+
+# UMAP `n_neighbors`: higher keeps more of the global structure.
+n_neighbors = 30
+
+# UMAP `min_dist`: 0 packs similar images tightly, which HDBSCAN likes.
+min_dist = 0.0
+
+# Dimensions UMAP reduces to before HDBSCAN (the 2D and 3D views come from these).
+dimensions = 30
+
+# HDBSCAN `min_cluster_size`: the smallest group of images that counts as a cluster.
 min_cluster_size = 30
-# min_samples = 10   # HDBSCAN: higher makes more noise, unset means min_cluster_size
-# rerun = "rerun+http://host:9876/proxy"   # rerun viewer address for `cluster cluster`
+
+# HDBSCAN `min_samples`: higher makes more images noise. Unset means `min_cluster_size`.
+# min_samples = <int>
+
+# Also save HDBSCAN's soft clustering, so `cluster serve` can move noise into clusters.
+soft = true
+
+# How many of its strongest clusters to save per image, with their scores.
+soft_top = 3
 
 [artmatcher]
-workers = 45
-threshold = 0.82
+workers = 8
+threshold = 0.5
 top_k = 10
-candidates = 3
 
-# web password for the serve commands, better set from the environment
-# (GLASHELDER_SECRET in .env) than written here
-# secret = "changeme"
+# How many of the top CLIP matches the ML classifier tries while the ones
+# before them are no match; the most confident is kept. Each extra one costs
+# another ORB/hash extraction for every image without a match.
+candidates = 1
 
-# [glaswacht]
-# results = "combined_risk_assessment_results.csv"   # glaswacht run output, glaswacht serve input
-# images = "/path/to/assessed-images"
+[glaswacht]
+# CSV `glaswacht run` writes and `glaswacht serve` reads.
+results = "combined_risk_assessment_results.csv"
 
-# [ocr]
-# base_url = "http://localhost:8000"   # vLLM service base URL
-# model = "some-model-id"
-# concurrency = 1
-# cache = "/path/to/transcription-cache"
+# Folder of assessed images `glaswacht serve` shows.
+# images = <path>
 
-# [artscraper]
-# louvre_export = "/path/to/louvre-export.csv"
+[ocr]
+# vLLM service base URL.
+base_url = "http://localhost:8000"
+
+# Model id; unset prompts for one interactively when the command needs it.
+# model = <str>
+
+# Parallel in-flight requests to vLLM.
+concurrency = 1
+
+# Transcription cache dir. Unset keeps `$XDG_CACHE_HOME/glashelder/transcriptions`.
+# cache = <path>
+
+[artscraper]
+# Louvre export CSV, or a directory of them.
+# louvre_export = <path>
