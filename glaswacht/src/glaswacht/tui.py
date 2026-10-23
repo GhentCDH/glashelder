@@ -9,12 +9,13 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from textual.app import App
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
+from textual.markup import escape
 from textual.reactive import reactive
 from textual.widgets import Static
 
 from glaswacht.models.utils import RESULTS_CSV, WEB_PORT, get_prompt
-from glaswacht.orchestrator import ModelStatus, Orchestrator
+from glaswacht.orchestrator import ModelStatus, Orchestrator, Skip
 
 _LOG_PATH = Path("glaswacht.log")
 logger = logging.getLogger("glaswacht")
@@ -69,7 +70,17 @@ def _status_markup(status: ModelStatus) -> str:
 
 
 class GlaswachtHeader(Static):
+    compact: reactive[bool] = reactive(False, layout=True)
+
+    def watch_compact(self, compact: bool):
+        self.set_class(compact, "compact")
+
     def render(self):
+        if self.compact:
+            return (
+                f"[bold {_SEPIA_BRIGHT}]GLASWACHT[/bold {_SEPIA_BRIGHT}]  "
+                f"[{_SEPIA_MID}]needs an RTX 4090 (24GB VRAM) or better[/{_SEPIA_MID}]"
+            )
         return (
             f"[{_SEPIA_BRIGHT}]{LOGO}[/{_SEPIA_BRIGHT}]\n"
             f"[{_SEPIA_MID}]{INFO}[/{_SEPIA_MID}]"
@@ -92,29 +103,56 @@ class ModelPanel(Static):
             else f"[{_SEPIA_MID}]—[/{_SEPIA_MID}]"
         )
         task_display = (
-            f"[dim]{state.current_task}[/dim]"
+            f"[dim]{escape(state.current_task)}[/dim]"
             if state.current_task
             else f"[{_SEPIA_MID}]—[/{_SEPIA_MID}]"
+        )
+        skipped_display = (
+            f"[{_SEPIA_DANGER}]{state.skipped}[/{_SEPIA_DANGER}]"
+            if state.skipped
+            else f"[{_SEPIA_MID}]0[/{_SEPIA_MID}]"
         )
 
         self.update(
             f"[{_SEPIA_MID}]STATUS :[/{_SEPIA_MID}] {_status_markup(state.status)}\n"
             f"[{_SEPIA_MID}]TASK   :[/{_SEPIA_MID}] {task_display}\n"
             f"[{_SEPIA_MID}]IMAGE  :[/{_SEPIA_MID}] {image_display}\n"
-            f"[{_SEPIA_MID}]RATING :[/{_SEPIA_MID}] {rating_markup}"
+            f"[{_SEPIA_MID}]RATING :[/{_SEPIA_MID}] {rating_markup}\n"
+            f"[{_SEPIA_MID}]SKIPPED:[/{_SEPIA_MID}] {skipped_display}"
         )
 
 
 class ContentPanel(Static):
     """Scrollable panel that shows either majority votes or the taxonomy."""
 
-    def show_votes(self, majority_votes: dict):
+    def show_votes(self, majority_votes: dict, skips: list[Skip]):
+        # skips first, the vote list can be hundreds of lines long
+        self.update(self._skips_markup(skips) + self._votes_markup(majority_votes))
+
+    @staticmethod
+    def _skips_markup(skips: list[Skip]) -> str:
+        if not skips:
+            return ""
+        header = (
+            f"[bold {_SEPIA_DANGER}]\\[ SKIPPED ][/bold {_SEPIA_DANGER}]"
+            f" [{_SEPIA_MID}]({len(skips)} skipped, details in {_LOG_PATH})[/{_SEPIA_MID}]\n"
+            f"[{_SEPIA_BORDER}]{'─' * 72}[/{_SEPIA_BORDER}]\n"
+        )
+        skip_lines = [
+            f"[{_SEPIA_MID}]{escape(skip.image):<32}[/{_SEPIA_MID}]  "
+            f"[{_SEPIA_BRIGHT}]{skip.model}[/{_SEPIA_BRIGHT}]  "
+            f"[{_SEPIA_DANGER}]{escape(skip.error)}[/{_SEPIA_DANGER}]"
+            for skip in skips
+        ]
+        return header + "\n".join(skip_lines) + "\n\n"
+
+    @staticmethod
+    def _votes_markup(majority_votes: dict) -> str:
         if not majority_votes:
-            self.update(
-                f"[bold {_SEPIA_BRIGHT}][ MAJORITY VOTES ][/bold {_SEPIA_BRIGHT}]\n\n"
+            return (
+                f"[bold {_SEPIA_BRIGHT}]\\[ MAJORITY VOTES ][/bold {_SEPIA_BRIGHT}]\n\n"
                 f"[{_SEPIA_MID}]Awaiting results...[/{_SEPIA_MID}]"
             )
-            return
 
         vote_counts = {"Unsafe": 0, "Potentially Problematic": 0, "Safe": 0, "Other": 0}
         for vote in majority_votes.values():
@@ -142,16 +180,16 @@ class ContentPanel(Static):
             )
 
         header = (
-            f"[bold {_SEPIA_BRIGHT}][ MAJORITY VOTES ][/bold {_SEPIA_BRIGHT}]"
+            f"[bold {_SEPIA_BRIGHT}]\\[ MAJORITY VOTES ][/bold {_SEPIA_BRIGHT}]"
             f" [{_SEPIA_MID}]({len(majority_votes)} images processed)[/{_SEPIA_MID}]\n"
             f"{'  |  '.join(summary_parts)}\n"
             f"[{_SEPIA_BORDER}]{'─' * 72}[/{_SEPIA_BORDER}]\n"
         )
         vote_lines = [
-            f"[{_SEPIA_MID}]{name:<50}[/{_SEPIA_MID}]  {_rating_markup(vote)}"
+            f"[{_SEPIA_MID}]{name:<32}[/{_SEPIA_MID}]  {_rating_markup(vote)}"
             for name, vote in majority_votes.items()
         ]
-        self.update(header + "\n".join(vote_lines))
+        return header + "\n".join(vote_lines)
 
     def show_taxonomy(self):
         try:
@@ -159,15 +197,15 @@ class ContentPanel(Static):
         except Exception as e:
             text = f"Could not load taxonomy: {e}"
         self.update(
-            f"[bold {_SEPIA_BRIGHT}][ TAXONOMY ][/bold {_SEPIA_BRIGHT}]\n\n"
+            f"[bold {_SEPIA_BRIGHT}]\\[ TAXONOMY ][/bold {_SEPIA_BRIGHT}]\n\n"
             f"[{_SEPIA_MID}]{text}[/{_SEPIA_MID}]"
         )
 
     def show_webviewer(self, url: str):
         self.update(
-            f"[bold {_SEPIA_BRIGHT}][ VALIDATE USING WEBVIEWER ][/bold {_SEPIA_BRIGHT}]\n\n"
-            f"[{_SEPIA_MID}]The validation web server is running.[/{_SEPIA_MID}]\n\n"
-            f"[{_SEPIA_MID}]Open in your browser:[/{_SEPIA_MID}] "
+            f"[bold {_SEPIA_BRIGHT}]\\[ VALIDATE USING WEBVIEWER ][/bold {_SEPIA_BRIGHT}]\n\n"
+            f"[{_SEPIA_MID}]The validation web server is running. "
+            f"Open in your browser:[/{_SEPIA_MID}]\n\n"
             f"[bold {_SEPIA_BRIGHT}]{url}[/bold {_SEPIA_BRIGHT}]"
         )
 
@@ -191,18 +229,24 @@ class MenuItem(Static):
 
     def _refresh_label(self):
         if not self.enabled:
-            self.update(f"[dim {_SEPIA_MID}]  {self._label}[/dim {_SEPIA_MID}]")
+            self.update(f"[dim {_SEPIA_MID}]{self._label}[/dim {_SEPIA_MID}]")
         elif self.selected:
             self.update(
                 f"[bold {_SEPIA_BG} on {_SEPIA_BRIGHT}]"
-                f"  > {self._label} <"
+                f"> {self._label} <"
                 f"[/bold {_SEPIA_BG} on {_SEPIA_BRIGHT}]"
             )
         else:
-            self.update(f"[{_SEPIA_BRIGHT}]  {self._label}[/{_SEPIA_BRIGHT}]")
+            self.update(f"[{_SEPIA_BRIGHT}]{self._label}[/{_SEPIA_BRIGHT}]")
 
 
-_MENU_LABELS = ["RUN", "TAXONOMY", "VALIDATE USING WEBVIEWER", "QUIT"]
+_MENU_LABELS = ["RUN", "TAXONOMY", "VALIDATE", "QUIT"]
+
+# the full logo needs this much room, else the header is one line
+_LOGO_MIN_WIDTH = 88
+_LOGO_MIN_HEIGHT = 40
+
+_SCROLL_HINT = " ←/→ menu · enter select · ↑/↓ pgup/pgdn scroll "
 
 
 class MonitorApp(App):
@@ -220,41 +264,50 @@ class MonitorApp(App):
         margin: 1 1 0 1;
     }}
 
+    #header.compact {{
+        padding: 0 2;
+    }}
+
     #models {{
         height: auto;
-        margin: 0 0;
+        margin: 0 1;
     }}
 
     ModelPanel {{
         border: double {_SEPIA_BORDER};
         border-title-color: {_SEPIA_BRIGHT};
         border-title-style: bold;
-        padding: 1 2;
+        padding: 0 2;
         height: auto;
         width: 1fr;
-        margin: 0 1;
+        margin: 0 0 0 1;
         color: {_SEPIA_MID};
+    }}
+
+    ModelPanel:first-of-type, MenuItem:first-of-type {{
+        margin: 0;
     }}
 
     #content-scroll {{
         border: double {_SEPIA_BORDER};
+        border-subtitle-color: {_SEPIA_MID};
         height: 1fr;
         margin: 0 1;
-        padding: 0 2;
+        padding: 0 1;
         color: {_SEPIA_MID};
     }}
 
     #menu {{
         height: auto;
-        margin: 0 1 0 1;
+        margin: 0 1;
     }}
 
     MenuItem {{
-        width: 100%;
+        width: 1fr;
         height: 3;
-        padding: 0 2;
         border: solid {_SEPIA_BORDER};
-        margin: 0;
+        content-align: center middle;
+        margin: 0 0 0 1;
     }}
     """
 
@@ -275,8 +328,9 @@ class MonitorApp(App):
     def compose(self):
         yield GlaswachtHeader(id="header")
         yield Horizontal(id="models")
-        yield VerticalScroll(id="content-scroll")
-        yield Vertical(id="menu")
+        # the app scrolls it from on_key, so the menu keeps the arrow keys
+        yield VerticalScroll(id="content-scroll", can_focus=False)
+        yield Horizontal(id="menu")
 
     def on_mount(self):
         logger.info("Glaswacht TUI started (image_path=%s)", self._image_path)
@@ -291,8 +345,9 @@ class MonitorApp(App):
             models_container.mount(panel)
 
         self.content_panel = ContentPanel()
-        self.content_panel.show_votes({})
+        self.content_panel.show_votes({}, [])
         content_container.mount(self.content_panel)
+        content_container.border_subtitle = _SCROLL_HINT
 
         for i, label in enumerate(_MENU_LABELS):
             item = MenuItem(label)
@@ -300,14 +355,35 @@ class MonitorApp(App):
             self.menu_widgets.append(item)
             menu_container.mount(item)
 
+        self._fit_header()
         self.set_interval(0.1, self._update_display)
 
+    def on_resize(self):
+        self._fit_header()
+
+    def _fit_header(self):
+        header = self.query_one(GlaswachtHeader)
+        header.compact = (
+            self.size.width < _LOGO_MIN_WIDTH or self.size.height < _LOGO_MIN_HEIGHT
+        )
+
     def on_key(self, event):
+        content = self.query_one("#content-scroll", VerticalScroll)
+        scroll = {
+            "up": content.scroll_up,
+            "down": content.scroll_down,
+            "pageup": content.scroll_page_up,
+            "pagedown": content.scroll_page_down,
+            "home": content.scroll_home,
+            "end": content.scroll_end,
+        }
         key = event.key
-        if key == "up":
+        if key == "left":
             self._move_selection(-1)
-        elif key == "down":
+        elif key == "right":
             self._move_selection(1)
+        elif key in scroll:
+            scroll[key](animate=False)
         elif key in ("enter", "return"):
             self._activate()
 
@@ -333,13 +409,13 @@ class MonitorApp(App):
 
     def _activate(self):
         label = _MENU_LABELS[self._selected_index]
-        if label != "VALIDATE USING WEBVIEWER":
+        if label != "VALIDATE":
             self._stop_webviewer()
         if label == "RUN":
             self._start_run()
         elif label == "TAXONOMY":
             self._show_taxonomy()
-        elif label == "VALIDATE USING WEBVIEWER":
+        elif label == "VALIDATE":
             self._start_webviewer()
         elif label == "QUIT":
             self.exit()
@@ -349,7 +425,7 @@ class MonitorApp(App):
             return
         logger.info("RUN requested, path=%s", self._image_path)
         self._is_running = True
-        self._content_mode = "votes"
+        self._set_mode("votes")
         # Disable RUN, TAXONOMY and VALIDATE while running
         self.menu_widgets[0].enabled = False
         self.menu_widgets[1].enabled = False
@@ -379,8 +455,14 @@ class MonitorApp(App):
         self.menu_widgets[1].enabled = True
         self.menu_widgets[2].enabled = True
 
+    def _set_mode(self, mode: str):
+        """Show `mode` ("votes", "taxonomy" or "webviewer") in the content panel."""
+        if mode != self._content_mode:
+            self.query_one("#content-scroll", VerticalScroll).scroll_home(animate=False)
+        self._content_mode = mode
+
     def _show_taxonomy(self):
-        self._content_mode = "taxonomy"
+        self._set_mode("taxonomy")
         if self.content_panel:
             self.content_panel.show_taxonomy()
 
@@ -417,7 +499,7 @@ class MonitorApp(App):
                 env={**os.environ, "GLASHELDER_SECRET": self._web_secret},
             )
         logger.info("Webviewer started (pid=%s)", self._web_process.pid)
-        self._content_mode = "webviewer"
+        self._set_mode("webviewer")
         if self.content_panel:
             query = urlencode({"secret": self._web_secret})
             self.content_panel.show_webviewer(f"http://localhost:{WEB_PORT}/?{query}")
@@ -430,4 +512,6 @@ class MonitorApp(App):
         if self._content_mode == "votes":
             majority_votes = self.orchestrator.get_majority_votes()
             if self.content_panel:
-                self.content_panel.show_votes(majority_votes)
+                self.content_panel.show_votes(
+                    majority_votes, self.orchestrator.get_skips()
+                )

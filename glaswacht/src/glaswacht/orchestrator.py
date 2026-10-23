@@ -32,6 +32,16 @@ class ModelState:
     current_task: str = ""
     latest_rating: str = ""
     latest_image: str = ""
+    skipped: int = 0
+
+
+@dataclass
+class Skip:
+    """An image a model could not assess."""
+
+    model: str
+    image: str
+    error: str
 
 
 class Orchestrator:
@@ -52,6 +62,7 @@ class Orchestrator:
         }
         self.majority_votes: dict[str, str] = {}
         self._ratings_by_image: dict[str, dict[str, str]] = defaultdict(dict)
+        self.skips: list[Skip] = []
         self._lock = threading.Lock()
 
     def get_state(self) -> dict[str, ModelState]:
@@ -113,8 +124,16 @@ class Orchestrator:
                     logger.warning(
                         "%s skipped %s: %s", name, image_name, exc, exc_info=True
                     )
+                    # CUDA errors span many lines, the first one says what went wrong
+                    error = (
+                        f"{type(exc).__name__}: {next(iter(str(exc).splitlines()), '')}"
+                    )
+                    with self._lock:
+                        self.skips.append(Skip(name, image_name, error))
                     self.update_model_state(
-                        name, current_task=f"Skipped {image_name}: {exc}"
+                        name,
+                        current_task=f"Skipped {image_name}: {error}",
+                        skipped=self.models[name].skipped + 1,
                     )
                     continue
 
@@ -175,6 +194,10 @@ class Orchestrator:
     def get_majority_votes(self) -> dict[str, str]:
         with self._lock:
             return self.majority_votes.copy()
+
+    def get_skips(self) -> list[Skip]:
+        with self._lock:
+            return self.skips.copy()
 
     def run_test(self, image_path: str | None = None) -> None:
         import tempfile
