@@ -636,3 +636,40 @@ def report(
     for line in summary_lines(found):
         click.echo(line)
     click.echo(f"-> {output}")
+
+
+@artmatcher.command()
+@click.argument("results", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=Path("matches.csv"),
+    show_default=True,
+    help="Where to write the CSV",
+)
+@click.option(
+    "--artworks",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Scraped artworks, for results written without artwork metadata",
+)
+@click.option(
+    "--all",
+    "everything",
+    is_flag=True,
+    help="Also export results that are no match",
+)
+def export_csv(results: Path, output: Path, artworks: str | None, everything: bool):
+    """Export the matches of a `batch-classify` run as a CSV.
+
+    RESULTS is the JSON `batch-classify` wrote. The CSV has one row per matched
+    plate: pid, author, title, date, physical_description and link.
+    """
+    from .batch import read_json_output, write_export_csv
+
+    rows = read_json_output(results)["results"]
+    if not everything:
+        rows = [r for r in rows if r.get("is_match")]
+    n = write_export_csv(rows, output, load_artworks(artworks))
+    logger.info(f"wrote {n} rows to {output}")

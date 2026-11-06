@@ -528,3 +528,45 @@ def write_output(
     else:
         write_json_output(output, json_path, artworks=artworks)
         write_csv_output(output, csv_path, artworks=artworks)
+
+
+EXPORT_COLUMNS = ("pid", "author", "title", "date", "physical_description", "link")
+
+
+def pid_of(path: str) -> str:
+    """The plate id in an image file name, e.g. `gjs36nkop04` for
+    `.../gjs36nkop04_1.jpg`."""
+    return Path(path).stem.split("_", 1)[0]
+
+
+def write_export_csv(
+    results: list[dict],
+    path: str | Path,
+    artworks: dict[str, Artwork] | None = None,
+) -> int:
+    """Write one row per result with the plate id and the matched artwork's
+    metadata, and return the number of rows.
+
+    The artwork comes from the result itself when `batch-classify` joined it on,
+    else from `artworks`.
+    """
+
+    def row(r: dict) -> tuple:
+        a = r.get("artwork") or (
+            asdict(found) if (found := artwork_of(r["artwork_path"], artworks)) else {}
+        )
+        return (
+            pid_of(r["glashelder_path"]),
+            a.get("artist"),
+            a.get("title"),
+            a.get("year"),
+            a.get("physical_description"),
+            a.get("url") or r["artwork_path"],
+        )
+
+    rows = [row(r) for r in results]
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(EXPORT_COLUMNS)
+        writer.writerows(rows)
+    return len(rows)
