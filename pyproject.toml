@@ -70,6 +70,10 @@ ignore = [
     "E501", # line too long (ruff format handles this)
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# returns a dataclasses.Field, like field() itself
+extend-immutable-calls = ["common.config.unset"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

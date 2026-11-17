@@ -2,8 +2,8 @@
 `common.config`, or check that it still matches.
 
 Every setting is written with its default, and the field docstrings become its
-comments. A setting that is unset by default is commented out, with its type as
-a placeholder. The check compares values only, so comments, order and formatting
+comments. A setting that is unset by default is commented out, with the example
+from its `config.unset(example=...)`, or else its type as a placeholder. The check compares values only, so comments, order and formatting
 in the file are free to change.
 """
 
@@ -13,7 +13,7 @@ import json
 import sys
 import tomllib
 from collections.abc import Iterator
-from dataclasses import fields, is_dataclass
+from dataclasses import Field, fields, is_dataclass
 from functools import cache
 from pathlib import Path
 from types import UnionType
@@ -94,10 +94,21 @@ def placeholder(annotation: Any) -> str:
     )
 
 
-def setting(name: str, value: Any, annotation: Any) -> str:
-    if value is None:
-        return f"# {name} = {placeholder(annotation)}"
-    return f"{name} = {toml_value(value)}"
+def setting(field: Field, value: Any) -> str:
+    """`name = value`, or commented out with its example (or type) when unset."""
+    if value is not None:
+        return f"{field.name} = {toml_value(value)}"
+    example = field.metadata.get("example")
+    shown = placeholder(field.type) if example is None else toml_value(example)
+    return f"# {field.name} = {shown}"
+
+
+def unset_setting(section: type, name: str) -> str:
+    """The commented-out line of one unset setting, as the example writes it."""
+    return setting(
+        next(f for f in fields(section) if f.name == name),  # ty: ignore[invalid-argument-type]
+        None,
+    )
 
 
 def tables(section: object, name: str = "") -> list[list[str]]:
@@ -118,7 +129,7 @@ def tables(section: object, name: str = "") -> list[list[str]]:
             ]
             below.append([*doc, *commented(lines)])
         else:
-            keys.append([*doc, setting(field.name, value, field.type)])
+            keys.append([*doc, setting(field, value)])
 
     heading = [*comment(docs[""]), f"[{name}]"] if name else []
     # a blank line before each documented key, so its comment reads as its own

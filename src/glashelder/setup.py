@@ -192,7 +192,13 @@ def toml_string(value: Path | str) -> str:
 
 
 def render_toml(images: Path, layout: Layout) -> str:
-    from common.config_example import comment, docstrings, render_commented
+    from common.config import ImagePaths
+    from common.config_example import (
+        comment,
+        docstrings,
+        render_commented,
+        unset_setting,
+    )
 
     ml_model_doc = "\n".join(comment(docstrings()["Paths"]["ml_model"]))
     return f"""\
@@ -209,7 +215,7 @@ clusters = {toml_string(layout.clusters)}
 [paths.images]
 glashelder = {toml_string(images)}
 cache = {toml_string(layout.image_cache)}
-# reference = <path>   # only when the reference artwork images are local files
+{unset_setting(ImagePaths, "reference")}   # only when the reference artwork images are local files
 
 [paths.embeddings]
 glashelder = {toml_string(layout.embeddings_glashelder)}
