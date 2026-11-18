@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from common.errors import UserError
 from common.images import is_url
 from common.paths import rebase_paths, relativize_image_paths
 
@@ -15,6 +16,31 @@ if TYPE_CHECKING:
     from rich.progress import Progress
 
 logger = logging.getLogger(__name__)
+
+MAKE_EMBEDDINGS = (
+    "Point it at an embedding store, made with `glashelder embed artworks` "
+    "or `glashelder embed images`."
+)
+
+
+class EmbeddingsError(UserError, ValueError):
+    """An embeddings path that does not hold embeddings."""
+
+
+def not_embeddings(path: str | Path, data: object) -> EmbeddingsError:
+    if not isinstance(data, dict):
+        held = f"a {type(data).__name__}"
+    else:
+        held = "the keys " + ", ".join(map(str, data))
+    hint = (
+        " It looks like the artmatcher classifier (paths.ml_model)."
+        if isinstance(data, dict) and {"threshold", "feature_order"} <= data.keys()
+        else ""
+    )
+    return EmbeddingsError(
+        f"{path} does not hold embeddings: it is a pickle with {held}.{hint} "
+        f"{MAKE_EMBEDDINGS}"
+    )
 
 
 def read_embeddings(
@@ -40,7 +66,10 @@ def read_embeddings(
     if is_store(path):
         import torch
 
-        store = Store.open(path)
+        try:
+            store = Store.open(path)
+        except ValueError as error:
+            raise EmbeddingsError(str(error)) from error
         return {
             "model": store.model,
             "model_id": store.model_id,
@@ -52,13 +81,28 @@ def read_embeddings(
 
     import pickle
 
+    if not Path(path).exists():
+        raise EmbeddingsError(f"{path} does not exist. {MAKE_EMBEDDINGS}")
+    if Path(path).is_dir():
+        raise EmbeddingsError(
+            f"{path} is a directory, but not an embedding store. {MAKE_EMBEDDINGS}"
+        )
+
     opened = (
         progress.open(path, "rb", description=f"reading {Path(path).name}")
         if progress is not None
         else open(path, "rb")
     )
     with opened as f:
-        data = pickle.load(f)
+        try:
+            data = pickle.load(f)
+        except (pickle.UnpicklingError, EOFError) as error:
+            raise EmbeddingsError(
+                f"{path} is not an embedding store or an embeddings pickle. "
+                f"{MAKE_EMBEDDINGS}"
+            ) from error
+    if not isinstance(data, dict) or not {"images", "embeddings"} <= data.keys():
+        raise not_embeddings(path, data)
 
     # Handle legacy format without model metadata
     if "model" not in data:

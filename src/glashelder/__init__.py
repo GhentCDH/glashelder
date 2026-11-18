@@ -83,6 +83,14 @@ class LazyGroup(click.Group):
         module, attribute = path.split(":")
         return getattr(import_module(module), attribute)
 
+    def invoke(self, ctx: click.Context):
+        from common.errors import UserError
+
+        try:
+            return super().invoke(ctx)
+        except UserError as error:
+            raise click.ClickException(str(error)) from error
+
     def format_commands(
         self, ctx: click.Context, formatter: click.HelpFormatter
     ) -> None:
