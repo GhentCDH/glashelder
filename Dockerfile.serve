@@ -70,5 +70,8 @@ WORKDIR /work
 
 EXPOSE 5000 5001
 
+# as PID 1, Python ignores SIGTERM but stops on Ctrl+C
+STOPSIGNAL SIGINT
+
 ENTRYPOINT ["glashelder"]
 CMD ["--help"]
