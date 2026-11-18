@@ -8,7 +8,7 @@ same file at once (a threaded Flask app saving annotations) do not collide.
 import os
 import tempfile
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import IO, Any
 
@@ -34,8 +34,11 @@ def atomic_writer(path: str | Path, *, binary: bool = False) -> Generator[IO[Any
     try:
         with file:
             yield file
-        # the same permissions a plain open() would have given
-        os.chmod(file.name, 0o666 & ~_UMASK)
+        # the same permissions a plain open() would have given. A file system with
+        # fixed modes (a CIFS share mounted with `file_mode`) refuses this; it then
+        # gives the file its own mode, as it would for a plain open()
+        with suppress(PermissionError):
+            os.chmod(file.name, 0o666 & ~_UMASK)
         os.replace(file.name, path)
     except BaseException:
         Path(file.name).unlink(missing_ok=True)
