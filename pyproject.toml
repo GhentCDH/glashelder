@@ -117,5 +117,5 @@ dev = [
 notebooks = [
     "jupyter>=1.1.1",
     "ipykernel>=6.31.0",
-    "rerun-sdk>=0.27.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "rerun-sdk>=0.43.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
