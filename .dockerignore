@@ -1,0 +1,13 @@
+# Only what Dockerfile.serve copies. Everything else (local configs and .env with
+# secrets, data, caches, notebooks, reports) stays out of the build context.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src
+!*/pyproject.toml
+!*/README.md
+!*/src
+**/__pycache__
+**/*.pyc
+**/*.egg-info

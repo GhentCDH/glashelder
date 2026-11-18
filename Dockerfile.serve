@@ -1,47 +1,74 @@
+# The glashelder CLI, to run its web interfaces (`embed serve`, `artmatcher serve`, ...).
+#
+#   docker build -f Dockerfile.serve -t glashelder .
+#   docker run --rm -p 5000:5000 -v /mnt/glashelder:/mnt/glashelder:ro \
+#     -v ./demo:/work glashelder embed serve
+#
+# The working directory is /work: mount a directory there that holds the
+# `glashelder.toml` to use, and that keeps what the servers write (labeling
+# sessions, ...). Model downloads go to /cache, mount a volume there to keep them.
+
 FROM python:3.13-slim AS build
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.8 /uv /bin/
 
+# hdbscan has no wheel for this Python and is compiled
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    UV_PYTHON_DOWNLOADS=never
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON_PREFERENCE=only-system
 
 WORKDIR /app
 
+# dependencies first, in their own layer: they change far less than the code
 COPY pyproject.toml uv.lock README.md ./
-COPY src ./src
-COPY common ./common
-COPY embed ./embed
-COPY cluster ./cluster
-COPY preprocessing ./preprocessing
-COPY glaswacht ./glaswacht
-COPY artmatcher ./artmatcher
-COPY artscraper ./artscraper
-COPY ocr ./ocr
-
+COPY common/pyproject.toml common/README.md common/
+COPY embed/pyproject.toml embed/README.md embed/
+COPY cluster/pyproject.toml cluster/README.md cluster/
+COPY preprocessing/pyproject.toml preprocessing/README.md preprocessing/
+COPY glaswacht/pyproject.toml glaswacht/README.md glaswacht/
+COPY artmatcher/pyproject.toml artmatcher/README.md artmatcher/
+COPY artscraper/pyproject.toml artscraper/README.md artscraper/
+COPY ocr/pyproject.toml ocr/README.md ocr/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --no-install-workspace
+
+COPY src src
+COPY common/src common/src
+COPY embed/src embed/src
+COPY cluster/src cluster/src
+COPY preprocessing/src preprocessing/src
+COPY glaswacht/src glaswacht/src
+COPY artmatcher/src artmatcher/src
+COPY artscraper/src artscraper/src
+COPY ocr/src ocr/src
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
 
 FROM python:3.13-slim
 
+# libgl and glib for OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+COPY --from=build /app/.venv /app/.venv
 
-COPY --from=build /app /app
+# writable for any user, so `docker run --user` works
+RUN mkdir -p /work /cache && chmod 1777 /work /cache
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    XDG_CACHE_HOME=/cache \
+    HF_HOME=/cache/huggingface
 
-EXPOSE 5000
+WORKDIR /work
 
-CMD ["glashelder", "embed", "serve", \
-     "--host", "0.0.0.0", \
-     "--port", "5000", \
-     "--embeddings", "/data/embeddings.pkl"]
+EXPOSE 5000 5001
+
+ENTRYPOINT ["glashelder"]
+CMD ["--help"]
