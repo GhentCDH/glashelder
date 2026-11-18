@@ -18,7 +18,15 @@ def run_app(
     `common.cli.serve_options`.
 
     Logs the local url (with the secret when auth is on) and optionally opens it.
+
+    Behind a proxy that serves the app under a path (`/search/...`) and strips
+    it, the proxy sends that path in `X-Forwarded-Prefix`. It then becomes
+    `request.script_root`, which `url_for`, the templates and redirects put in
+    front of their paths.
     """
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
     if auth:
         require_auth(app)
     secret = app.config.get(AUTH_SECRET_KEY)

@@ -67,7 +67,7 @@
             class="absolute right-0 z-10 mt-2 w-[30rem] bg-white border border-neutral-300 rounded shadow-lg p-4 flex flex-col gap-4"
           >
             <form
-              hx-post="/rename-session"
+              hx-post="{{ request.script_root }}/rename-session"
               hx-target="#content"
               hx-indicator="#loading"
               class="flex gap-2 items-center"
@@ -90,7 +90,7 @@
 
             <form
               method="post"
-              action="/new-session"
+              action="{{ request.script_root }}/new-session"
               class="flex gap-2 items-center"
               onsubmit="localStorage.removeItem('artmatcher.sessionId')"
             >
@@ -116,7 +116,7 @@
               <select
                 id="session-picker"
                 class="border border-neutral-300 rounded px-2 py-1 bg-white flex-1 min-w-0"
-                onchange="if (this.value) { localStorage.setItem('artmatcher.sessionId', this.value); window.location = '/?session=' + encodeURIComponent(this.value); }"
+                onchange="if (this.value) { localStorage.setItem('artmatcher.sessionId', this.value); window.location = '{{ request.script_root }}/?session=' + encodeURIComponent(this.value); }"
               >
                 <option value="">— pick a session —</option>
                 {% for s in sessions %}
@@ -128,7 +128,7 @@
             </div>
 
             <form
-              hx-post="/import-session"
+              hx-post="{{ request.script_root }}/import-session"
               hx-encoding="multipart/form-data"
               hx-target="#content"
               hx-indicator="#loading"
@@ -177,7 +177,7 @@
           <button
             id="next-match"
             class="bg-green-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-green-600 transition-colors border-0"
-            hx-post="/next-match"
+            hx-post="{{ request.script_root }}/next-match"
             hx-target="#content"
             hx-indicator="#loading"
           >
@@ -186,7 +186,7 @@
           <button
             id="next-negative"
             class="bg-red-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-red-600 transition-colors border-0"
-            hx-post="/next-negative"
+            hx-post="{{ request.script_root }}/next-negative"
             hx-target="#content"
             hx-indicator="#loading"
           >
@@ -198,7 +198,7 @@
           <button
             id="label-correct"
             class="bg-blue-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-blue-600 transition-colors border-0"
-            hx-post="/label-correct"
+            hx-post="{{ request.script_root }}/label-correct"
             hx-target="#content"
             hx-indicator="#loading"
           >
@@ -207,7 +207,7 @@
           <button
             id="label-incorrect"
             class="bg-orange-500 text-white rounded px-6 py-3 cursor-pointer hover:bg-orange-600 transition-colors border-0"
-            hx-post="/label-incorrect"
+            hx-post="{{ request.script_root }}/label-incorrect"
             hx-target="#content"
             hx-indicator="#loading"
           >
@@ -289,7 +289,7 @@
           if (!loading.classList.contains("htmx-request")) return;
           try {
             const response = await fetch(
-              "/queue-position?session=" + encodeURIComponent(session),
+              "{{ request.script_root }}/queue-position?session=" + encodeURIComponent(session),
             );
             if (!response.ok) return;
             const { queue_position, queue_size } = await response.json();

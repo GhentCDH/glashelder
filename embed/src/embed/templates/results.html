@@ -4,7 +4,7 @@
 <div class="query-info flex gap-10 items-end mb-30">
   <p>Showing images similar to: <strong>{{ query_filename }}</strong></p>
   <img
-    src="/image/{{ query_value }}"
+    src="{{ request.script_root }}/image/{{ query_value }}"
     alt="Query image"
     class="max-w-lg rounded-sm"
   />
@@ -24,16 +24,16 @@
   <div
     class="result-card rounded-sm border-2 transition-all hover:-translate-y-[4px] overflow-hidden"
   >
-    <img src="/image/{{ result.index }}" alt="{{ result.filename }}" />
+    <img src="{{ request.script_root }}/image/{{ result.index }}" alt="{{ result.filename }}" />
     <div class="result-info flex gap-4 p-3 text-sm bg-white">
       <span class="rank font-bold">#{{ result.rank }}</span>
       <span class="score font-bold">{{ "%.4f"|format(result.score) }}</span>
       <span class="filename break-all">{{ result.filename }}</span>
       <a
-        hx-get="/api/similar/{{ result.index }}?top_k=12"
+        hx-get="{{ request.script_root }}/api/similar/{{ result.index }}?top_k=12"
         hx-target="#results"
         hx-indicator="#loading"
-        hx-push-url="/similar/{{result.index}}?top_k=12"
+        hx-push-url="{{ request.script_root }}/similar/{{result.index}}?top_k=12"
         class="similar-btn underline ml-auto cursor-pointer hover:text-red-500"
       >
         Find Similar

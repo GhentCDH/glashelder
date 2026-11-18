@@ -46,10 +46,10 @@
     </h1>
 
     <!-- Text search form -->
-    <form class="flex gap-4 mb-4" hx-post="/search" hx-target="#results" hx-indicator="#loading">
+    <form class="flex gap-4 mb-4" hx-post="{{ request.script_root }}/search" hx-target="#results" hx-indicator="#loading">
       <input class="focus:border-red-500 focus:outline-none border-black border-2 rounded-sm flex-1 p-3 bg-white"
         type="text" name="prompt" id="text-prompt" placeholder="Enter search prompt (e.g., 'a cat sitting on a chair')"
-        autocomplete="off" hx-post="/search" hx-trigger="input changed delay:500ms" hx-target="#results"
+        autocomplete="off" hx-post="{{ request.script_root }}/search" hx-trigger="input changed delay:500ms" hx-target="#results"
         hx-indicator="#loading" hx-include="[name='top_k']" />
       <input type="number"
         class="min-w-30 border-2 border-black rounded-sm p-3 focus:border-red-500 focus:outline-none bg-white"
@@ -92,7 +92,7 @@
   <div id="results">{% block results %}{% endblock %}</div>
 
   <!-- Hidden form for image upload -->
-  <form id="image-search-form" style="display: none" hx-post="/search-image" hx-target="#results"
+  <form id="image-search-form" style="display: none" hx-post="{{ request.script_root }}/search-image" hx-target="#results"
     hx-indicator="#loading" hx-encoding="multipart/form-data">
     <input type="file" name="image" id="image-input" />
     <input type="hidden" name="top_k" id="image-top-k" value="12" />

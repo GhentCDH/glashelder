@@ -440,7 +440,12 @@ def create_app(
         return _redirect_to(f"/?session={new_id}")
 
     def _redirect_to(location: str) -> Response:
-        """HTMX-aware redirect: a header for hx requests, a 302 otherwise."""
+        """HTMX-aware redirect: a header for hx requests, a 302 otherwise.
+
+        An absolute path gets the prefix the app is served under, if any.
+        """
+        if location.startswith("/"):
+            location = request.script_root + location
         if request.headers.get("HX-Request"):
             response = Response("", status=204)
             response.headers["HX-Redirect"] = location

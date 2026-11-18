@@ -32,7 +32,7 @@
 
       <div class="border border-neutral-300 rounded p-5 mb-6">
         <h2 class="text-lg mb-3">Start a new session</h2>
-        <form method="post" action="/new-session" class="flex gap-2 items-center">
+        <form method="post" action="{{ request.script_root }}/new-session" class="flex gap-2 items-center">
           <input
             type="text"
             name="name"
@@ -60,7 +60,7 @@
           {% for s in sessions %}
           <li class="flex gap-3 items-center py-1 border-b border-neutral-100">
             <a
-              href="/?session={{ s.session_id }}"
+              href="{{ request.script_root }}/?session={{ s.session_id }}"
               class="text-blue-700 hover:underline"
               >{{ s.session_id }}</a
             >
@@ -85,7 +85,7 @@
         </p>
         <form
           method="post"
-          action="/import-session"
+          action="{{ request.script_root }}/import-session"
           enctype="multipart/form-data"
           class="flex gap-2 items-center flex-wrap"
         >
@@ -119,7 +119,7 @@
         try {
           var stored = localStorage.getItem('artmatcher.sessionId');
           if (stored) {
-            window.location.replace('/?session=' + encodeURIComponent(stored));
+            window.location.replace('{{ request.script_root }}/?session=' + encodeURIComponent(stored));
           }
         } catch (e) {}
       })();

@@ -14,7 +14,7 @@
   </span>
   {% endif %} {% if session_id %}
   <a
-    href="/download-dataset?session={{ session_id }}"
+    href="{{ request.script_root }}/download-dataset?session={{ session_id }}"
     class="bg-neutral-800 text-white rounded px-3 py-1 hover:bg-neutral-600 transition-colors"
   >
     Download
@@ -45,7 +45,7 @@
       min="1"
       max="{{ total_images }}"
       title="Type an image number and press Enter to match that image"
-      hx-post="/go-to-image"
+      hx-post="{{ request.script_root }}/go-to-image"
       hx-trigger="change"
       hx-target="#content"
       hx-indicator="#loading"
@@ -89,7 +89,7 @@
       min="0"
       max="1"
       title="Enter, or click elsewhere, to apply"
-      hx-post="/set-threshold"
+      hx-post="{{ request.script_root }}/set-threshold"
       hx-trigger="change"
       hx-target="#content"
       hx-indicator="#loading"
@@ -102,7 +102,7 @@
   <div class="border-2 border-neutral-200 rounded overflow-hidden">
     <h2 class="p-3 bg-neutral-200 text-sm font-bold">Glashelder Image</h2>
     <img
-      src="/glashelder-image/{{ current_index }}"
+      src="{{ request.script_root }}/glashelder-image/{{ current_index }}"
       alt="Glashelder image"
       class="w-full h-[500px] object-contain bg-neutral-50"
     />
@@ -125,7 +125,7 @@
       {% endif %}
     </h2>
     <img
-      src="/artwork-image/{{ top_match_index }}"
+      src="{{ request.script_root }}/artwork-image/{{ top_match_index }}"
       alt="Artmatcher top result"
       class="w-full h-[500px] object-contain bg-neutral-50 {% if not is_match %}opacity-75{% endif %}"
     />
@@ -172,7 +172,7 @@
         {% for alt in alternatives %}
         <div class="border border-neutral-200 rounded overflow-hidden bg-white">
           <img
-            data-src="/artwork-image/{{ alt.index }}"
+            data-src="{{ request.script_root }}/artwork-image/{{ alt.index }}"
             alt="match {{ alt.rank }}"
             class="w-full h-48 object-contain bg-neutral-50"
           />
@@ -376,7 +376,7 @@
   </summary>
   <div class="p-4">
     <img
-      data-src="/orb-overlay/{{ current_index }}/{{ top_match_index }}"
+      data-src="{{ request.script_root }}/orb-overlay/{{ current_index }}/{{ top_match_index }}"
       alt="computing the alignment…"
       class="w-full max-h-[700px] object-contain bg-neutral-50"
       onerror="this.replaceWith(Object.assign(document.createElement('p'), {
