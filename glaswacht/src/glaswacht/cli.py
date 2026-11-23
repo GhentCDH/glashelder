@@ -4,7 +4,7 @@ import click
 
 from common.cli import serve_options
 from glaswacht.models.safety_model import SafetyModel
-from glaswacht.models.utils import WEB_PORT
+from glaswacht.models.utils import WEB_PORT, output_folder
 
 MODEL_REGISTRY: dict[str, type[SafetyModel]] = {}
 
@@ -65,8 +65,10 @@ def output_option(func):
         default="glaswacht_output",
         show_default=True,
         type=click.Path(file_okay=False, path_type=Path),
+        callback=lambda ctx, param, value: output_folder(value),
         help="Folder for each run's results CSV and log, named after the run's "
-        "date and time [glaswacht.output].",
+        "date and time; a relative one is in the glashelder folder "
+        "[glaswacht.output].",
     )(func)
 
 

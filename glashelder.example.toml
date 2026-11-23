@@ -102,7 +102,8 @@ candidates = 1
 
 [glaswacht]
 # Folder each run writes its results CSV and log to, both named after the
-# run's date and time.
+# run's date and time. A relative one is in the glashelder folder, wherever
+# the command runs from.
 output = "glaswacht_output"
 
 # CSV `glaswacht serve` shows; unset shows the newest run in `output`.

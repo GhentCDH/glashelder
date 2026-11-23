@@ -184,10 +184,10 @@ class Orchestrator:
         date and time the run started. Returns the CSV, or None when a model
         failed to load and the run was aborted.
         """
-        from glaswacht.models.utils import run_files
+        from glaswacht.models.utils import output_folder, run_files
 
         self.reset()
-        output_dir = Path(output_dir)
+        output_dir = output_folder(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         results_csv, self.log_path = run_files(output_dir, datetime.now())
         self.results_csv = None

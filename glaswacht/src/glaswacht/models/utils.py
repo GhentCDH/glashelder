@@ -16,6 +16,16 @@ _RUN_PREFIX = "glaswacht_"
 _RUN_TIME_FORMAT = "%Y%m%d_%H%M%S"
 
 
+def output_folder(path: str | Path) -> Path:
+    """The output folder `path` names. A relative one is taken from the
+    glashelder folder, not from where the command runs, so every run lands in
+    the same folder."""
+    from common import PROJECT_ROOT
+
+    path = Path(path).expanduser()
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
 def run_files(output_dir: Path, started: datetime) -> tuple[Path, Path]:
     """The results CSV and log of a run started at `started`."""
     stem = f"{_RUN_PREFIX}{started.strftime(_RUN_TIME_FORMAT)}"

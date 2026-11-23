@@ -150,7 +150,8 @@ class Artmatcher:
 class Glaswacht:
     output: Path = Path("glaswacht_output")
     """Folder each run writes its results CSV and log to, both named after the
-    run's date and time."""
+    run's date and time. A relative one is in the glashelder folder, wherever
+    the command runs from."""
     results: Path | None = unset(example="glaswacht_output/glaswacht_20260101_120000.csv")
     """CSV `glaswacht serve` shows; unset shows the newest run in `output`."""
     images: Path | None = unset(example="data/images")

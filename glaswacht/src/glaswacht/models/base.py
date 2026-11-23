@@ -9,7 +9,13 @@ import xgrammar as xgr
 from PIL import Image
 from transformers import LogitsProcessor, set_seed
 
-from glaswacht.models.safety_model import ASSESSMENT_SCHEMA, Rating, SafetyModel
+from glaswacht.models.safety_model import (
+    ASSESSMENT_SCHEMA,
+    NO_CATEGORY,
+    Rating,
+    SafetyModel,
+    join_categories,
+)
 from glaswacht.models.utils import parse_output
 
 logger = logging.getLogger(__name__)
@@ -20,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Gemma 3 12B) piles up on the GPU, so the load runs out of memory. Loading
 # sequentially quantizes each weight as soon as it arrives.
 os.environ.setdefault("HF_DEACTIVATE_ASYNC_LOAD", "1")
+
+# generation settings only sampling uses, cleared for greedy decoding
+_SAMPLING_FLAGS = ("temperature", "top_p", "top_k", "min_p", "typical_p")
 
 
 class TransformersSafetyModel(SafetyModel):
@@ -32,8 +41,10 @@ class TransformersSafetyModel(SafetyModel):
 
     PARSE_MODEL_TYPE: ClassVar[str]
 
-    # Enough for the longest answer ASSESSMENT_SCHEMA allows
-    MAX_NEW_TOKENS: ClassVar[int] = 512
+    # Room for the longest answer ASSESSMENT_SCHEMA allows: 2000 characters of
+    # rationale measured at under 600 tokens with every model's tokenizer, plus
+    # about 55 for the rest of the JSON
+    MAX_NEW_TOKENS: ClassVar[int] = 1024
     # Reset before every image, so an image's result does not depend on
     # which images came before it
     SEED: ClassVar[int] = 0
@@ -64,14 +75,20 @@ class TransformersSafetyModel(SafetyModel):
     def generate(self, inputs) -> torch.Tensor:
         """Run `generate()` reproducibly: seeded, greedy (temperature 0) and
         constrained to ASSESSMENT_SCHEMA. Returns prompt plus answer ids."""
+        # Greedy decoding. The model's own generation_config may ask for
+        # sampling (Qwen3 and Gemma 3 do); clearing its sampling values, not
+        # just turning sampling off, also keeps transformers from warning
+        # that they are ignored on every image.
+        generation_config = self.model.generation_config
+        generation_config.do_sample = False
+        for flag in _SAMPLING_FLAGS:
+            setattr(generation_config, flag, None)
+
         set_seed(self.SEED)
         with torch.inference_mode():
             return self.model.generate(
                 **inputs,
                 max_new_tokens=self.MAX_NEW_TOKENS,
-                # greedy decoding, overriding any sampling the model's own
-                # generation_config asks for (Qwen3 and Gemma 3 do)
-                do_sample=False,
                 num_beams=1,
                 logits_processor=self.json_constraint(),
             )
@@ -101,7 +118,7 @@ class TransformersSafetyModel(SafetyModel):
         result = parse_output(output_text, model_type=self.PARSE_MODEL_TYPE)
         return Rating(
             rating=result.get("rating", "Unknown"),
-            category=result.get("category", "NA: None applying"),
+            category=join_categories(result.get("category", NO_CATEGORY)),
             rationale=result.get("rationale", ""),
             image=image_name,
         )

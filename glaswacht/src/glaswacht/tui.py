@@ -14,7 +14,13 @@ from textual.markup import escape
 from textual.reactive import reactive
 from textual.widgets import Input, Static
 
-from glaswacht.models.utils import WEB_PORT, clean_path, get_prompt, latest_results
+from glaswacht.models.utils import (
+    WEB_PORT,
+    clean_path,
+    get_prompt,
+    latest_results,
+    output_folder,
+)
 from glaswacht.orchestrator import ModelStatus, Orchestrator, Skip
 
 # each run logs to its own file in the output folder, see Orchestrator.run_all
@@ -330,7 +336,8 @@ class MonitorApp(App):
         color: {_SEPIA_BG};
     }}
 
-    #images-input {{
+    /* as specific as `#paths Input`, so it overrides that rule's margin */
+    #paths #images-input {{
         width: 2fr;
         margin: 0;
     }}
@@ -367,7 +374,7 @@ class MonitorApp(App):
         super().__init__()
         self.orchestrator = orchestrator
         self._image_path = image_path
-        self._output_dir = Path(output_dir)
+        self._output_dir = output_folder(output_dir)
         self.panels: dict[str, ModelPanel] = {}
         self.content_panel: ContentPanel | None = None
         self.menu_widgets: list[MenuItem] = []
@@ -498,36 +505,40 @@ class MonitorApp(App):
         elif label == "QUIT":
             self.exit()
 
-    def _read_paths(self) -> bool:
-        """Take the image folder and output folder from their boxes. False,
-        with a notification, when the image folder is missing."""
+    def _read_paths(self) -> str | None:
+        """Take the image folder and output folder from their boxes. Returns
+        the image folder, or None with a notification when it is missing."""
         images_input = self.query_one("#images-input", Input)
         output_input = self.query_one("#output-input", Input)
         image_path = clean_path(images_input.value)
-        output_dir = clean_path(output_input.value) or "glaswacht_output"
-        # show what is used, without the quotes a paste may have brought
+        self._output_dir = output_folder(
+            clean_path(output_input.value) or "glaswacht_output"
+        )
+        # show what is used: without the quotes a paste may have brought, and
+        # the full output folder a relative one stands for
         images_input.value = image_path
-        output_input.value = output_dir
-        self._output_dir = Path(output_dir)
+        output_input.value = str(self._output_dir)
         if not image_path:
             self.notify("Paste the image folder in IMAGES first.", severity="error")
-            return False
+            return None
         if not os.path.exists(image_path):
             self.notify(f"Image folder not found: {image_path}", severity="error")
-            return False
+            return None
         self._image_path = image_path
-        return True
+        return image_path
 
     def _set_paths_enabled(self, enabled: bool):
         for path_input in self.query("#paths Input"):
             path_input.disabled = not enabled
 
     def _start_run(self):
-        if self._is_running or not self._read_paths():
+        if self._is_running:
             return
-        logger.info(
-            "RUN requested, path=%s, output=%s", self._image_path, self._output_dir
-        )
+        image_path = self._read_paths()
+        if image_path is None:
+            return
+        output_dir = self._output_dir
+        logger.info("RUN requested, path=%s, output=%s", image_path, output_dir)
         self._is_running = True
         self._set_paths_enabled(False)
         self._set_mode("votes")
@@ -539,8 +550,6 @@ class MonitorApp(App):
         self.menu_widgets[self._selected_index].selected = False
         self._selected_index = 3
         self.menu_widgets[3].selected = True
-
-        image_path, output_dir = self._image_path, self._output_dir
 
         def _run():
             try:
@@ -570,9 +579,10 @@ class MonitorApp(App):
             self.content_panel.show_taxonomy()
 
     def _start_webviewer(self):
-        if not self._read_paths():
+        image_path = self._read_paths()
+        if image_path is None:
             return
-        images_dir = Path(self._image_path)
+        images_dir = Path(image_path)
         if images_dir.is_file():
             images_dir = images_dir.parent
         # this session's run, else the newest one in the output folder
