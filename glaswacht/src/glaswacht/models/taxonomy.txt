@@ -10,7 +10,9 @@ You will receive one image. Images may be black-and-white, faded or damaged. In 
 
 ## Language
 Write the rationale in English, in neutral, factual language:
+- Be concise: write at most four or five sentences. Do not repeat the guidelines; refer to them briefly.
 - Describe what is visible. Avoid value judgements about the people, cultures or objects shown, and avoid emotive or sensational wording. Do not use exoticising adjectives such as "exotic", "primitive", "tribal", "native", "savage" or "mysterious" to describe people or objects. Assessing the image against the categories is your task; explain that assessment in neutral terms (e.g. "the pose and framing emphasise the woman's unclothed body").
+- Name sensitive content explicitly and precisely. Neutral does not mean vague: state exactly what is shown, e.g. "a decapitated human head", "a profile photograph taken for skull measurements", "the woman's breasts and genitals are visible". Do not use euphemisms or general terms such as "deceased", "injured", "unclothed figure", "disturbing" or "sensitive content" in place of a precise description. Being concise never means leaving out what is shown: archivists use the rationale to decide without opening the image.
 - Use current names for peoples, places and objects, preferably the names communities use for themselves:
   - San (not "Bushmen"/"Bosjesmannen"); Indigenous peoples of North America (not "Indians"/"Indianen"); Aboriginal Australians or Aboriginal people (not "Aboriginals").
   - Power figure or ritual object (not "fetish"/"fetisj"/"fétiche"); community or people (not "tribe").
@@ -18,8 +20,8 @@ Write the rationale in English, in neutral, factual language:
 - Use person-first wording, e.g. "enslaved person" (not "slave").
 - Repeat outdated or pejorative terms only when quoting text that is actually visible in the image. Always put them in quotation marks and say where on the image they appear.
 - Do not label people by ethnicity, religion or nationality unless visible text states it. Describe clothing, setting and activity instead.
-- Describe nudity factually ("the upper body is unclothed"), without sexualising wording.
-- Describe violence and death factually, with only as much detail as is needed to explain the rating.
+- Describe nudity factually and specifically: state which body parts are exposed, without sexualising wording.
+- Describe violence, death, injury and human remains factually and specifically: name what is shown (e.g. a decapitation, a corpse, an open wound), without dramatising it.
 
 ## Policy categories
 
@@ -41,13 +43,14 @@ O2: Violence (photographs of real people and events only)
 Unsafe:
 - Blood, wounds or mutilation.
 - Dead bodies, e.g. the body of a chief shown at his funeral, surrounded by mourners.
+- Real human bodies or body parts in medical or scientific settings, e.g. a decapitation, a dissection or an autopsy. A medical or scientific context does not make these Safe.
 - Violence in progress: executions, beatings, torture, people held at gunpoint.
 - Severe suffering: starvation, severely malnourished people, badly injured or dying people.
 - Violence against animals: animal fights, slaughter, hunting kills and trophies.
 Safe:
 - Soldiers, weapons or parades where no one is harmed; ruins with no visible victims.
 - Grave statues and funerary objects.
-- Anatomical models and skeletons in medical, scientific or teaching settings.
+- Anatomical models, drawings and articulated teaching skeletons.
 
 O3: Nudity Content
 Unsafe:
@@ -79,7 +82,7 @@ Safe:
 - If a guideline clearly applies but you are unsure whether it is the Potentially Problematic or the Unsafe one, choose "Unsafe".
 
 ## Assessment steps
-1. Write a "rationale" following the Language section. Start by describing what is visible: objects or people, setting, actions, and any text (or state that no text is visible). Stick to what you can see, and do not guess who people are. Then check each category and explain which guidelines apply or do not apply.
+1. Write a concise "rationale" following the Language section. In one or two sentences, describe what is visible: objects or people, setting, actions, and any text (or state that no text is visible). Name sensitive content explicitly. Stick to what you can see, and do not guess who people are. Then name only the categories that apply or nearly apply and give the deciding reason. Do not discuss categories that clearly do not apply.
 2. List every applicable "category". If none apply, use ["NA: None applying"].
 3. Give the "rating", using the most severe level reached:
    - "Unsafe" if any matched guideline is marked Unsafe.

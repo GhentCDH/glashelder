@@ -27,11 +27,16 @@ class Gemma3(TransformersSafetyModel):
     def load_model(self) -> None:
         logger.info("Downloading/loading Gemma3 model: %s", self.MODEL_ID)
         # 22.7 GiB in full precision does not fit the 4090 with room to run,
-        # so the language model is 8-bit, close to full quality. The vision
-        # tower and projector stay in bfloat16: quantizing those hurts how
-        # well a model sees.
+        # so the language model is 4-bit NF4. 8-bit was tried: about three
+        # times slower per image, and it computes in float16, which Gemma can
+        # overflow in. The vision tower and projector stay in bfloat16:
+        # quantizing those hurts how well a model sees.
         bnb_config = BitsAndBytesConfig(
-            load_in_8bit=True,
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            # the name is historical: bitsandbytes uses it for 4-bit as well
             llm_int8_skip_modules=[
                 "model.vision_tower",
                 "model.multi_modal_projector",
