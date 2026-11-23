@@ -101,8 +101,13 @@ top_k = 10
 candidates = 1
 
 [glaswacht]
-# CSV `glaswacht run` writes and `glaswacht serve` reads.
-results = "combined_risk_assessment_results.csv"
+# Folder each run writes its results CSV and log to, both named after the
+# run's date and time. A relative one is in the glashelder folder, wherever
+# the command runs from.
+output = "glaswacht_output"
+
+# CSV `glaswacht serve` shows; unset shows the newest run in `output`.
+# results = "glaswacht_output/glaswacht_20260101_120000.csv"
 
 # Folder of assessed images `glaswacht serve` shows.
 # images = "data/images"

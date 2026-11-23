@@ -3,14 +3,63 @@ import json
 import os
 import re
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 _MODELS_DIR = Path(__file__).parent
 
-# combined results of a run, relative to the working directory; also what `serve` reads
-RESULTS_CSV = Path("combined_risk_assessment_results.csv")
 # default port of `serve`, where the TUI starts it
 WEB_PORT = 5003
+
+# a run's results CSV and log are both named glaswacht_<date>_<time>
+_RUN_PREFIX = "glaswacht_"
+_RUN_TIME_FORMAT = "%Y%m%d_%H%M%S"
+
+
+def output_folder(path: str | Path) -> Path:
+    """The output folder `path` names. A relative one is taken from the
+    glashelder folder, not from where the command runs, so every run lands in
+    the same folder."""
+    from common import PROJECT_ROOT
+
+    path = Path(path).expanduser()
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def image_path(path: str | Path) -> Path | None:
+    """The image folder or file `path` names, fully resolved, or None when it
+    does not exist. A relative one is looked up from where the command runs
+    first and then from the glashelder folder, so a path written from the
+    repository root works from anywhere, as the output folder does."""
+    from common import PROJECT_ROOT
+
+    path = Path(path).expanduser()
+    for candidate in (path,) if path.is_absolute() else (path, PROJECT_ROOT / path):
+        if candidate.exists():
+            return candidate.resolve()
+    return None
+
+
+def run_files(output_dir: Path, started: datetime) -> tuple[Path, Path]:
+    """The results CSV and log of a run started at `started`."""
+    stem = f"{_RUN_PREFIX}{started.strftime(_RUN_TIME_FORMAT)}"
+    return output_dir / f"{stem}.csv", output_dir / f"{stem}.log"
+
+
+def latest_results(output_dir: Path) -> Path | None:
+    """The newest run's results CSV in `output_dir`, or None without one."""
+    # the date and time in the name sort in the order the runs started
+    found = sorted(Path(output_dir).glob(f"{_RUN_PREFIX}*.csv"))
+    return found[-1] if found else None
+
+
+def clean_path(text: str) -> str:
+    """A path as typed or pasted: without surrounding whitespace or the quotes
+    a file manager or shell adds, and with ~ expanded."""
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        text = text[1:-1]
+    return os.path.expanduser(text)
 
 
 def get_prompt(prompt_file=None):
@@ -46,7 +95,7 @@ def parse_output(output_text, model_type="lava"):
 
     Args:
         output_text: The output text to parse
-        model_type: The model type - "lava", "pixtral", or "qwen"
+        model_type: The model type - "lava", "pixtral", "qwen", or "gemma"
     """
     try:
         json_str = None
@@ -57,7 +106,7 @@ def parse_output(output_text, model_type="lava"):
             if "```json" in output_text:
                 json_str = output_text.split("```json")[1].replace("```", "").strip()
 
-        # Default extraction: find balanced JSON braces (used by lava, qwen, or fallback for pixtral)
+        # Default extraction: find balanced JSON braces (used by lava, qwen, gemma, or fallback for pixtral)
         if not json_str:
             start_idx = output_text.find("{")
             if start_idx == -1:
@@ -101,7 +150,9 @@ def parse_output(output_text, model_type="lava"):
 
         # Try to parse the JSON
         try:
-            assessment = json.loads(json_str)
+            # strict=False accepts raw control characters such as tabs inside
+            # strings: the JSON grammar lets them through, strict JSON does not
+            assessment = json.loads(json_str, strict=False)
             if isinstance(assessment, dict):
                 return assessment
             return {
@@ -179,21 +230,13 @@ def calculate_majority_vote(ratings: list[str]) -> str:
         return "Unknown"
 
 
-def write_combined_csv(
-    assessments: dict,
-    output_csv: str | Path | None = None,
-) -> None:
+def write_combined_csv(assessments: dict, output_csv: str | Path) -> None:
     """Write combined assessment results from all models to a single CSV.
 
     Args:
         assessments: dict mapping model name → list[Rating]
-        output_csv: Path to the output CSV file [glaswacht.results]
+        output_csv: Path to the output CSV file
     """
-    if output_csv is None:
-        from common.config import config
-
-        output_csv = config().glaswacht.results
-
     model_names = list(assessments.keys())
     combined: dict[str, dict] = {}
 

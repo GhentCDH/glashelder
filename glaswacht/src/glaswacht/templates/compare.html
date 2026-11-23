@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glaswacht comparison</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --panel: #ffffff;
+    --text: #23201b;
+    --muted: #6f685d;
+    --border: #e2ddd2;
+    --safe: #2f7d4f;
+    --safe-bg: #e3f1e8;
+    --pp: #9a6100;
+    --pp-bg: #fbefd9;
+    --unsafe: #b3261e;
+    --unsafe-bg: #fae3e1;
+    --none: #6f685d;
+    --none-bg: #ecebe8;
+    --miss: #b3261e;
+    --accent: #5b4a2e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17140f;
+      --panel: #211d17;
+      --text: #ede7dc;
+      --muted: #a79f92;
+      --border: #3a342b;
+      --safe: #7fd3a0;
+      --safe-bg: #1d3426;
+      --pp: #f1c26b;
+      --pp-bg: #3b2e14;
+      --unsafe: #f4948c;
+      --unsafe-bg: #42201d;
+      --none: #a79f92;
+      --none-bg: #2c2822;
+      --miss: #f4948c;
+      --accent: #e0c99a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1280px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 40px 0 12px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .meta code { font-size: 12px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+  }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; }
+  tr.highlight td { font-weight: 600; }
+  .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; min-width: 160px; background: var(--none-bg); }
+  .bar span { display: block; }
+  .bar .agree { background: var(--safe); }
+  .bar .strict { background: var(--unsafe); }
+  .bar .lenient { background: var(--pp); }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 10px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+  .pill {
+    display: inline-block;
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .r-Safe { color: var(--safe); background: var(--safe-bg); }
+  .r-PotentiallyProblematic { color: var(--pp); background: var(--pp-bg); }
+  .r-Unsafe { color: var(--unsafe); background: var(--unsafe-bg); }
+  .r-none { color: var(--none); background: var(--none-bg); }
+  .outcome { font-size: 12px; font-weight: 600; color: var(--miss); white-space: nowrap; }
+  .outcome.agree { color: var(--safe); }
+  .cell-hit { background: var(--safe-bg); font-weight: 600; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+  .filters button {
+    font: inherit; font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    overflow: hidden;
+  }
+  .card[hidden] { display: none; }
+  .card .image { background: var(--none-bg); display: flex; align-items: flex-start; justify-content: center; padding: 12px; }
+  .card .image img { max-width: 100%; height: auto; border-radius: 4px; display: block; }
+  .card .image .noimg { color: var(--muted); font-size: 13px; padding: 40px 0; }
+  .card .body { padding: 16px 18px; min-width: 0; }
+  .card h3 { margin: 0; font-size: 16px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .card h3 .task { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .human { margin: 10px 0 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .kind { color: var(--muted); font-size: 13px; }
+  .notes { margin: 6px 0 12px; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .notes li { margin: 2px 0; }
+  .old { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .answers { display: grid; gap: 10px; }
+  .answer { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .answer.miss { border-color: var(--miss); }
+  .answer header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+  .answer .model { font-weight: 600; }
+  .answer .category { font-size: 12px; color: var(--muted); }
+  .answer p { margin: 4px 0 0; font-size: 13px; white-space: pre-wrap; }
+  .majority { display: flex; gap: 10px; align-items: center; margin-top: 12px; font-size: 14px; }
+  a { color: var(--accent); }
+  @media (max-width: 720px) {
+    .card { grid-template-columns: 1fr; }
+    .card .image { max-height: 360px; overflow: hidden; }
+  }
+</style>
+</head>
+<body>
+{% macro pill(rating) -%}
+  {%- if rating in ratings -%}
+    <span class="pill r-{{ rating | replace(' ', '') }}">{{ rating }}</span>
+  {%- else -%}
+    <span class="pill r-none">{{ rating or "no answer" }}</span>
+  {%- endif -%}
+{%- endmacro %}
+{% macro outcome(answer) -%}
+  <span class="outcome {{ 'agree' if answer.outcome == 'agree' }}">{{ "matches annotators" if answer.outcome == "agree" else answer.outcome }}</span>
+{%- endmacro %}
+<main>
+  <h1>Glaswacht comparison with the annotators</h1>
+  <div class="meta">
+    Run <code>{{ c.results_csv.name }}</code> against <code>{{ c.reference_csv.parent.name }}/{{ c.reference_csv.name }}</code>
+    · {{ c.images | length }} images · models {{ c.models | join(", ") }} · generated {{ generated }}
+    {% if c.missing %}<br>Not in the run ({{ c.missing | length }}): {{ c.missing | join(", ") }}{% endif %}
+  </div>
+
+  <h2>Agreement with the annotators</h2>
+  <div class="panel">
+    <table>
+      <thead>
+        <tr><th></th><th class="num">Agree</th><th class="num">Too strict</th><th class="num">Too lenient</th><th class="num">No answer</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for label, score in c.scores.items() %}
+        <tr class="{{ 'highlight' if 'majority' in label }}">
+          <td>{{ label }}</td>
+          <td class="num">{{ score.agree }}/{{ score.total }}</td>
+          <td class="num">{{ score.too_strict }}</td>
+          <td class="num">{{ score.too_lenient }}</td>
+          <td class="num">{{ score.no_answer }}</td>
+          <td>
+            <div class="bar" title="{{ score.agree }} agree, {{ score.too_strict }} too strict, {{ score.too_lenient }} too lenient">
+              <span class="agree" style="width: {{ 100 * score.agree / score.total }}%"></span>
+              <span class="strict" style="width: {{ 100 * score.too_strict / score.total }}%"></span>
+              <span class="lenient" style="width: {{ 100 * score.too_lenient / score.total }}%"></span>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="legend">
+      <span><i style="background: var(--safe)"></i>matches annotators</span>
+      <span><i style="background: var(--unsafe)"></i>too strict</span>
+      <span><i style="background: var(--pp)"></i>too lenient</span>
+      <span>The images were chosen because the old models' majority disagreed with the annotators, so the old majority scores 0 by design.</span>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h2>New majority per kind of old disagreement</h2>
+      <div class="panel">
+        <table>
+          <thead><tr><th>Old disagreement</th><th class="num">Images</th><th class="num">Now agree</th><th class="num">Too strict</th><th class="num">Too lenient</th></tr></thead>
+          <tbody>
+            {% for kind, score in c.by_disagreement %}
+            <tr>
+              <td>{{ kind }}</td>
+              <td class="num">{{ score.total }}</td>
+              <td class="num">{{ score.agree }}</td>
+              <td class="num">{{ score.too_strict }}</td>
+              <td class="num">{{ score.too_lenient }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h2>New majority against the annotators</h2>
+      <div class="panel">
+        {% set confusion = c.confusion %}
+        <table>
+          <thead>
+            <tr><th>Annotators ↓ / majority →</th>{% for r in ratings %}<th class="num">{{ r }}</th>{% endfor %}<th class="num">No answer</th></tr>
+          </thead>
+          <tbody>
+            {% for human, row in confusion.items() %}
+            <tr>
+              <td>{{ pill(human) }}</td>
+              {% for answer, n in row.items() %}
+              <td class="num {{ 'cell-hit' if answer == human and n }}">{{ n }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h2>Per image</h2>
+  <div class="filters" role="group" aria-label="Filter images">
+    <button type="button" data-filter="all" aria-pressed="true">All ({{ c.images | length }})</button>
+    <button type="button" data-filter="majority" aria-pressed="false">New majority differs ({{ c.images | rejectattr("new_majority.outcome", "equalto", "agree") | list | length }})</button>
+    <button type="button" data-filter="any" aria-pressed="false">Any model differs ({{ c.images | selectattr("any_new_model_differs") | list | length }})</button>
+  </div>
+
+  {% for i in c.images %}
+  <article class="card"
+           data-majority="{{ 0 if i.new_majority.outcome == 'agree' else 1 }}"
+           data-any="{{ 1 if i.any_new_model_differs else 0 }}">
+    <div class="image">
+      {% if previews[i.image] %}
+      <a href="{{ originals[i.image] }}" target="_blank" title="Open the full image (on this computer)">
+        <img src="{{ previews[i.image] }}" alt="{{ i.image }}">
+      </a>
+      {% else %}
+      <div class="noimg">image not found</div>
+      {% endif %}
+    </div>
+    <div class="body">
+      <h3>{{ i.image }} <span class="task">task {{ i.task_id }}</span></h3>
+      <div class="human">
+        <span class="label">Annotators</span> {{ pill(i.human_rating) }}
+        <span class="kind">{{ i.human_ratings | length }} annotators · old: {{ i.disagreement }}</span>
+      </div>
+      {% if i.notes %}
+      <ul class="notes">{% for note in i.notes %}<li>{{ note }}</li>{% endfor %}</ul>
+      {% endif %}
+      <div class="old">
+        <span class="label">Old models</span>
+        {% for a in i.old_models %}{{ pill(a.rating) }}{% endfor %}
+        → majority {{ pill(i.old_majority.rating) }}
+      </div>
+      <div class="answers">
+        {% for model, a in i.new_models.items() %}
+        <section class="answer {{ 'miss' if a.outcome != 'agree' }}">
+          <header>
+            <span class="model">{{ model }}</span> {{ pill(a.rating) }} {{ outcome(a) }}
+            {% if a.category %}<span class="category">{{ a.category }}</span>{% endif %}
+          </header>
+          {% if a.rationale %}<p>{{ a.rationale }}</p>{% endif %}
+        </section>
+        {% endfor %}
+      </div>
+      <div class="majority">
+        <span class="label">New majority</span> {{ pill(i.new_majority.rating) }} {{ outcome(i.new_majority) }}
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</main>
+<script>
+  const buttons = document.querySelectorAll(".filters button");
+  const cards = document.querySelectorAll(".card");
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const filter = button.dataset.filter;
+      buttons.forEach((b) => b.setAttribute("aria-pressed", b === button ? "true" : "false"));
+      cards.forEach((card) => {
+        card.hidden = filter !== "all" && card.dataset[filter] !== "1";
+      });
+    });
+  });
+</script>
+</body>
+</html>

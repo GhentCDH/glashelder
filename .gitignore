@@ -45,3 +45,7 @@ clipcluster/analysis_report/data
 
 # artmatcher plots
 plots/
+
+# Label Studio export and the archive images selected from it
+glaswacht/src/labelstudio/
+glaswacht_output/

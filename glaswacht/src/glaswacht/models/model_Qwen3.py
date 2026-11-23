@@ -2,11 +2,7 @@ import logging
 
 import torch
 from PIL import Image
-from transformers import (
-    AutoProcessor,
-    BitsAndBytesConfig,
-    Qwen3VLForConditionalGeneration,
-)
+from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from glaswacht.models.base import TransformersSafetyModel
 from glaswacht.models.utils import get_prompt
@@ -22,23 +18,18 @@ class Qwen3(TransformersSafetyModel):
         super().__init__()
         self.prompt = None
 
-    def load_model(self):
-        logger.info("Downloading/loading Qwen3 model: Qwen/Qwen3-VL-8B-Instruct")
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-        )
+    MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
 
+    def load_model(self):
+        logger.info("Downloading/loading Qwen3 model: %s", self.MODEL_ID)
+        # full precision: 16.3 GiB of bfloat16 weights, which fits the 4090
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(
-            "Qwen/Qwen3-VL-8B-Instruct",
-            dtype="auto",
-            device_map="auto",
-            quantization_config=bnb_config,
-        )
-        self.model.eval()
-        self.processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+            self.MODEL_ID,
+            dtype=torch.bfloat16,
+            # all on the GPU: "auto" could quietly offload layers to the CPU
+            device_map="cuda",
+        ).eval()
+        self.processor = AutoProcessor.from_pretrained(self.MODEL_ID)
         logger.info("Qwen3 model loaded successfully")
 
     def message_constructor(self):
@@ -56,22 +47,18 @@ class Qwen3(TransformersSafetyModel):
                     {"type": "text", "text": self.prompt},
                 ],
             },
-            self._prefill_message(),
         ]
 
         inputs = self.processor.apply_chat_template(
             messages,
             tokenize=True,
-            continue_final_message=True,
+            add_generation_prompt=True,
             return_dict=True,
             return_tensors="pt",
         )
         inputs = inputs.to(self.model.device)
 
-        hyperparameters = {"max_new_tokens": 512}
-
-        with torch.inference_mode():
-            generated_ids = self.model.generate(**inputs, **hyperparameters)
+        generated_ids = self.generate(inputs)
 
         generated_ids_trimmed = [
             out_ids[len(in_ids) :]
@@ -83,4 +70,4 @@ class Qwen3(TransformersSafetyModel):
             clean_up_tokenization_spaces=False,
         )
 
-        return self.JSON_PREFILL + output_text[0]
+        return output_text[0]

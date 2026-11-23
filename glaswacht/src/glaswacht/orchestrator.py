@@ -4,19 +4,48 @@ import threading
 import traceback
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
+from pathlib import Path
+from typing import override
 
 from PIL import Image as PILImage
+from rich.markup import escape, render
 
 from glaswacht.models.safety_model import Rating, SafetyModel
 
 logger = logging.getLogger(__name__)
 
+# the logger every glaswacht module logs under, written to each run's log file
+_PACKAGE_LOGGER = logging.getLogger("glaswacht")
+
+# how much of a rationale the per-image log line shows; the CSV has all of it
+_EXCERPT_LENGTH = 300
+
+
+class _PlainFormatter(logging.Formatter):
+    """Writes records logged with Rich markup (`extra={"markup": True}`) as
+    plain text, so the log file holds no markup tags."""
+
+    @override
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        text = super().formatMessage(record)
+        return render(text).plain if getattr(record, "markup", False) else text
+
+
+def _excerpt(text: str, length: int = _EXCERPT_LENGTH) -> str:
+    """The start of `text` on one line, cut at a word and marked with … when
+    there is more."""
+    text = " ".join(text.split())
+    if len(text) <= length:
+        return text
+    return text[:length].rsplit(" ", 1)[0] + " …"
+
 
 class ModelStatus(Enum):
-    CHILLING = "Chilling 😎"
+    WAITING = "Waiting ⏳"
     LOADING = "Loading ⚙️"
-    RUNNING = "Running 👀"
+    PROCESSING = "Processing 🔎"
     DONE = "Done ✅"
     ERROR = "Error ❌"
 
@@ -47,23 +76,37 @@ class Skip:
 class Orchestrator:
     def __init__(self, model_classes: list[type[SafetyModel]] | None = None):
         if model_classes is None:
+            from glaswacht.models.model_Gemma3 import Gemma3
             from glaswacht.models.model_LLavaguard import LavaGuard
+            from glaswacht.models.model_Ministral3 import Ministral3
             from glaswacht.models.model_Pixtral import Pixtral
             from glaswacht.models.model_Qwen3 import Qwen3
 
-            model_classes = [LavaGuard, Qwen3, Pixtral]
+            model_classes = [
+                cls
+                for cls in [Qwen3, Ministral3, Gemma3, Pixtral, LavaGuard]
+                if cls.enabled_by_default
+            ]
         self.model_classes = model_classes
-        self.models: dict[str, ModelState] = {
-            cls.name: ModelState(cls.name, ModelStatus.CHILLING)
-            for cls in model_classes
-        }
-        self.assessments: dict[str, list[Rating]] = {
-            cls.name: [] for cls in model_classes
-        }
-        self.majority_votes: dict[str, str] = {}
-        self._ratings_by_image: dict[str, dict[str, str]] = defaultdict(dict)
-        self.skips: list[Skip] = []
         self._lock = threading.Lock()
+        # the files of the latest run; results_csv is None until it is written
+        self.log_path: Path | None = None
+        self.results_csv: Path | None = None
+        self.reset()
+
+    def reset(self) -> None:
+        """Forget everything a previous run processed."""
+        with self._lock:
+            self.models: dict[str, ModelState] = {
+                cls.name: ModelState(cls.name, ModelStatus.WAITING)
+                for cls in self.model_classes
+            }
+            self.assessments: dict[str, list[Rating]] = {
+                cls.name: [] for cls in self.model_classes
+            }
+            self.majority_votes: dict[str, str] = {}
+            self._ratings_by_image: dict[str, dict[str, str]] = defaultdict(dict)
+            self.skips: list[Skip] = []
 
     def get_state(self) -> dict[str, ModelState]:
         return self.models.copy()
@@ -105,7 +148,7 @@ class Orchestrator:
         run_success = False
         try:
             self.update_model_state(
-                name, status=ModelStatus.RUNNING, current_task="Processing images..."
+                name, status=ModelStatus.PROCESSING, current_task="Processing images..."
             )
             image_files = get_images(image_path)
             logger.info("%s: processing %d images", name, len(image_files))
@@ -138,13 +181,17 @@ class Orchestrator:
                     continue
 
                 self.assessments[name].append(assessment)
+                # Rich markup for a bold rating; the log file gets it plain
                 logger.info(
-                    "%s [%d/%d] %s → %s",
+                    "%s \\[%d/%d] %s → [bold]%s[/bold] | %s\n    %s",
                     name,
                     i + 1,
                     len(image_files),
-                    image_name,
-                    assessment.rating,
+                    escape(image_name),
+                    escape(assessment.rating),
+                    escape(assessment.category),
+                    escape(_excerpt(assessment.rationale)),
+                    extra={"markup": True},
                 )
                 self.update_model_state(name, latest_rating=assessment.rating)
                 self._record_rating(name, image_name, assessment.rating)
@@ -159,8 +206,59 @@ class Orchestrator:
                     name, status=ModelStatus.DONE, current_task="Done"
                 )
 
-    def run_all(self, path: str) -> None:
+    def run_all(self, path: str, output_dir: str | Path) -> Path | None:
+        """Run every model on the images at `path`, starting from a clean state.
+
+        Writes the run's log and results CSV to `output_dir`, named after the
+        date and time the run started. Returns the CSV, or None when a model
+        failed to load and the run was aborted.
+        """
+        from glaswacht.models.utils import image_path, output_folder, run_files
+
+        # before any model loads: a wrong path would otherwise load every
+        # model only to find no images, and write an empty results CSV
+        resolved = image_path(path)
+        if resolved is None:
+            raise FileNotFoundError(f"image folder or file not found: {path}")
+        path = str(resolved)
+
+        self.reset()
+        output_dir = output_folder(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        results_csv, self.log_path = run_files(output_dir, datetime.now())
+        self.results_csv = None
+
+        handler = logging.FileHandler(self.log_path, encoding="utf-8")
+        handler.setFormatter(
+            _PlainFormatter("%(asctime)s  %(levelname)s  %(name)s  %(message)s")
+        )
+        handler.setLevel(logging.INFO)
+        if _PACKAGE_LOGGER.getEffectiveLevel() > logging.INFO:
+            _PACKAGE_LOGGER.setLevel(logging.INFO)
+        _PACKAGE_LOGGER.addHandler(handler)
+        try:
+            logger.info(
+                "Run started: images=%s, models=%s",
+                path,
+                ", ".join(cls.name for cls in self.model_classes),
+            )
+            if self._run_models(path):
+                self._write_results(results_csv)
+                self.results_csv = results_csv
+            return self.results_csv
+        finally:
+            _PACKAGE_LOGGER.removeHandler(handler)
+            handler.close()
+
+    def _write_results(self, results_csv: Path) -> None:
         from glaswacht.models.utils import write_combined_csv
+
+        write_combined_csv(self.assessments, results_csv)
+        logger.info("Results written to %s", results_csv)
+
+    def _run_models(self, path: str) -> bool:
+        """Run the models one after another. False when one failed to load,
+        which aborts the run."""
 
         def handle_fatal_load_error(exc: Exception) -> None:
             for model_name in self.models:
@@ -178,7 +276,7 @@ class Orchestrator:
                     "%s load error:\n%s", model_class.name, traceback.format_exc()
                 )
                 handle_fatal_load_error(exc)
-                return
+                return False
             except Exception as exc:
                 logger.error(
                     "%s runtime error:\n%s", model_class.name, traceback.format_exc()
@@ -188,8 +286,7 @@ class Orchestrator:
                     status=ModelStatus.ERROR,
                     current_task=f"Failed: {exc}",
                 )
-
-        write_combined_csv(self.assessments)
+        return True
 
     def get_majority_votes(self) -> dict[str, str]:
         with self._lock:
@@ -199,9 +296,10 @@ class Orchestrator:
         with self._lock:
             return self.skips.copy()
 
-    def run_test(self, image_path: str | None = None) -> None:
+    def run_test(
+        self, image_path: str | None = None, output_dir: str | Path = "glaswacht_output"
+    ) -> None:
         import tempfile
-        from pathlib import Path
 
         if image_path is None:
             tmp = tempfile.mkdtemp()
@@ -213,5 +311,5 @@ class Orchestrator:
             path = image_path
 
         logger.info("Starting test run with: %s", path)
-        self.run_all(path)
+        self.run_all(path, output_dir)
         logger.info("Test run complete. Majority votes: %s", self.majority_votes)
