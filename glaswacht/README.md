@@ -1,17 +1,18 @@
 # Glaswacht
 
-Assesses the content safety of images using multiple vision-language models (LLavaGuard, Qwen3, Pixtral, Gemma 3) with majority voting.
+Assesses the content safety of images using multiple vision-language models with majority
+voting: Qwen3, Ministral 3 and Gemma 3 by default, LLavaGuard and Pixtral on request.
 
 ## Commands
 
 ```bash
-# launch the Glaswacht TUI monitor, runs all models except LLavaGuard;
+# launch the Glaswacht TUI monitor, runs Qwen3, Ministral 3 and Gemma 3;
 # the image folder can also be pasted in its IMAGES box (tab to edit, esc when done)
 uv run glashelder glaswacht tui --path ./images
 
-# run one or more models directly (LLavaGuard is off by default, select it to run it)
+# run one or more models directly (LLavaGuard and Pixtral are off by default, select them to run them)
 uv run glashelder glaswacht run --path ./images --model lavaguard
-uv run glashelder glaswacht run --path ./images --model qwen3 --model pixtral
+uv run glashelder glaswacht run --path ./images --model qwen3 --model ministral3
 
 # run the default models plus one that is off by default
 uv run glashelder glaswacht run --path ./images --enable lavaguard

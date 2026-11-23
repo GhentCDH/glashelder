@@ -54,12 +54,13 @@ class Orchestrator:
         if model_classes is None:
             from glaswacht.models.model_Gemma3 import Gemma3
             from glaswacht.models.model_LLavaguard import LavaGuard
+            from glaswacht.models.model_Ministral3 import Ministral3
             from glaswacht.models.model_Pixtral import Pixtral
             from glaswacht.models.model_Qwen3 import Qwen3
 
             model_classes = [
                 cls
-                for cls in [Qwen3, Pixtral, Gemma3, LavaGuard]
+                for cls in [Qwen3, Ministral3, Gemma3, Pixtral, LavaGuard]
                 if cls.enabled_by_default
             ]
         self.model_classes = model_classes

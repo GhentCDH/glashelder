@@ -136,7 +136,9 @@ def parse_output(output_text, model_type="lava"):
 
         # Try to parse the JSON
         try:
-            assessment = json.loads(json_str)
+            # strict=False accepts raw control characters such as tabs inside
+            # strings: the JSON grammar lets them through, strict JSON does not
+            assessment = json.loads(json_str, strict=False)
             if isinstance(assessment, dict):
                 return assessment
             return {

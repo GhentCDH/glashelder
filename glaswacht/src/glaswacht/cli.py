@@ -12,10 +12,11 @@ MODEL_REGISTRY: dict[str, type[SafetyModel]] = {}
 def _register_defaults() -> None:
     from glaswacht.models.model_Gemma3 import Gemma3
     from glaswacht.models.model_LLavaguard import LavaGuard
+    from glaswacht.models.model_Ministral3 import Ministral3
     from glaswacht.models.model_Pixtral import Pixtral
     from glaswacht.models.model_Qwen3 import Qwen3
 
-    for cls in [LavaGuard, Qwen3, Pixtral, Gemma3]:
+    for cls in [LavaGuard, Qwen3, Ministral3, Gemma3, Pixtral]:
         MODEL_REGISTRY[cls.name] = cls
 
 
