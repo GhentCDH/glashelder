@@ -59,9 +59,9 @@ def _rating_markup(rating: str) -> str:
 
 def _status_markup(status: ModelStatus) -> str:
     color_map = {
-        ModelStatus.CHILLING: _SEPIA_MID,
+        ModelStatus.WAITING: _SEPIA_MID,
         ModelStatus.LOADING: _SEPIA_WARN,
-        ModelStatus.RUNNING: _SEPIA_BRIGHT,
+        ModelStatus.PROCESSING: _SEPIA_BRIGHT,
         ModelStatus.DONE: _SEPIA_SAFE,
         ModelStatus.ERROR: _SEPIA_DANGER,
     }

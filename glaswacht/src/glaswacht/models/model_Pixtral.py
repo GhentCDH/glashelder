@@ -40,7 +40,7 @@ class Pixtral(TransformersSafetyModel):
 
     def message_constructor(self):
         taxonomy = get_prompt()
-        self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]{self.JSON_PREFILL}"
+        self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]"
 
     def _run_inference(self, image: Image.Image) -> str:
         if self.prompt is None:
@@ -50,10 +50,12 @@ class Pixtral(TransformersSafetyModel):
             images=[image], text=self.prompt, return_tensors="pt"
         ).to("cuda")
 
-        hyperparameters = {"max_new_tokens": 200}
+        hyperparameters = {"max_new_tokens": self.MAX_NEW_TOKENS}
 
         with torch.inference_mode():
-            generate_ids = self.model.generate(**inputs, **hyperparameters)
+            generate_ids = self.model.generate(
+                **inputs, **hyperparameters, logits_processor=self.json_constraint()
+            )
 
         input_len = inputs["input_ids"].shape[-1]
         continuation = self.processor.batch_decode(
@@ -61,4 +63,4 @@ class Pixtral(TransformersSafetyModel):
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False,
         )[0]
-        return self.JSON_PREFILL + continuation
+        return continuation

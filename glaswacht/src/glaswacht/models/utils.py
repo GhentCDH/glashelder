@@ -46,7 +46,7 @@ def parse_output(output_text, model_type="lava"):
 
     Args:
         output_text: The output text to parse
-        model_type: The model type - "lava", "pixtral", or "qwen"
+        model_type: The model type - "lava", "pixtral", "qwen", or "gemma"
     """
     try:
         json_str = None
@@ -57,7 +57,7 @@ def parse_output(output_text, model_type="lava"):
             if "```json" in output_text:
                 json_str = output_text.split("```json")[1].replace("```", "").strip()
 
-        # Default extraction: find balanced JSON braces (used by lava, qwen, or fallback for pixtral)
+        # Default extraction: find balanced JSON braces (used by lava, qwen, gemma, or fallback for pixtral)
         if not json_str:
             start_idx = output_text.find("{")
             if start_idx == -1:

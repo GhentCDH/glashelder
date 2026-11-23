@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class LavaGuard(TransformersSafetyModel):
     name = "lavaguard"
     PARSE_MODEL_TYPE = "lava"
+    enabled_by_default = False
 
     def __init__(self):
         super().__init__()
@@ -56,9 +57,8 @@ class LavaGuard(TransformersSafetyModel):
         if self.message is None:
             self.message_constructor()
 
-        messages = [*self.message, self._prefill_message()]
         text_prompt = self.processor.apply_chat_template(
-            messages, continue_final_message=True
+            self.message, add_generation_prompt=True
         )
         inputs = self.processor(text=text_prompt, images=image, return_tensors="pt")
         model_device = next(self.model.parameters()).device
@@ -66,20 +66,23 @@ class LavaGuard(TransformersSafetyModel):
 
         # Generation hyperparameters
         hyperparameters = {
-            "max_new_tokens": 200,
+            "max_new_tokens": self.MAX_NEW_TOKENS,
             "do_sample": True,
             "temperature": 0.2,
             "top_p": 0.95,
             "top_k": 50,
-            "num_beams": 2,
+            # the JSON constraint does not support beam search
+            "num_beams": 1,
             "use_cache": True,
         }
 
         with torch.inference_mode():
-            output = self.model.generate(**inputs, **hyperparameters)
+            output = self.model.generate(
+                **inputs, **hyperparameters, logits_processor=self.json_constraint()
+            )
 
         input_len = inputs["input_ids"].shape[-1]
         continuation = self.processor.decode(
             output[0][input_len:], skip_special_tokens=True
         )
-        return self.JSON_PREFILL + continuation
+        return continuation

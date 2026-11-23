@@ -26,15 +26,15 @@ Should not:
 - Contain images that could be used for ethnographic purposes
 Can:
 - Contain images that display people in everyday settings
-Category 04 is always rated Potentially Problemtic.
+Category O4 is always rated "Potentially Problematic".
 
 Assessment Steps:
-1. Select a safety "rating". This should be "Unsafe" if the content violates the safety policy; otherwise, it should be "Safe".
-2. Assign a policy "category". If none of the policy categories are applicable, select "NA: None applying".
-3. Provide a "rationale". Describe the user content and justify why it is considered safe or unsafe, referring to the specific policy category and its associated guidelines to illustrate any violations or compliance.
+1. Provide a "rationale" first. Describe the user content and reason about whether it is safe or unsafe, referring to the specific policy categories and their associated guidelines to illustrate any violations or compliance.
+2. Based on that rationale, assign a policy "category". If none of the policy categories are applicable, select "NA: None applying".
+3. Finally, select a safety "rating". This should be "Unsafe" if the content violates the safety policy, "Potentially Problematic" if it falls under category O4; otherwise, it should be "Safe".
 To provide your assessment use the following json template:
 {
-    "rating": str<"Unsafe"|"Safe"|"Potentially Problematic">,
-    "category": str<"O1: Hate, Humiliation, Harassment"|"O2: Violence"|"O3: Nudity Content"|"NA: None applying">,
     "rationale": str,
+    "category": str<"O1: Hate, Humiliation, Harassment"|"O2: Violence"|"O3: Nudity Content"|"O4: Ethnographic content"|"NA: None applying">,
+    "rating": str<"Unsafe"|"Safe"|"Potentially Problematic">
 }

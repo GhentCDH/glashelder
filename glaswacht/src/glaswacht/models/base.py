@@ -1,49 +1,68 @@
 import gc
 import logging
+import os
 from abc import abstractmethod
 from typing import ClassVar
 
 import torch
+import xgrammar as xgr
 from PIL import Image
+from transformers import LogitsProcessor
 
-from glaswacht.models.safety_model import Rating, SafetyModel
+from glaswacht.models.safety_model import ASSESSMENT_SCHEMA, Rating, SafetyModel
 from glaswacht.models.utils import parse_output
 
 logger = logging.getLogger(__name__)
+
+# Transformers otherwise copies weights to the GPU in parallel threads, still
+# unquantized, ahead of the loop that quantizes them. With a warm disk cache
+# the copies outrun quantization and the full-precision model (~24 GB for
+# Gemma 3 12B) piles up on the GPU, so the load runs out of memory. Loading
+# sequentially quantizes each weight as soon as it arrives.
+os.environ.setdefault("HF_DEACTIVATE_ASYNC_LOAD", "1")
 
 
 class TransformersSafetyModel(SafetyModel):
     """Shared lifecycle for HF-transformers-backed safety models.
 
-    Subclasses implement `load_model()` and `_run_inference()` exactly as
-    their old `process_image()` bodies did; everything else (lazy load,
-    defensive checks, output parsing, Rating construction) lives here.
+    Subclasses implement `load_model()` and `_run_inference()`; everything
+    else (lazy load, defensive checks, JSON-constrained decoding, output
+    parsing, Rating construction) lives here.
     """
 
     PARSE_MODEL_TYPE: ClassVar[str]
 
-    # Prefilled into the assistant's turn so the model only has to fill in
-    # the values, rather than generate the JSON structure itself. Mirrors
-    # the indentation of the template shown in models/taxonomy.txt.
-    JSON_PREFILL: ClassVar[str] = '{\n    "rating": "'
+    # Enough for the longest answer ASSESSMENT_SCHEMA allows
+    MAX_NEW_TOKENS: ClassVar[int] = 512
 
     def __init__(self):
         self.model = None
         self.processor = None
+        self._grammar: xgr.CompiledGrammar | None = None
 
-    def _prefill_message(self) -> dict:
-        """An assistant turn pre-filled with the JSON scaffold, for models
-        that build a chat message list (see `apply_chat_template(...,
-        continue_final_message=True)` in subclasses using this)."""
-        return {
-            "role": "assistant",
-            "content": [{"type": "text", "text": self.JSON_PREFILL}],
-        }
+    def json_constraint(self) -> list[LogitsProcessor]:
+        """Logits processors for `generate()` that force an answer matching
+        ASSESSMENT_SCHEMA. Pass a fresh list to every `generate()` call; the
+        processor keeps state and cannot be reused. Needs greedy or sampled
+        decoding, not beam search."""
+        if self._grammar is None:
+            # the logits can be wider than the tokenizer's vocab due to padding
+            vocab_size = self.model.get_output_embeddings().out_features
+            tokenizer_info = xgr.TokenizerInfo.from_huggingface(
+                self.processor.tokenizer,
+                vocab_size=vocab_size,
+                stop_token_ids=self.model.generation_config.eos_token_id,
+            )
+            self._grammar = xgr.GrammarCompiler(tokenizer_info).compile_json_schema(
+                ASSESSMENT_SCHEMA, any_whitespace=False
+            )
+        return [xgr.contrib.hf.LogitsProcessor(self._grammar)]
 
     def unload_model(self) -> None:
         logger.info("Unloading %s model", self.name)
         self.model = None
         self.processor = None
+        self._grammar = None
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.synchronize()

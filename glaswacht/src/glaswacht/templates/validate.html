@@ -103,7 +103,7 @@
 
       .models-comparison {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: 30px;
       }
 
@@ -275,6 +275,7 @@
         <div class="models-comparison">
 
           <!-- LavaGuard -->
+          {% if 'lavaguard_rating' in result %}
           <div class="model-section">
             <div class="model-header">LavaGuard</div>
             <div class="info-panel">
@@ -300,8 +301,10 @@
               </div>
             </div>
           </div>
+          {% endif %}
 
           <!-- Qwen3-VL-8B -->
+          {% if 'qwen3_rating' in result %}
           <div class="model-section">
             <div class="model-header">Qwen3-VL-8B</div>
             <div class="info-panel">
@@ -327,8 +330,10 @@
               </div>
             </div>
           </div>
+          {% endif %}
 
           <!-- Pixtral12bQ8 -->
+          {% if 'pixtral_rating' in result %}
           <div class="model-section">
             <div class="model-header">Pixtral12bQ8</div>
             <div class="info-panel">
@@ -354,6 +359,36 @@
               </div>
             </div>
           </div>
+          {% endif %}
+
+          <!-- Gemma-3-12B -->
+          {% if 'gemma3_rating' in result %}
+          <div class="model-section">
+            <div class="model-header">Gemma-3-12B</div>
+            <div class="info-panel">
+              <div class="info-item">
+                <div class="info-label">Rating</div>
+                <div class="info-value">
+                  {% if result.gemma3_rating == "Safe" %}
+                    <span class="rating-safe">{{ result.gemma3_rating }}</span>
+                  {% elif result.gemma3_rating == "Potentially Problematic" %}
+                    <span class="rating-potentially-problematic">{{ result.gemma3_rating }}</span>
+                  {% else %}
+                    <span class="rating-unsafe">{{ result.gemma3_rating }}</span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Category</div>
+                <div class="info-value">{{ result.gemma3_category }}</div>
+              </div>
+              <div class="info-item">
+                <div class="info-label">Rationale</div>
+                <div class="info-value rationale-text">{{ result.gemma3_rationale }}</div>
+              </div>
+            </div>
+          </div>
+          {% endif %}
 
         </div>
       </div>

@@ -10,19 +10,51 @@ MODEL_REGISTRY: dict[str, type[SafetyModel]] = {}
 
 
 def _register_defaults() -> None:
+    from glaswacht.models.model_Gemma3 import Gemma3
     from glaswacht.models.model_LLavaguard import LavaGuard
     from glaswacht.models.model_Pixtral import Pixtral
     from glaswacht.models.model_Qwen3 import Qwen3
 
-    for cls in [LavaGuard, Qwen3, Pixtral]:
+    for cls in [LavaGuard, Qwen3, Pixtral, Gemma3]:
         MODEL_REGISTRY[cls.name] = cls
 
 
 _register_defaults()
 
 
-def _model_classes_from_names(model_names: tuple[str, ...]) -> list[type[SafetyModel]]:
-    return [MODEL_REGISTRY[name] for name in model_names]
+def _model_classes_from_names(
+    model_names: tuple[str, ...], enabled: tuple[str, ...] = ()
+) -> list[type[SafetyModel]]:
+    """Resolve model names to classes, adding the enabled ones."""
+    names = list(dict.fromkeys([*model_names, *enabled]))
+    return [MODEL_REGISTRY[name] for name in names]
+
+
+def model_options(func):
+    """Add the --model and --enable options, named as in MODEL_REGISTRY."""
+    choices = click.Choice(list(MODEL_REGISTRY.keys()))
+    off_by_default = [
+        name for name, cls in MODEL_REGISTRY.items() if not cls.enabled_by_default
+    ]
+    func = click.option(
+        "--enable",
+        "enabled",
+        multiple=True,
+        type=choices,
+        help="Model(s) to run on top of the --model ones, such as those off by "
+        f"default ({', '.join(off_by_default) or 'none'}). Repeat to enable multiple.",
+    )(func)
+    return click.option(
+        "--model",
+        "model_names",
+        multiple=True,
+        type=choices,
+        default=[
+            name for name, cls in MODEL_REGISTRY.items() if cls.enabled_by_default
+        ],
+        show_default=True,
+        help="Model(s) to run. Repeat to select multiple.",
+    )(func)
 
 
 @click.group()
@@ -38,21 +70,13 @@ def glaswacht():
     type=click.Path(exists=True),
     help="Path to image folder to assess.",
 )
-@click.option(
-    "--model",
-    "model_names",
-    multiple=True,
-    type=click.Choice(list(MODEL_REGISTRY.keys())),
-    default=list(MODEL_REGISTRY.keys()),
-    show_default=True,
-    help="Model(s) to run. Repeat to select multiple.",
-)
-def tui(path, model_names):
+@model_options
+def tui(path, model_names, enabled):
     """Launch the Glaswacht TUI monitor."""
     from glaswacht.orchestrator import Orchestrator
     from glaswacht.tui import MonitorApp
 
-    model_classes = _model_classes_from_names(model_names)
+    model_classes = _model_classes_from_names(model_names, enabled)
     orchestrator = Orchestrator(model_classes)
     app = MonitorApp(orchestrator, image_path=path)
     app.run(mouse=False)
@@ -63,20 +87,12 @@ def tui(path, model_names):
 @click.option(
     "--path", required=True, help="Path to image folder or single image file."
 )
-@click.option(
-    "--model",
-    "model_names",
-    multiple=True,
-    type=click.Choice(list(MODEL_REGISTRY.keys())),
-    default=list(MODEL_REGISTRY.keys()),
-    show_default=True,
-    help="Model(s) to run. Repeat to select multiple.",
-)
-def run(path, model_names):
+@model_options
+def run(path, model_names, enabled):
     """Run selected vision-language models on images."""
     from glaswacht.orchestrator import Orchestrator
 
-    model_classes = _model_classes_from_names(model_names)
+    model_classes = _model_classes_from_names(model_names, enabled)
     orchestrator = Orchestrator(model_classes)
     orchestrator.run_all(path)
 

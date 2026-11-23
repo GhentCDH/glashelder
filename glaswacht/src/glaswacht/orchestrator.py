@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class ModelStatus(Enum):
-    CHILLING = "Chilling 😎"
+    WAITING = "Waiting ⏳"
     LOADING = "Loading ⚙️"
-    RUNNING = "Running 👀"
+    PROCESSING = "Processing 🔎"
     DONE = "Done ✅"
     ERROR = "Error ❌"
 
@@ -47,15 +47,19 @@ class Skip:
 class Orchestrator:
     def __init__(self, model_classes: list[type[SafetyModel]] | None = None):
         if model_classes is None:
+            from glaswacht.models.model_Gemma3 import Gemma3
             from glaswacht.models.model_LLavaguard import LavaGuard
             from glaswacht.models.model_Pixtral import Pixtral
             from glaswacht.models.model_Qwen3 import Qwen3
 
-            model_classes = [LavaGuard, Qwen3, Pixtral]
+            model_classes = [
+                cls
+                for cls in [Qwen3, Pixtral, Gemma3, LavaGuard]
+                if cls.enabled_by_default
+            ]
         self.model_classes = model_classes
         self.models: dict[str, ModelState] = {
-            cls.name: ModelState(cls.name, ModelStatus.CHILLING)
-            for cls in model_classes
+            cls.name: ModelState(cls.name, ModelStatus.WAITING) for cls in model_classes
         }
         self.assessments: dict[str, list[Rating]] = {
             cls.name: [] for cls in model_classes
@@ -105,7 +109,7 @@ class Orchestrator:
         run_success = False
         try:
             self.update_model_state(
-                name, status=ModelStatus.RUNNING, current_task="Processing images..."
+                name, status=ModelStatus.PROCESSING, current_task="Processing images..."
             )
             image_files = get_images(image_path)
             logger.info("%s: processing %d images", name, len(image_files))

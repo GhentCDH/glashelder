@@ -56,22 +56,23 @@ class Qwen3(TransformersSafetyModel):
                     {"type": "text", "text": self.prompt},
                 ],
             },
-            self._prefill_message(),
         ]
 
         inputs = self.processor.apply_chat_template(
             messages,
             tokenize=True,
-            continue_final_message=True,
+            add_generation_prompt=True,
             return_dict=True,
             return_tensors="pt",
         )
         inputs = inputs.to(self.model.device)
 
-        hyperparameters = {"max_new_tokens": 512}
+        hyperparameters = {"max_new_tokens": self.MAX_NEW_TOKENS}
 
         with torch.inference_mode():
-            generated_ids = self.model.generate(**inputs, **hyperparameters)
+            generated_ids = self.model.generate(
+                **inputs, **hyperparameters, logits_processor=self.json_constraint()
+            )
 
         generated_ids_trimmed = [
             out_ids[len(in_ids) :]
@@ -83,4 +84,4 @@ class Qwen3(TransformersSafetyModel):
             clean_up_tokenization_spaces=False,
         )
 
-        return self.JSON_PREFILL + output_text[0]
+        return output_text[0]
