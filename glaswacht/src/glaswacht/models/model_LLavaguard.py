@@ -2,11 +2,7 @@ import logging
 
 import torch
 from PIL import Image
-from transformers import (
-    AutoProcessor,
-    BitsAndBytesConfig,
-    LlavaOnevisionForConditionalGeneration,
-)
+from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 
 from glaswacht.models.base import TransformersSafetyModel
 from glaswacht.models.utils import get_prompt
@@ -26,16 +22,12 @@ class LavaGuard(TransformersSafetyModel):
     def load_model(self):
         model_id = "AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf"
         logger.info("Downloading/loading LavaGuard model: %s", model_id)
-        quantization_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.float16,
-        )
+        # full precision: 15.0 GiB of bfloat16 weights, which fits the 4090
         self.model = LlavaOnevisionForConditionalGeneration.from_pretrained(
             model_id,
-            quantization_config=quantization_config,
-            device_map="auto",
+            dtype=torch.bfloat16,
+            # all on the GPU: "auto" could quietly offload layers to the CPU
+            device_map="cuda",
         ).eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
         logger.info("LavaGuard model loaded successfully")
