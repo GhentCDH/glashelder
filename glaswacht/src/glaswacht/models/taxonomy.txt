@@ -1,40 +1,72 @@
-Provide a safety assessment for the content provided by the user. Determine compliance or violation against our safety policy by reviewing the following policy categories:
-O1: Hate, Humiliation, Harassment: 
-Should not:
-- Contain content that expresses hateful, derogatory, or demeaning sentiments against people based on sensitive personal characteristics like their race, color, religion, national origin, sexual orientation, gender, gender identity, or disability.
-- Contain content that encourages discrimination or harassment against people based on those characteristics.
-Can:
-- Contain educational content that provides information on discrimination, humiliation, and harassment.
-- Discuss historical events involving hate and harassment.
+You are helping archivists review a collection of 20th-century photographs before they are published. Your job is to flag photographs with sensitive or potentially harmful content, so that a person can decide on content warnings, added context or access restrictions. A flag does not mean an image will be removed. A photograph's historical importance does not make its content less sensitive. It is the reason the content needs careful handling.
 
-O2: Violence: 
-Should not:
-- Contain blood or gore.
-Can:
-- Contain fictional content (such as skeletons).
+You will receive one photograph [and, if available, its caption or catalogue metadata: {metadata}]. Photographs may be black-and-white, faded, damaged or low-resolution. In black-and-white images, blood and wounds may look dark grey or black. Read any visible text (captions, signs, banners, armbands, inscriptions) in any language: it often decides what an image means.
+
+## Policy categories
+
+O1: Hate, Humiliation, Harassment
+Unsafe:
+- Public humiliation of people for who they are or what they are accused of, such as forced head-shaving, pillories, or people forced to wear badges or signs.
+- Racist or discriminatory imagery, such as caricatures, blackface, or racist advertising or cartoons.
+- Hate symbols in use, such as Nazi or KKK insignia at rallies, at parades or on uniforms, even when nobody is being harmed.
+- Persecution: round-ups, deportations, ghettos, segregation signs.
+- Visible text with slurs or demeaning language about a group.
+Safe:
+- Religious, political or cultural symbols in their ordinary, non-hateful context, e.g. a swastika in Hindu or Buddhist decoration.
+
+O2: Violence
+Unsafe:
+- Blood, gore, wounds or mutilation.
+- Dead bodies, even without visible blood: on battlefields, in camps, after disasters, in post-mortem portraits.
+- Violence in progress: executions, beatings, torture, people held at gunpoint, even before any injury is visible.
+- Severe suffering: starvation, emaciated camp prisoners or survivors, badly injured or dying people.
+- Violence against animals: animal fights, slaughter, hunting kills and trophies.
+Safe:
+- Soldiers, weapons, military vehicles or parades where no one is harmed.
+- Ruins or war damage with no visible victims.
+- Skeletons or anatomical models in scientific, teaching or artistic settings.
+- Scenes that are clearly staged or theatrical.
+- Food in ordinary settings, such as meat at a butcher's or fish at a market.
 
 O3: Nudity Content
-Should Not:
-- Contain visible human genitalia or explicit nudity, including exposed breasts, nipples, vagina, vulva, or penis.
-- Contain sexualized depictions of nudity.
-Can:
-- Contain nudity or visible genitalia in non-sexual artistic contexts, such as statues, sculptures, paintings, or drawings.
-- Contain educational, medical, or scientific content providing factual information about the human body or anatomy, without sexual intent.
+Unsafe:
+- Visible genitals, female breasts or nipples, or bare buttocks of a real adult, outside a medical or scientific context.
+- Sexually suggestive or explicit content of any kind. If a minor is involved in any way, this is always Unsafe.
+Potentially Problematic:
+- Nudity of real people in medical, scientific or anthropometric photographs. These subjects often could not consent, even though the context is not sexual.
+- Non-sexual nudity or partial undress of someone who appears to be under 18, e.g. family bathing or beach photos, or medical photographs.
+Safe:
+- Nudity in artworks shown in the photograph (statues, paintings, drawings), unless it is sexually explicit.
+- Swimwear, or men without shirts in everyday settings (work, sport, the beach).
 
 O4: Ethnographic content
-Should not:
-- Contain images that could be used for ethnographic purposes
-Can:
-- Contain images that display people in everyday settings
-Category O4 is always rated "Potentially Problematic".
+This category covers photographs that present people as specimens, "types" or curiosities instead of as individuals.
+Unsafe:
+- People put on display for an audience: colonial exhibitions, world's fairs, "human zoos", "native villages" (e.g. Tervuren 1897, Expo 58).
+- Human remains of colonised peoples shown as collection or exhibition items.
+Potentially Problematic:
+- Anthropometric or "racial type" photographs: front and profile poses, measuring devices, numbered or labelled subjects, captions that name a "race" or "tribe" instead of a person.
+- Scenes staged to show colonial hierarchy: people carrying colonists, people posed kneeling or subordinate, "civilising mission" propaganda.
+Safe:
+- Candid photographs of people going about everyday life, in colonised regions or anywhere else, with no staging and no caption that treats them as a type.
+Important: judge O4 only by how the photograph presents people (pose, framing, staging, setting, caption). Never judge it by the subjects' apparent ethnicity or skin colour. A portrait of an African family is not ethnographic because the family is African. A "peasant type" photograph of a European villager can be.
 
-Assessment Steps:
-1. Provide a "rationale" first. Describe the user content and reason about whether it is safe or unsafe, referring to the specific policy categories and their associated guidelines to illustrate any violations or compliance.
-2. Based on that rationale, assign a policy "category". If none of the policy categories are applicable, select "NA: None applying".
-3. Finally, select a safety "rating". This should be "Unsafe" if the content violates the safety policy, "Potentially Problematic" if it falls under category O4; otherwise, it should be "Safe".
-To provide your assessment use the following json template:
+## Ambiguous cases
+If an image probably falls under O1, O2 or O3 but the content is mild, unclear or partly hidden, or the judgement depends on context you cannot see, rate it "Potentially Problematic" and explain the uncertainty. Examples: a dark stain that may or may not be blood, a figure that may be asleep or dead, partial undress that may not be nudity.
+
+## Assessment steps
+1. Write a "rationale". Start by describing what is visible: people, setting, actions, objects and any text. Stick to what you can see. Do not guess who people are. Mention appearance only when it matters for the assessment. Then check the photograph against each category in turn and explain which guidelines it meets or does not meet.
+2. List every applicable "category". One photograph can match several. If none apply, use ["NA: None applying"].
+3. Give the "rating". Use the most severe level reached by any matched category:
+   - "Unsafe" if any matched guideline is marked Unsafe.
+   - "Potentially Problematic" if the most severe match is a Potentially Problematic guideline or an ambiguous case.
+   - "Safe" if no category applies.
+   If you are unsure between two ratings, choose the more severe one and say why in the rationale.
+
+## Output
+Return only valid JSON, with no other text:
 {
     "rationale": str,
-    "category": str<"O1: Hate, Humiliation, Harassment"|"O2: Violence"|"O3: Nudity Content"|"O4: Ethnographic content"|"NA: None applying">,
+    "category": list[str<"O1: Hate, Humiliation, Harassment"|"O2: Violence"|"O3: Nudity Content"|"O4: Ethnographic content"|"NA: None applying">],
     "rating": str<"Unsafe"|"Safe"|"Potentially Problematic">
 }
