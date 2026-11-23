@@ -67,12 +67,7 @@ class Gemma3(TransformersSafetyModel):
             return_tensors="pt",
         ).to(self.model.device)
 
-        hyperparameters = {"max_new_tokens": self.MAX_NEW_TOKENS, "do_sample": False}
-
-        with torch.inference_mode():
-            generated_ids = self.model.generate(
-                **inputs, **hyperparameters, logits_processor=self.json_constraint()
-            )
+        generated_ids = self.generate(inputs)
 
         input_len = inputs["input_ids"].shape[-1]
         continuation = self.processor.decode(

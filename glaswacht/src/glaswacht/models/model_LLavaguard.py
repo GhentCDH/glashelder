@@ -64,22 +64,7 @@ class LavaGuard(TransformersSafetyModel):
         model_device = next(self.model.parameters()).device
         inputs = {k: v.to(model_device) for k, v in inputs.items()}
 
-        # Generation hyperparameters
-        hyperparameters = {
-            "max_new_tokens": self.MAX_NEW_TOKENS,
-            "do_sample": True,
-            "temperature": 0.2,
-            "top_p": 0.95,
-            "top_k": 50,
-            # the JSON constraint does not support beam search
-            "num_beams": 1,
-            "use_cache": True,
-        }
-
-        with torch.inference_mode():
-            output = self.model.generate(
-                **inputs, **hyperparameters, logits_processor=self.json_constraint()
-            )
+        output = self.generate(inputs)
 
         input_len = inputs["input_ids"].shape[-1]
         continuation = self.processor.decode(

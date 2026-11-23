@@ -50,12 +50,7 @@ class Pixtral(TransformersSafetyModel):
             images=[image], text=self.prompt, return_tensors="pt"
         ).to("cuda")
 
-        hyperparameters = {"max_new_tokens": self.MAX_NEW_TOKENS}
-
-        with torch.inference_mode():
-            generate_ids = self.model.generate(
-                **inputs, **hyperparameters, logits_processor=self.json_constraint()
-            )
+        generate_ids = self.generate(inputs)
 
         input_len = inputs["input_ids"].shape[-1]
         continuation = self.processor.batch_decode(

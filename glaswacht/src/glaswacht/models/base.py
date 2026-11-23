@@ -7,7 +7,7 @@ from typing import ClassVar
 import torch
 import xgrammar as xgr
 from PIL import Image
-from transformers import LogitsProcessor
+from transformers import LogitsProcessor, set_seed
 
 from glaswacht.models.safety_model import ASSESSMENT_SCHEMA, Rating, SafetyModel
 from glaswacht.models.utils import parse_output
@@ -34,6 +34,9 @@ class TransformersSafetyModel(SafetyModel):
 
     # Enough for the longest answer ASSESSMENT_SCHEMA allows
     MAX_NEW_TOKENS: ClassVar[int] = 512
+    # Reset before every image, so an image's result does not depend on
+    # which images came before it
+    SEED: ClassVar[int] = 0
 
     def __init__(self):
         self.model = None
@@ -57,6 +60,21 @@ class TransformersSafetyModel(SafetyModel):
                 ASSESSMENT_SCHEMA, any_whitespace=False
             )
         return [xgr.contrib.hf.LogitsProcessor(self._grammar)]
+
+    def generate(self, inputs) -> torch.Tensor:
+        """Run `generate()` reproducibly: seeded, greedy (temperature 0) and
+        constrained to ASSESSMENT_SCHEMA. Returns prompt plus answer ids."""
+        set_seed(self.SEED)
+        with torch.inference_mode():
+            return self.model.generate(
+                **inputs,
+                max_new_tokens=self.MAX_NEW_TOKENS,
+                # greedy decoding, overriding any sampling the model's own
+                # generation_config asks for (Qwen3 and Gemma 3 do)
+                do_sample=False,
+                num_beams=1,
+                logits_processor=self.json_constraint(),
+            )
 
     def unload_model(self) -> None:
         logger.info("Unloading %s model", self.name)
