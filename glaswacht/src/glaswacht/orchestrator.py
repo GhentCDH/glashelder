@@ -7,8 +7,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from typing import override
 
 from PIL import Image as PILImage
+from rich.markup import escape, render
 
 from glaswacht.models.safety_model import Rating, SafetyModel
 
@@ -16,6 +18,28 @@ logger = logging.getLogger(__name__)
 
 # the logger every glaswacht module logs under, written to each run's log file
 _PACKAGE_LOGGER = logging.getLogger("glaswacht")
+
+# how much of a rationale the per-image log line shows; the CSV has all of it
+_EXCERPT_LENGTH = 300
+
+
+class _PlainFormatter(logging.Formatter):
+    """Writes records logged with Rich markup (`extra={"markup": True}`) as
+    plain text, so the log file holds no markup tags."""
+
+    @override
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        text = super().formatMessage(record)
+        return render(text).plain if getattr(record, "markup", False) else text
+
+
+def _excerpt(text: str, length: int = _EXCERPT_LENGTH) -> str:
+    """The start of `text` on one line, cut at a word and marked with … when
+    there is more."""
+    text = " ".join(text.split())
+    if len(text) <= length:
+        return text
+    return text[:length].rsplit(" ", 1)[0] + " …"
 
 
 class ModelStatus(Enum):
@@ -157,13 +181,17 @@ class Orchestrator:
                     continue
 
                 self.assessments[name].append(assessment)
+                # Rich markup for a bold rating; the log file gets it plain
                 logger.info(
-                    "%s [%d/%d] %s → %s",
+                    "%s \\[%d/%d] %s → [bold]%s[/bold] | %s\n    %s",
                     name,
                     i + 1,
                     len(image_files),
-                    image_name,
-                    assessment.rating,
+                    escape(image_name),
+                    escape(assessment.rating),
+                    escape(assessment.category),
+                    escape(_excerpt(assessment.rationale)),
+                    extra={"markup": True},
                 )
                 self.update_model_state(name, latest_rating=assessment.rating)
                 self._record_rating(name, image_name, assessment.rating)
@@ -185,7 +213,14 @@ class Orchestrator:
         date and time the run started. Returns the CSV, or None when a model
         failed to load and the run was aborted.
         """
-        from glaswacht.models.utils import output_folder, run_files
+        from glaswacht.models.utils import image_path, output_folder, run_files
+
+        # before any model loads: a wrong path would otherwise load every
+        # model only to find no images, and write an empty results CSV
+        resolved = image_path(path)
+        if resolved is None:
+            raise FileNotFoundError(f"image folder or file not found: {path}")
+        path = str(resolved)
 
         self.reset()
         output_dir = output_folder(output_dir)
@@ -195,7 +230,7 @@ class Orchestrator:
 
         handler = logging.FileHandler(self.log_path, encoding="utf-8")
         handler.setFormatter(
-            logging.Formatter("%(asctime)s  %(levelname)s  %(name)s  %(message)s")
+            _PlainFormatter("%(asctime)s  %(levelname)s  %(name)s  %(message)s")
         )
         handler.setLevel(logging.INFO)
         if _PACKAGE_LOGGER.getEffectiveLevel() > logging.INFO:

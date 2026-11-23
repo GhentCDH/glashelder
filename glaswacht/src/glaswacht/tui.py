@@ -18,6 +18,7 @@ from glaswacht.models.utils import (
     WEB_PORT,
     clean_path,
     get_prompt,
+    image_path,
     latest_results,
     output_folder,
 )
@@ -510,22 +511,24 @@ class MonitorApp(App):
         the image folder, or None with a notification when it is missing."""
         images_input = self.query_one("#images-input", Input)
         output_input = self.query_one("#output-input", Input)
-        image_path = clean_path(images_input.value)
+        typed = clean_path(images_input.value)
         self._output_dir = output_folder(
             clean_path(output_input.value) or "glaswacht_output"
         )
         # show what is used: without the quotes a paste may have brought, and
         # the full output folder a relative one stands for
-        images_input.value = image_path
+        images_input.value = typed
         output_input.value = str(self._output_dir)
-        if not image_path:
+        if not typed:
             self.notify("Paste the image folder in IMAGES first.", severity="error")
             return None
-        if not os.path.exists(image_path):
-            self.notify(f"Image folder not found: {image_path}", severity="error")
+        resolved = image_path(typed)
+        if resolved is None:
+            self.notify(f"Image folder not found: {typed}", severity="error")
             return None
-        self._image_path = image_path
-        return image_path
+        # show the full folder a relative one stands for
+        images_input.value = self._image_path = str(resolved)
+        return self._image_path
 
     def _set_paths_enabled(self, enabled: bool):
         for path_input in self.query("#paths Input"):

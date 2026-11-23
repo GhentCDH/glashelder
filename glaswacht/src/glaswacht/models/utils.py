@@ -26,6 +26,20 @@ def output_folder(path: str | Path) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
+def image_path(path: str | Path) -> Path | None:
+    """The image folder or file `path` names, fully resolved, or None when it
+    does not exist. A relative one is looked up from where the command runs
+    first and then from the glashelder folder, so a path written from the
+    repository root works from anywhere, as the output folder does."""
+    from common import PROJECT_ROOT
+
+    path = Path(path).expanduser()
+    for candidate in (path,) if path.is_absolute() else (path, PROJECT_ROOT / path):
+        if candidate.exists():
+            return candidate.resolve()
+    return None
+
+
 def run_files(output_dir: Path, started: datetime) -> tuple[Path, Path]:
     """The results CSV and log of a run started at `started`."""
     stem = f"{_RUN_PREFIX}{started.strftime(_RUN_TIME_FORMAT)}"
