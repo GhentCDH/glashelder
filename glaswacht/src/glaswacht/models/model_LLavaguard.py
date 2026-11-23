@@ -52,7 +52,7 @@ class LavaGuard(TransformersSafetyModel):
             },
         ]
 
-    def _run_inference(self, image: Image.Image) -> str:
+    def _prepare_inputs(self, image: Image.Image):
         if self.message is None:
             self.message_constructor()
 
@@ -62,7 +62,10 @@ class LavaGuard(TransformersSafetyModel):
         )
         inputs = self.processor(text=text_prompt, images=image, return_tensors="pt")
         model_device = next(self.model.parameters()).device
-        inputs = {k: v.to(model_device) for k, v in inputs.items()}
+        return {k: v.to(model_device) for k, v in inputs.items()}
+
+    def _run_inference(self, image: Image.Image) -> str:
+        inputs = self._prepare_inputs(image)
 
         # Generation hyperparameters
         hyperparameters = {

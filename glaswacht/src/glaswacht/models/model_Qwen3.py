@@ -44,7 +44,7 @@ class Qwen3(TransformersSafetyModel):
     def message_constructor(self):
         self.prompt = get_prompt()
 
-    def _run_inference(self, image: Image.Image) -> str:
+    def _prepare_inputs(self, image: Image.Image):
         if self.prompt is None:
             self.message_constructor()
 
@@ -66,7 +66,10 @@ class Qwen3(TransformersSafetyModel):
             return_dict=True,
             return_tensors="pt",
         )
-        inputs = inputs.to(self.model.device)
+        return inputs.to(self.model.device)
+
+    def _run_inference(self, image: Image.Image) -> str:
+        inputs = self._prepare_inputs(image)
 
         hyperparameters = {"max_new_tokens": 512}
 

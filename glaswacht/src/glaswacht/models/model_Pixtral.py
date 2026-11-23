@@ -42,13 +42,16 @@ class Pixtral(TransformersSafetyModel):
         taxonomy = get_prompt()
         self.prompt = f"<s>[INST]{taxonomy}\n[IMG][/INST]{self.JSON_PREFILL}"
 
-    def _run_inference(self, image: Image.Image) -> str:
+    def _prepare_inputs(self, image: Image.Image):
         if self.prompt is None:
             self.message_constructor()
 
-        inputs = self.processor(
-            images=[image], text=self.prompt, return_tensors="pt"
-        ).to("cuda")
+        return self.processor(images=[image], text=self.prompt, return_tensors="pt").to(
+            "cuda"
+        )
+
+    def _run_inference(self, image: Image.Image) -> str:
+        inputs = self._prepare_inputs(image)
 
         hyperparameters = {"max_new_tokens": 200}
 

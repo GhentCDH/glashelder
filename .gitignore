@@ -22,6 +22,9 @@ node_modules
 *.pkl
 !notebooks/artmatcher/examples/trained-matcher-model.pkl
 *.rrd
+*.rbl
+# Rerun demo output: probe traces embed scan thumbnails
+glaswacht/demo/
 clipcluster/clustered.png
 
 # Development tool caches

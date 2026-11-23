@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import ClassVar
 
+import numpy as np
 from PIL import Image
 
 
@@ -14,6 +15,45 @@ class Rating:
     category: str
     rationale: str
     image: str = field(default="")
+
+
+@dataclass
+class TokenStep:
+    """One generated token and the distribution it was drawn from."""
+
+    index: int
+    token: str
+    token_id: int
+    prob: float
+    entropy: float
+    top: list[tuple[str, float]]
+
+
+@dataclass
+class SeenImage:
+    """What a model's image processor actually feeds the network."""
+
+    name: str
+    pixels: np.ndarray  # H x W x 3 uint8
+    patch_size: int | None = None
+
+
+@dataclass
+class Trace:
+    """Everything `inspect()` can see of one forward/generate pass."""
+
+    model: str
+    image: str
+    prefill: str
+    steps: list[TokenStep]
+    text: str
+    rating: Rating
+    label_probs: dict[str, float]
+    seen: list[SeenImage]
+    prompt_tokens: int
+    image_tokens: int
+    latency_s: float
+    vram_mb: float
 
 
 class SafetyModel(ABC):

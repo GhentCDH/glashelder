@@ -64,6 +64,24 @@ class Orchestrator:
         self._ratings_by_image: dict[str, dict[str, str]] = defaultdict(dict)
         self.skips: list[Skip] = []
         self._lock = threading.Lock()
+        # objects with optional on_state / on_rating / on_vote / on_skip methods
+        self.observers: list[object] = []
+
+    def add_observer(self, observer: object) -> None:
+        self.observers.append(observer)
+
+    def _emit(self, event: str, *args) -> None:
+        """Tell observers; one failing observer must never break an assessment run."""
+        for observer in self.observers:
+            handler = getattr(observer, event, None)
+            if handler is None:
+                continue
+            try:
+                handler(*args)
+            except Exception:
+                logger.warning(
+                    "observer %r failed on %s", observer, event, exc_info=True
+                )
 
     def get_state(self) -> dict[str, ModelState]:
         return self.models.copy()
@@ -71,17 +89,21 @@ class Orchestrator:
     def update_model_state(self, model_name: str, **kwargs) -> None:
         for key, value in kwargs.items():
             setattr(self.models[model_name], key, value)
+        self._emit("on_state", model_name, kwargs)
 
     def _record_rating(self, model_name: str, image_name: str, rating: str) -> None:
         from glaswacht.models.utils import calculate_majority_vote
 
+        vote = None
         with self._lock:
             per_image = self._ratings_by_image[image_name]
             per_image[model_name] = rating
             if len(per_image) == len(self.model_classes):
-                self.majority_votes[image_name] = calculate_majority_vote(
+                vote = self.majority_votes[image_name] = calculate_majority_vote(
                     list(per_image.values())
                 )
+        if vote is not None:
+            self._emit("on_vote", image_name, vote, dict(per_image))
 
     def _run_model(
         self, model_class: type[SafetyModel], image_path: str
@@ -128,8 +150,10 @@ class Orchestrator:
                     error = (
                         f"{type(exc).__name__}: {next(iter(str(exc).splitlines()), '')}"
                     )
+                    skip = Skip(name, image_name, error)
                     with self._lock:
-                        self.skips.append(Skip(name, image_name, error))
+                        self.skips.append(skip)
+                    self._emit("on_skip", skip)
                     self.update_model_state(
                         name,
                         current_task=f"Skipped {image_name}: {error}",
@@ -147,6 +171,7 @@ class Orchestrator:
                     assessment.rating,
                 )
                 self.update_model_state(name, latest_rating=assessment.rating)
+                self._emit("on_rating", name, i, image_file, assessment)
                 self._record_rating(name, image_name, assessment.rating)
 
             run_success = True

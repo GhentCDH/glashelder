@@ -14,6 +14,7 @@ dependencies = [
     "common",
     "flask>=3.0.0",
     "pillow>=10.0.0",
+    "rerun-sdk>=0.43.2",
     "textual>=7.5.0",
     "torch>=2.6.0",
     "torchvision>=0.24.1",
