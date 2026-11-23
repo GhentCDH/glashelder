@@ -191,8 +191,11 @@ def cli_defaults() -> dict:
             "report": given(artworks=paths.artworks),
         },
         "glaswacht": {
+            "run": given(output_dir=settings.glaswacht.output),
+            "tui": given(output_dir=settings.glaswacht.output),
             "serve": given(
                 csv_path=settings.glaswacht.results,
+                output_dir=settings.glaswacht.output,
                 images_dir=settings.glaswacht.images,
             ),
         },

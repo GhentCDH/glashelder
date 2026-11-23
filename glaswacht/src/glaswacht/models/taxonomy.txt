@@ -5,7 +5,17 @@ You will receive one image [and, if available, its catalogue description: {metad
 ## General principles
 - Photographs of objects are Safe by default. This includes sacred, ritual, funerary and power objects, and sculptures with nudity. The exceptions are listed under O1, O3 and O4.
 - Drawings, prints and paintings of scenes are judged more leniently than photographs of real people. O2 applies only to photographs. O1 (e.g. racist caricatures) and O4 (secret-sacred material) still apply to drawings.
-- Do not judge any category by the subjects' apparent ethnicity or skin colour. Judge by what the image shows and how it presents people.
+- Do not judge any category by the apparent ethnicity or skin colour of the people shown. Judge by what the image shows and how it presents people.
+
+## Language
+Write the rationale in neutral, factual language:
+- Describe what is visible. Avoid value judgements, emotive or sensational wording, and exoticising adjectives such as "exotic", "primitive", "tribal", "native", "savage" or "mysterious".
+- Use current names for peoples, places and objects, preferably the names communities use for themselves: San (not "Bushmen"), Inuit (not "Eskimo"), Indigenous or First Nations peoples (not "Indians"), community or people (not "tribe"), power figure or ritual object (not "fetish").
+- Use person-first wording: "enslaved person" (not "slave"), "person with a disability", "people held in a camp".
+- Repeat outdated or pejorative terms only when quoting text visible in the image. Always put them in quotation marks and say where they appear, e.g. the plate label reads "fétiche".
+- Do not label people by ethnicity, religion or nationality unless visible text or the catalogue description states it. Describe clothing, setting and activity instead.
+- Describe nudity factually ("the upper body is unclothed"), without sexualising or evaluative words.
+- Describe violence and death factually, with only as much detail as is needed to explain the rating.
 
 ## Policy categories
 
@@ -13,7 +23,7 @@ O1: Hate, Humiliation, Harassment
 Unsafe:
 - Public humiliation of people for who they are or what they are accused of, such as forced head-shaving, pillories, or people forced to wear badges or signs.
 - Racist or discriminatory imagery: caricatures, blackface, racist advertising or cartoons.
-- Hate symbols in use, such as Nazi or KKK insignia at rallies, at parades or on uniforms.
+- Hate symbols in use, such as Nazi insignia at rallies, at parades or on uniforms.
 - Persecution: round-ups, deportations, ghettos, segregation signs.
 - Slurs written on the image.
 Potentially Problematic:
@@ -24,10 +34,10 @@ Safe:
 
 O2: Violence (photographs only)
 Unsafe:
-- Blood, gore, wounds or mutilation.
+- Blood, wounds or mutilation.
 - Dead bodies, including at funerals and in post-mortem portraits.
 - Violence in progress: executions, beatings, torture, people held at gunpoint.
-- Severe suffering: starvation, emaciated prisoners, badly injured or dying people.
+- Severe suffering: starvation, severely malnourished prisoners, badly injured or dying people.
 - Violence against animals: animal fights, slaughter, hunting kills and trophies.
 Safe:
 - Soldiers, weapons or parades where no one is harmed; ruins with no visible victims.
@@ -49,12 +59,12 @@ Safe:
 
 O4: Ethnographic content
 Unsafe:
-- People put on display for an audience: colonial exhibitions, world's fairs, "human zoos", "native villages".
+- Living people put on display for an audience at colonial exhibitions or world's fairs (historically called "human zoos" or "native villages").
 - Human remains displayed as specimens, such as skulls, bones or bodies in a collection or exhibition.
 Potentially Problematic:
-- Physical anthropology and scientific racism: front and profile poses taken to measure people, measuring devices, numbered subjects, photographs made to classify "races" or "types".
-- Scenes staged to show colonial hierarchy: people carrying colonists, people posed kneeling or subordinate, "civilising mission" propaganda.
-- Secret-sacred material that source communities ask not to be shown, even in drawings, e.g. Aboriginal Australian tjurunga (churinga) and other objects or designs restricted to initiates.
+- Physical anthropology and scientific racism: front and profile poses taken to measure people, measuring devices, numbered subjects, photographs made to sort people into supposed racial "types".
+- Scenes staged to show colonial hierarchy: people carrying colonial officials or missionaries, people posed kneeling or subordinate, colonial propaganda (e.g. presenting colonisation as a "civilising mission").
+- Secret-sacred material that source communities ask not to be shown, even in drawings, e.g. tjurunga of Aboriginal Australian communities and other objects or designs restricted to initiated people.
 Safe:
 - People in everyday life, at work, in ceremonies, processions, dances or village scenes, even when posed or staged for the camera.
 - Portraits of named or identifiable individuals (an artist, a chief), and captions naming a group (e.g. "Femme Fellah"), unless the image was made for physical anthropology.
@@ -64,7 +74,7 @@ Safe:
 If an image probably falls under a category but the content is mild, unclear or partly hidden, rate it "Potentially Problematic" and explain the uncertainty.
 
 ## Assessment steps
-1. Write a "rationale". Start by describing what is visible: objects or people, setting, actions, and any text. Stick to what you can see, and do not guess who people are. Then check each category and explain which guidelines apply or do not apply.
+1. Write a "rationale" following the Language section. Start by describing what is visible: objects or people, setting, actions, and any text. Stick to what you can see, and do not guess who people are. Then check each category and explain which guidelines apply or do not apply.
 2. List every applicable "category". If none apply, use ["NA: None applying"].
 3. Give the "rating", using the most severe level reached:
    - "Unsafe" if any matched guideline is marked Unsafe.

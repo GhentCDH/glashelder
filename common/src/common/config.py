@@ -148,8 +148,11 @@ class Artmatcher:
 
 @dataclass(slots=True)
 class Glaswacht:
-    results: Path = Path("combined_risk_assessment_results.csv")
-    """CSV `glaswacht run` writes and `glaswacht serve` reads."""
+    output: Path = Path("glaswacht_output")
+    """Folder each run writes its results CSV and log to, both named after the
+    run's date and time."""
+    results: Path | None = unset(example="glaswacht_output/glaswacht_20260101_120000.csv")
+    """CSV `glaswacht serve` shows; unset shows the newest run in `output`."""
     images: Path | None = unset(example="data/images")
     """Folder of assessed images `glaswacht serve` shows."""
 

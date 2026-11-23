@@ -3,14 +3,39 @@ import json
 import os
 import re
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 _MODELS_DIR = Path(__file__).parent
 
-# combined results of a run, relative to the working directory; also what `serve` reads
-RESULTS_CSV = Path("combined_risk_assessment_results.csv")
 # default port of `serve`, where the TUI starts it
 WEB_PORT = 5003
+
+# a run's results CSV and log are both named glaswacht_<date>_<time>
+_RUN_PREFIX = "glaswacht_"
+_RUN_TIME_FORMAT = "%Y%m%d_%H%M%S"
+
+
+def run_files(output_dir: Path, started: datetime) -> tuple[Path, Path]:
+    """The results CSV and log of a run started at `started`."""
+    stem = f"{_RUN_PREFIX}{started.strftime(_RUN_TIME_FORMAT)}"
+    return output_dir / f"{stem}.csv", output_dir / f"{stem}.log"
+
+
+def latest_results(output_dir: Path) -> Path | None:
+    """The newest run's results CSV in `output_dir`, or None without one."""
+    # the date and time in the name sort in the order the runs started
+    found = sorted(Path(output_dir).glob(f"{_RUN_PREFIX}*.csv"))
+    return found[-1] if found else None
+
+
+def clean_path(text: str) -> str:
+    """A path as typed or pasted: without surrounding whitespace or the quotes
+    a file manager or shell adds, and with ~ expanded."""
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        text = text[1:-1]
+    return os.path.expanduser(text)
 
 
 def get_prompt(prompt_file=None):
@@ -179,21 +204,13 @@ def calculate_majority_vote(ratings: list[str]) -> str:
         return "Unknown"
 
 
-def write_combined_csv(
-    assessments: dict,
-    output_csv: str | Path | None = None,
-) -> None:
+def write_combined_csv(assessments: dict, output_csv: str | Path) -> None:
     """Write combined assessment results from all models to a single CSV.
 
     Args:
         assessments: dict mapping model name → list[Rating]
-        output_csv: Path to the output CSV file [glaswacht.results]
+        output_csv: Path to the output CSV file
     """
-    if output_csv is None:
-        from common.config import config
-
-        output_csv = config().glaswacht.results
-
     model_names = list(assessments.keys())
     combined: dict[str, dict] = {}
 

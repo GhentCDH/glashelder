@@ -12,17 +12,13 @@ from textual.app import App
 from textual.containers import Horizontal, VerticalScroll
 from textual.markup import escape
 from textual.reactive import reactive
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
-from glaswacht.models.utils import RESULTS_CSV, WEB_PORT, get_prompt
+from glaswacht.models.utils import WEB_PORT, clean_path, get_prompt, latest_results
 from glaswacht.orchestrator import ModelStatus, Orchestrator, Skip
 
-_LOG_PATH = Path("glaswacht.log")
+# each run logs to its own file in the output folder, see Orchestrator.run_all
 logger = logging.getLogger("glaswacht")
-logger.setLevel(logging.DEBUG)
-_fh = logging.FileHandler(_LOG_PATH)
-_fh.setFormatter(logging.Formatter("%(asctime)s  %(levelname)s  %(name)s  %(message)s"))
-logger.addHandler(_fh)
 
 LOGO = """\
 ░██████╗░██╗░░░░░░█████╗░░██████╗░██╗░░░░░░░██╗░█████╗░░█████╗░██╗░░██╗████████╗
@@ -125,17 +121,22 @@ class ModelPanel(Static):
 class ContentPanel(Static):
     """Scrollable panel that shows either majority votes or the taxonomy."""
 
-    def show_votes(self, majority_votes: dict, skips: list[Skip]):
+    def show_votes(
+        self, majority_votes: dict, skips: list[Skip], log_path: Path | None
+    ):
         # skips first, the vote list can be hundreds of lines long
-        self.update(self._skips_markup(skips) + self._votes_markup(majority_votes))
+        self.update(
+            self._skips_markup(skips, log_path) + self._votes_markup(majority_votes)
+        )
 
     @staticmethod
-    def _skips_markup(skips: list[Skip]) -> str:
+    def _skips_markup(skips: list[Skip], log_path: Path | None) -> str:
         if not skips:
             return ""
         header = (
             f"[bold {_SEPIA_DANGER}]\\[ SKIPPED ][/bold {_SEPIA_DANGER}]"
-            f" [{_SEPIA_MID}]({len(skips)} skipped, details in {_LOG_PATH})[/{_SEPIA_MID}]\n"
+            f" [{_SEPIA_MID}]({len(skips)} skipped, details in "
+            f"{escape(str(log_path))})[/{_SEPIA_MID}]\n"
             f"[{_SEPIA_BORDER}]{'─' * 72}[/{_SEPIA_BORDER}]\n"
         )
         skip_lines = [
@@ -246,10 +247,15 @@ _MENU_LABELS = ["RUN", "TAXONOMY", "VALIDATE", "QUIT"]
 _LOGO_MIN_WIDTH = 88
 _LOGO_MIN_HEIGHT = 40
 
-_SCROLL_HINT = " ←/→ menu · enter select · ↑/↓ pgup/pgdn scroll "
+_SCROLL_HINT = (
+    " tab edit paths · esc done · ←/→ menu · enter select · ↑/↓ pgup/pgdn scroll "
+)
 
 
 class MonitorApp(App):
+    # start on the menu, tab moves into the path boxes
+    AUTO_FOCUS = None
+
     CSS = f"""
     Screen {{
         background: {_SEPIA_BG};
@@ -288,6 +294,47 @@ class MonitorApp(App):
         margin: 0;
     }}
 
+    #paths {{
+        height: auto;
+        margin: 0 1;
+    }}
+
+    #paths Input {{
+        width: 1fr;
+        height: 3;
+        border: double {_SEPIA_BORDER};
+        border-title-color: {_SEPIA_MID};
+        background: {_SEPIA_BG};
+        color: {_SEPIA_BRIGHT};
+        padding: 0 1;
+        margin: 0 0 0 1;
+    }}
+
+    #paths Input:focus {{
+        border: double {_SEPIA_BRIGHT};
+        border-title-color: {_SEPIA_BRIGHT};
+        background: {_SEPIA_BG};
+    }}
+
+    #paths Input:disabled {{
+        color: {_SEPIA_MID};
+        opacity: 0.6;
+    }}
+
+    #paths Input > .input--placeholder {{
+        color: {_SEPIA_MID};
+    }}
+
+    #paths Input > .input--cursor {{
+        background: {_SEPIA_BRIGHT};
+        color: {_SEPIA_BG};
+    }}
+
+    #images-input {{
+        width: 2fr;
+        margin: 0;
+    }}
+
     #content-scroll {{
         border: double {_SEPIA_BORDER};
         border-subtitle-color: {_SEPIA_MID};
@@ -311,10 +358,16 @@ class MonitorApp(App):
     }}
     """
 
-    def __init__(self, orchestrator: Orchestrator, image_path: str | None = None):
+    def __init__(
+        self,
+        orchestrator: Orchestrator,
+        image_path: str | None = None,
+        output_dir: str | Path = "glaswacht_output",
+    ):
         super().__init__()
         self.orchestrator = orchestrator
         self._image_path = image_path
+        self._output_dir = Path(output_dir)
         self.panels: dict[str, ModelPanel] = {}
         self.content_panel: ContentPanel | None = None
         self.menu_widgets: list[MenuItem] = []
@@ -322,12 +375,24 @@ class MonitorApp(App):
         self._is_running = False
         self._content_mode = "votes"  # "votes" | "taxonomy" | "webviewer"
         self._web_process: subprocess.Popen | None = None
+        self._web_csv: Path | None = None
         self._web_log_fh: TextIOWrapper | None = None
         self._web_secret = secrets.token_urlsafe(32)
 
     def compose(self):
         yield GlaswachtHeader(id="header")
         yield Horizontal(id="models")
+        with Horizontal(id="paths"):
+            yield Input(
+                value=self._image_path or "",
+                placeholder="paste the image folder to assess",
+                id="images-input",
+            )
+            yield Input(
+                value=str(self._output_dir),
+                placeholder="folder for the results CSV and log",
+                id="output-input",
+            )
         # the app scrolls it from on_key, so the menu keeps the arrow keys
         yield VerticalScroll(id="content-scroll", can_focus=False)
         yield Horizontal(id="menu")
@@ -344,8 +409,11 @@ class MonitorApp(App):
             self.panels[model_id] = panel
             models_container.mount(panel)
 
+        self.query_one("#images-input", Input).border_title = " IMAGES "
+        self.query_one("#output-input", Input).border_title = " OUTPUT "
+
         self.content_panel = ContentPanel()
-        self.content_panel.show_votes({}, [])
+        self.content_panel.show_votes({}, [], None)
         content_container.mount(self.content_panel)
         content_container.border_subtitle = _SCROLL_HINT
 
@@ -367,7 +435,16 @@ class MonitorApp(App):
             self.size.width < _LOGO_MIN_WIDTH or self.size.height < _LOGO_MIN_HEIGHT
         )
 
+    def on_input_submitted(self, event: Input.Submitted):
+        # enter in a path box is done editing, back to the menu
+        self.set_focus(None)
+
     def on_key(self, event):
+        if isinstance(self.focused, Input):
+            # the path box has the keys, except esc to go back to the menu
+            if event.key == "escape":
+                self.set_focus(None)
+            return
         content = self.query_one("#content-scroll", VerticalScroll)
         scroll = {
             "up": content.scroll_up,
@@ -403,6 +480,7 @@ class MonitorApp(App):
             self._web_process.terminate()
             self._web_process.wait()
         self._web_process = None
+        self._web_csv = None
         if self._web_log_fh:
             self._web_log_fh.close()
             self._web_log_fh = None
@@ -420,11 +498,38 @@ class MonitorApp(App):
         elif label == "QUIT":
             self.exit()
 
+    def _read_paths(self) -> bool:
+        """Take the image folder and output folder from their boxes. False,
+        with a notification, when the image folder is missing."""
+        images_input = self.query_one("#images-input", Input)
+        output_input = self.query_one("#output-input", Input)
+        image_path = clean_path(images_input.value)
+        output_dir = clean_path(output_input.value) or "glaswacht_output"
+        # show what is used, without the quotes a paste may have brought
+        images_input.value = image_path
+        output_input.value = output_dir
+        self._output_dir = Path(output_dir)
+        if not image_path:
+            self.notify("Paste the image folder in IMAGES first.", severity="error")
+            return False
+        if not os.path.exists(image_path):
+            self.notify(f"Image folder not found: {image_path}", severity="error")
+            return False
+        self._image_path = image_path
+        return True
+
+    def _set_paths_enabled(self, enabled: bool):
+        for path_input in self.query("#paths Input"):
+            path_input.disabled = not enabled
+
     def _start_run(self):
-        if self._is_running:
+        if self._is_running or not self._read_paths():
             return
-        logger.info("RUN requested, path=%s", self._image_path)
+        logger.info(
+            "RUN requested, path=%s, output=%s", self._image_path, self._output_dir
+        )
         self._is_running = True
+        self._set_paths_enabled(False)
         self._set_mode("votes")
         # Disable RUN, TAXONOMY and VALIDATE while running
         self.menu_widgets[0].enabled = False
@@ -435,22 +540,20 @@ class MonitorApp(App):
         self._selected_index = 3
         self.menu_widgets[3].selected = True
 
+        image_path, output_dir = self._image_path, self._output_dir
+
         def _run():
-            if self._image_path is None:
-                self.notify(
-                    "No --path provided. Use: glaswacht tui --path <dir>",
-                    severity="error",
-                )
+            try:
+                self.orchestrator.run_all(image_path, output_dir)
+            finally:
                 self.call_from_thread(self._on_run_complete)
-                return
-            self.orchestrator.run_all(self._image_path)
-            self.call_from_thread(self._on_run_complete)
 
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_run_complete(self):
         logger.info("Run complete")
         self._is_running = False
+        self._set_paths_enabled(True)
         self.menu_widgets[0].enabled = True
         self.menu_widgets[1].enabled = True
         self.menu_widgets[2].enabled = True
@@ -467,19 +570,26 @@ class MonitorApp(App):
             self.content_panel.show_taxonomy()
 
     def _start_webviewer(self):
-        if self._image_path is None:
-            self.notify(
-                "No --path provided. Use: glaswacht tui --path <dir>",
-                severity="error",
-            )
+        if not self._read_paths():
             return
         images_dir = Path(self._image_path)
         if images_dir.is_file():
             images_dir = images_dir.parent
+        # this session's run, else the newest one in the output folder
+        csv_path = self.orchestrator.results_csv or latest_results(self._output_dir)
+        if csv_path is None:
+            self.notify(
+                f"No results in {self._output_dir} yet, RUN first.", severity="error"
+            )
+            return
 
+        if csv_path != self._web_csv:
+            self._stop_webviewer()
         # Only launch if not already running
         if self._web_process is None or self._web_process.poll() is not None:
-            self._web_log_fh = open(_LOG_PATH, "a")
+            # the web server logs to the log of the run it shows
+            self._web_log_fh = open(csv_path.with_suffix(".log"), "a")
+            self._web_csv = csv_path
             self._web_process = subprocess.Popen(
                 [
                     sys.executable,
@@ -490,7 +600,7 @@ class MonitorApp(App):
                     "--images-dir",
                     str(images_dir),
                     "--csv-path",
-                    str(RESULTS_CSV),
+                    str(csv_path),
                     "--port",
                     str(WEB_PORT),
                 ],
@@ -513,5 +623,7 @@ class MonitorApp(App):
             majority_votes = self.orchestrator.get_majority_votes()
             if self.content_panel:
                 self.content_panel.show_votes(
-                    majority_votes, self.orchestrator.get_skips()
+                    majority_votes,
+                    self.orchestrator.get_skips(),
+                    self.orchestrator.log_path,
                 )
