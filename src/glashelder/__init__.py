@@ -137,6 +137,12 @@ def cli_defaults() -> dict:
             ml_model=paths.ml_model,
         ),
     }
+    unstir = defaults_for(settings.unstir)
+    unstir_images = given(
+        store=settings.unstir.store,
+        plate_images=paths.images.glashelder,
+        reference_images=settings.unstir.reference_images,
+    )
     embedding = defaults_for(settings.embed)
     ocr_options = {k: v for k, v in defaults_for(settings.ocr).items() if k != "cache"}
     ocr_no_concurrency = {k: v for k, v in ocr_options.items() if k != "concurrency"}
@@ -201,11 +207,17 @@ def cli_defaults() -> dict:
             ),
         },
         "unstir": {
-            "pairs": {
-                **defaults_for(settings.unstir),
+            "match": {
+                **{k: v for k, v in unstir.items() if k != "cluster_ids"},
                 **given(clusters=paths.clusters, plate_images=paths.images.glashelder),
+                **(
+                    {"cluster": [settings.unstir.cluster_ids]}
+                    if settings.unstir.cluster_ids
+                    else {}
+                ),
             },
-            "decide": given(reference_images=settings.unstir.reference_images),
+            "decide": unstir_images,
+            "sample": unstir_images,
         },
         "ocr": {
             "one": ocr_no_concurrency,

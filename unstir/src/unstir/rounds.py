@@ -1,7 +1,7 @@
-"""A next round of pairs to label, from the scores of an earlier `unstir pairs` run.
+"""A round of pairs to label, from the candidates and scores in a match store.
 
-No matching runs again: the pairs come from `scores.parquet`, without the pairs
-that already have a label. Two kinds of pairs:
+No matching runs: the pairs come from the store, without the pairs that already
+have a label. Two kinds of pairs:
 
 1. Plates with more than one strong reference (`f_inliers` at least `strong`).
    Their labels show if these are photos of one church or look-alikes. Whole
@@ -14,18 +14,29 @@ import json
 import logging
 import random
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import islice, zip_longest
 from pathlib import Path
-
-import pyarrow.parquet as pq
 
 from common.errors import UserError
 from common.fs import atomic_write
 
 from .labels import Key, Labels
-from .pairs import sample
 
 logger = logging.getLogger(__name__)
+
+
+def sample(
+    rows: list[dict], n: int, rng: random.Random, key: Callable[[dict], int]
+) -> list[dict]:
+    """`n` pairs, taken in turn from every value of `key`, highest first."""
+    groups_by: dict[int, list[dict]] = defaultdict(list)
+    for row in rows:
+        groups_by[key(row)].append(row)
+    groups = [rng.sample(g, len(g)) for _, g in sorted(groups_by.items(), reverse=True)]
+    turns = (row for turn in zip_longest(*groups) for row in turn if row is not None)
+    return list(islice(turns, n))
 
 
 @dataclass(frozen=True)
@@ -61,17 +72,13 @@ def multi_plates(
     return chosen
 
 
-def run(scores: Path, labels: list[Path], output: Path, plan: Plan) -> None:
+def run(rows: list[dict], labels: list[Path], output: Path, plan: Plan) -> None:
     rng = random.Random(plan.seed)
     done = labelled(labels)
-    rows = [
-        row
-        for row in pq.read_table(scores).to_pylist()
-        if not row["outside"] and (row["plate"], row["reference"]) not in done
-    ]
+    rows = [row for row in rows if (row["plate"], row["reference"]) not in done]
     logger.info(
         f"{len(done):,} labelled pairs in {len(labels)} files, "
-        f"{len(rows):,} pairs in {scores} without a label"
+        f"{len(rows):,} candidate pairs without a label"
     )
 
     multi = multi_plates(rows, plan.strong, min(plan.multi, plan.size), rng)
@@ -95,7 +102,6 @@ def run(scores: Path, labels: list[Path], output: Path, plan: Plan) -> None:
         raise UserError(f"{target} exists already, choose another --output")
     atomic_write(target, "".join(json.dumps(r) + "\n" for r in chosen))
     meta = {
-        "scores": str(scores),
         "labels": [str(p) for p in labels],
         "size": plan.size,
         "multi": plan.multi,

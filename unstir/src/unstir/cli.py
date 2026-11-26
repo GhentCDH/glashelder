@@ -3,7 +3,7 @@ from pathlib import Path
 import click
 
 from common import run_app
-from common.cli import serve_options
+from common.cli import options, serve_options
 
 
 @click.group()
@@ -21,65 +21,6 @@ def cluster_ids(ctx, param, values: tuple[str, ...]) -> frozenset[int]:
         raise click.BadParameter("cluster ids are numbers, such as 53,60,61") from error
 
 
-def required(**values) -> None:
-    missing = [name for name, value in values.items() if value is None]
-    if missing:
-        flags = ", ".join(f"--{name.replace('_', '-')}" for name in missing)
-        raise click.UsageError(f"give {flags}, or set it in glashelder.toml")
-
-
-@unstir.command()
-@click.argument("scores", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "-o",
-    "--output",
-    type=click.Path(file_okay=False, path_type=Path),
-    required=True,
-    help="Directory for decisions.csv, matches.jsonl and meta.json",
-)
-@click.option("--min-f", default=150, show_default=True, help="Least f_inliers")
-@click.option(
-    "--min-ratio",
-    default=0.8,
-    show_default=True,
-    help="Least share of the matches that are F inliers",
-)
-@click.option(
-    "--margin",
-    default=50,
-    show_default=True,
-    help="Least f_inliers more than the next best reference of the plate",
-)
-@click.option(
-    "--reference-images",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    default=None,
-    help="Directory of the reference photos; its provenance.jsonl adds names "
-    "[unstir.reference_images]",
-)
-def decide(
-    scores: Path,
-    output: Path,
-    min_f: int,
-    min_ratio: float,
-    margin: int,
-    reference_images: Path | None,
-):
-    """Decide per plate which reference it shows, if any.
-
-    SCORES is the scores.parquet of an `unstir pairs` run, or its directory. The
-    best reference of a plate is a match when it passes --min-f and --min-ratio,
-    and beats the next best reference by --margin. Check the matches with
-    `unstir serve OUTPUT/matches.jsonl`.
-    """
-    from .decide import Rule, run
-
-    if scores.is_dir():
-        scores = scores / "scores.parquet"
-    rule = Rule(min_f=min_f, min_ratio=min_ratio, margin=margin)
-    run(scores, output, rule, Path(reference_images) if reference_images else None)
-
-
 def band(ctx, param, value: str) -> tuple[int, int]:
     try:
         low, high = (int(part) for part in value.split(","))
@@ -90,8 +31,218 @@ def band(ctx, param, value: str) -> tuple[int, int]:
     return low, high
 
 
+def required(**values) -> None:
+    missing = [name for name, value in values.items() if value is None]
+    if missing:
+        flags = ", ".join(f"--{name.replace('_', '-')}" for name in missing)
+        raise click.UsageError(f"give {flags}, or set it in glashelder.toml")
+
+
+store_option = click.option(
+    "--store",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Match store, a .matches directory [unstir.store]",
+)
+
+image_options = options(
+    click.option(
+        "--plate-images",
+        type=click.Path(exists=True, file_okay=False, path_type=Path),
+        default=None,
+        help="Directory of the plate images [paths.images.glashelder]",
+    ),
+    click.option(
+        "--reference-images",
+        type=click.Path(exists=True, file_okay=False, path_type=Path),
+        default=None,
+        help="Directory of the reference photos; its provenance.jsonl adds "
+        "names to the decisions [unstir.reference_images]",
+    ),
+)
+
+rule_options = options(
+    click.option("--min-f", default=150, show_default=True, help="Least f_inliers"),
+    click.option(
+        "--min-ratio",
+        default=0.8,
+        show_default=True,
+        help="Least share of the matches that are F inliers",
+    ),
+    click.option(
+        "--margin",
+        default=50,
+        show_default=True,
+        help="Least f_inliers more than the next best reference of the plate",
+    ),
+)
+
+
 @unstir.command()
-@click.argument("scores", type=click.Path(exists=True, path_type=Path))
+@store_option
+@click.option(
+    "--cluster",
+    multiple=True,
+    callback=cluster_ids,
+    help="Ids of the clusters the plates come from, comma separated or repeated; "
+    "none for every plate [unstir.cluster_ids]",
+)
+@click.option(
+    "--clusters",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Clustering result the --cluster ids belong to [paths.clusters]",
+)
+@click.option(
+    "--plate-embeddings",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Plate embeddings for retrieval [unstir.plate_embeddings]",
+)
+@click.option(
+    "--reference-embeddings",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Reference embeddings, same model as the plates [unstir.reference_embeddings]",
+)
+@image_options
+@click.option(
+    "--top-k", default=20, show_default=True, help="Candidate references per plate"
+)
+@rule_options
+@click.option(
+    "--plates",
+    default=0,
+    show_default=True,
+    help="Use at most this many of the plates, at random; 0 for all",
+)
+@click.option(
+    "--batch",
+    default=500,
+    show_default=True,
+    help="Plates per commit to the store; a stopped run loses at most one batch",
+)
+@click.option(
+    "--rescore",
+    is_flag=True,
+    help="Throw the stored scores away when the matching settings changed",
+)
+@click.option("--seed", default=0, show_default=True)
+@click.option("--resize", default=1024, show_default=True, help="Long side, pixels")
+@click.option("--max-keypoints", default=2048, show_default=True)
+@click.option(
+    "--f-px",
+    default=4.0,
+    show_default=True,
+    help="Fundamental matrix inlier threshold, pixels at --resize",
+)
+@click.option(
+    "--h-px",
+    default=8.0,
+    show_default=True,
+    help="Homography inlier threshold, pixels at --resize",
+)
+def match(
+    store: Path | None,
+    cluster: frozenset[int],
+    clusters: Path | None,
+    plate_embeddings: Path | None,
+    reference_embeddings: Path | None,
+    plate_images: Path | None,
+    reference_images: Path | None,
+    top_k: int,
+    min_f: int,
+    min_ratio: float,
+    margin: int,
+    plates: int,
+    batch: int,
+    rescore: bool,
+    seed: int,
+    resize: int,
+    max_keypoints: int,
+    f_px: float,
+    h_px: float,
+):
+    """Find the reference photo each plate shows, if any.
+
+    \b
+    1. retrieval: the --top-k nearest references of each plate, by embedding
+    2. matching: ALIKED + LightGlue and a fundamental matrix, only for the
+       pairs the store has no score for yet
+    3. decision: the best reference of a plate is a match when it passes
+       --min-f and --min-ratio and beats the next one by --margin
+
+    The store keeps every score, so a run after references were added only
+    matches the new pairs. The result is STORE/decisions.csv; check the matches
+    with `unstir serve STORE/matches.jsonl`.
+    """
+    from .decide import Rule
+    from .match import Settings
+    from .pipeline import Options, run
+
+    required(
+        store=store,
+        plate_embeddings=plate_embeddings,
+        plate_images=plate_images,
+        reference_embeddings=reference_embeddings,
+        reference_images=reference_images,
+    )
+    assert store and plate_embeddings and plate_images
+    assert reference_embeddings and reference_images
+    run(
+        Options(
+            store=Path(store),
+            clusters=Path(clusters) if clusters else None,
+            cluster_ids=cluster,
+            plate_embeddings=Path(plate_embeddings),
+            plate_images=Path(plate_images),
+            reference_embeddings=Path(reference_embeddings),
+            reference_images=Path(reference_images),
+            top_k=top_k,
+            plates=plates,
+            batch=batch,
+            seed=seed,
+            rescore=rescore,
+            settings=Settings(
+                resize=resize, max_keypoints=max_keypoints, f_px=f_px, h_px=h_px
+            ),
+            rule=Rule(min_f=min_f, min_ratio=min_ratio, margin=margin),
+        )
+    )
+
+
+@unstir.command()
+@store_option
+@image_options
+@rule_options
+def decide(
+    store: Path | None,
+    plate_images: Path | None,
+    reference_images: Path | None,
+    min_f: int,
+    min_ratio: float,
+    margin: int,
+):
+    """Decide again from the stored scores, for example with other thresholds.
+
+    No matching runs. Writes STORE/decisions.csv and STORE/matches.jsonl.
+    """
+    from . import decide as deciding
+    from .store import MatchStore
+
+    required(store=store, plate_images=plate_images, reference_images=reference_images)
+    assert store and plate_images and reference_images
+    deciding.run(
+        MatchStore.open(store),
+        deciding.Rule(min_f=min_f, min_ratio=min_ratio, margin=margin),
+        Path(plate_images),
+        Path(reference_images),
+    )
+
+
+@unstir.command()
+@store_option
+@image_options
 @click.option(
     "-o",
     "--output",
@@ -105,7 +256,7 @@ def band(ctx, param, value: str) -> tuple[int, int]:
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     multiple=True,
     help="Labels files whose pairs are skipped [default: every *.labels.jsonl "
-    "in the directories next to the one SCORES is in]",
+    "in the directories next to OUTPUT]",
 )
 @click.option("--size", default=100, show_default=True, help="Pairs to write")
 @click.option(
@@ -115,10 +266,7 @@ def band(ctx, param, value: str) -> tuple[int, int]:
     help="At most this many pairs of plates with more than one strong reference",
 )
 @click.option(
-    "--strong",
-    default=150,
-    show_default=True,
-    help="f_inliers of a strong reference",
+    "--strong", default=150, show_default=True, help="f_inliers of a strong reference"
 )
 @click.option(
     "--band",
@@ -136,7 +284,9 @@ def band(ctx, param, value: str) -> tuple[int, int]:
 )
 @click.option("--seed", default=0, show_default=True)
 def sample(
-    scores: Path,
+    store: Path | None,
+    plate_images: Path | None,
+    reference_images: Path | None,
     output: Path,
     label_files: tuple[Path, ...],
     size: int,
@@ -146,157 +296,22 @@ def sample(
     step: int,
     seed: int,
 ):
-    """Take a next round of pairs to label from an earlier `unstir pairs` run.
+    """Take a round of pairs to label from the candidates in the store.
 
-    SCORES is its scores.parquet, or its directory. Pairs that have a label are
-    skipped. No matching runs again. Then `unstir serve OUTPUT/pairs.jsonl`.
+    Pairs that have a label are skipped. No matching runs. Then
+    `unstir serve OUTPUT/pairs.jsonl`.
     """
     from .rounds import Plan, run
+    from .store import MatchStore
 
-    if scores.is_dir():
-        scores = scores / "scores.parquet"
+    required(store=store, plate_images=plate_images, reference_images=reference_images)
+    assert store and plate_images and reference_images
     labels = list(label_files) or sorted(
-        scores.resolve().parent.parent.glob("*/*.labels.jsonl")
+        output.resolve().parent.glob("*/*.labels.jsonl")
     )
+    rows = MatchStore.open(store).rows(Path(plate_images), Path(reference_images))
     plan = Plan(size=size, multi=multi, strong=strong, band=band_, step=step, seed=seed)
-    run(scores, labels, output, plan)
-
-
-@unstir.command()
-@click.option(
-    "-o",
-    "--output",
-    type=click.Path(file_okay=False, path_type=Path),
-    required=True,
-    help="Directory for scores.parquet, pairs.jsonl and meta.json",
-)
-@click.option(
-    "--cluster",
-    "clusters_ids",
-    multiple=True,
-    required=True,
-    callback=cluster_ids,
-    help="Ids of the clusters the plates come from, comma separated or repeated",
-)
-@click.option(
-    "--clusters",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    default=None,
-    help="Clustering result [paths.clusters]",
-)
-@click.option(
-    "--plate-embeddings",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Plate embeddings for retrieval [unstir.plate_embeddings]",
-)
-@click.option(
-    "--plate-images",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    default=None,
-    help="Directory of the plate images [paths.images.glashelder]",
-)
-@click.option(
-    "--reference-embeddings",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Reference embeddings, same model as the plates [unstir.reference_embeddings]",
-)
-@click.option(
-    "--reference-images",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    default=None,
-    help="Directory of the reference photos [unstir.reference_images]",
-)
-@click.option(
-    "--top-k", default=20, show_default=True, help="Candidate references per plate"
-)
-@click.option(
-    "--plates",
-    default=0,
-    show_default=True,
-    help="Use at most this many plates of the clusters, at random; 0 for all",
-)
-@click.option(
-    "--sample",
-    default=180,
-    show_default=True,
-    help="Pairs in pairs.jsonl, spread evenly over the `cells` scores",
-)
-@click.option(
-    "--outside",
-    default=20,
-    show_default=True,
-    help="Extra pairs from below the top k, to see what retrieval misses",
-)
-@click.option("--seed", default=0, show_default=True)
-@click.option("--resize", default=1024, show_default=True, help="Long side, pixels")
-@click.option("--max-keypoints", default=2048, show_default=True)
-@click.option(
-    "--f-px",
-    default=4.0,
-    show_default=True,
-    help="Fundamental matrix inlier threshold, pixels at --resize",
-)
-@click.option(
-    "--h-px",
-    default=8.0,
-    show_default=True,
-    help="Homography inlier threshold, pixels at --resize",
-)
-def pairs(
-    output: Path,
-    clusters_ids: frozenset[int],
-    clusters: Path | None,
-    plate_embeddings: Path | None,
-    plate_images: Path | None,
-    reference_embeddings: Path | None,
-    reference_images: Path | None,
-    top_k: int,
-    plates: int,
-    sample: int,
-    outside: int,
-    seed: int,
-    resize: int,
-    max_keypoints: int,
-    f_px: float,
-    h_px: float,
-):
-    """Find and score candidate pairs, and write a sample of them to label.
-
-    For each plate in the given clusters: its --top-k nearest references by
-    embedding, matched with ALIKED and LightGlue and checked with a fundamental
-    matrix. Then `unstir serve OUTPUT/pairs.jsonl` to label the sample.
-    """
-    from .match import Settings
-    from .pairs import Options, run
-
-    required(
-        clusters=clusters,
-        plate_embeddings=plate_embeddings,
-        plate_images=plate_images,
-        reference_embeddings=reference_embeddings,
-        reference_images=reference_images,
-    )
-    assert clusters and plate_embeddings and plate_images
-    assert reference_embeddings and reference_images
-    options = Options(
-        clusters=Path(clusters),
-        cluster_ids=clusters_ids,
-        plate_embeddings=Path(plate_embeddings),
-        plate_images=Path(plate_images),
-        reference_embeddings=Path(reference_embeddings),
-        reference_images=Path(reference_images),
-        top_k=top_k,
-        plates=plates,
-        sample=sample,
-        outside=outside,
-        seed=seed,
-        settings=Settings(
-            resize=resize, max_keypoints=max_keypoints, f_px=f_px, h_px=h_px
-        ),
-    )
-    run(options, output)
+    run(rows, labels, output, plan)
 
 
 @unstir.command()

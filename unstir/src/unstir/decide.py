@@ -1,4 +1,4 @@
-"""One decision per plate, from the scores of an `unstir pairs` run.
+"""One decision per plate, from the candidates and scores in a match store.
 
 A plate shows at most one building, so its candidates are compared with each
 other: the best reference (most `f_inliers`) is a match when
@@ -12,7 +12,7 @@ same, neither is trusted. On the labels of rounds 1 and 2 this gave precision
 0.92 and recall 0.95 with the defaults (chosen on those same labels).
 
 Writes `decisions.csv` (every plate) and `matches.jsonl` (the matches, in the
-pairs format, so `unstir serve` can show them for a check).
+pairs format, so `unstir serve` can show them for a check) into the store.
 """
 
 import csv
@@ -20,12 +20,14 @@ import io
 import json
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-
-import pyarrow.parquet as pq
+from typing import TYPE_CHECKING
 
 from common.fs import atomic_write
+
+if TYPE_CHECKING:
+    from .store import MatchStore
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +66,7 @@ def provenance(references: Path | None) -> dict[str, dict]:
 def decide(rows: list[dict], rule: Rule) -> list[dict]:
     by_plate: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
-        if not row["outside"]:
-            by_plate[row["plate"]].append(row)
+        by_plate[row["plate"]].append(row)
 
     def one(candidates: list[dict]) -> dict:
         best, *rest = sorted(candidates, key=lambda r: -r["f_inliers"])
@@ -95,13 +96,15 @@ def decide(rows: list[dict], rule: Rule) -> list[dict]:
     )
 
 
-def run(scores: Path, output: Path, rule: Rule, references: Path | None) -> None:
-    decisions = decide(pq.read_table(scores).to_pylist(), rule)
-    known = provenance(references)
+def run(
+    store: "MatchStore", rule: Rule, plate_images: Path, reference_images: Path
+) -> None:
+    decisions = decide(store.rows(plate_images, reference_images), rule)
+    known = provenance(reference_images)
     for d in decisions:
         d.update(known.get(Path(d["reference"]).name, {}))
 
-    output.mkdir(parents=True, exist_ok=True)
+    output = store.path
     columns = list(dict.fromkeys(key for d in decisions for key in d))
     text = io.StringIO()
     writer = csv.DictWriter(text, columns)
@@ -113,8 +116,7 @@ def run(scores: Path, output: Path, rule: Rule, references: Path | None) -> None
     atomic_write(
         output / "matches.jsonl", "".join(json.dumps(d) + "\n" for d in matches)
     )
-    meta = {"scores": str(scores), "rule": rule.__dict__, "plates": len(decisions)}
-    atomic_write(output / "meta.json", json.dumps(meta, indent=2) + "\n")
+    store.update_meta(rule=asdict(rule), matched_plates=len(matches))
     logger.info(
         f"{len(matches):,} of {len(decisions):,} plates match a reference. "
         f"Written to {output}/decisions.csv and matches.jsonl"

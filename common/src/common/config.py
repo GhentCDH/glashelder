@@ -174,10 +174,15 @@ class Artscraper:
 
 @dataclass(slots=True)
 class Unstir:
+    store: Path | None = unset(example="glashelder/matches/onroerend-kerken.matches")
+    """Match store of `unstir match`: every score, and the last decisions."""
+    cluster_ids: str | None = unset(example="53,60,61,74,84,85")
+    """Clusters of `paths.clusters` whose plates `unstir match` uses, comma
+    separated. Unset: every plate."""
     plate_embeddings: Path | None = unset(
         example="glashelder/embeddings/glashelder-dino.store"
     )
-    """Embeddings of the glass plates that `unstir pairs` uses to find candidate
+    """Embeddings of the glass plates that `unstir match` uses to find candidate
     references. Use a model that is good at the same place from another view (DINOv2)."""
     reference_embeddings: Path | None = unset(
         example="glashelder/embeddings/onroerend-dino.store"
@@ -186,7 +191,7 @@ class Unstir:
     reference_images: Path | None = unset(example="glashelder/onroerend/kerken")
     """Directory holding the reference photos."""
     top_k: int = 20
-    """Candidate references per plate that `unstir pairs` matches."""
+    """Candidate references per plate that `unstir match` matches."""
 
 
 @dataclass(slots=True)

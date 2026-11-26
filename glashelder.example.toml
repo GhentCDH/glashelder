@@ -125,7 +125,14 @@ concurrency = 1
 # louvre_export = "data/louvre"
 
 [unstir]
-# Embeddings of the glass plates that `unstir pairs` uses to find candidate
+# Match store of `unstir match`: every score, and the last decisions.
+# store = "glashelder/matches/onroerend-kerken.matches"
+
+# Clusters of `paths.clusters` whose plates `unstir match` uses, comma
+# separated. Unset: every plate.
+# cluster_ids = "53,60,61,74,84,85"
+
+# Embeddings of the glass plates that `unstir match` uses to find candidate
 # references. Use a model that is good at the same place from another view (DINOv2).
 # plate_embeddings = "glashelder/embeddings/glashelder-dino.store"
 
@@ -135,5 +142,5 @@ concurrency = 1
 # Directory holding the reference photos.
 # reference_images = "glashelder/onroerend/kerken"
 
-# Candidate references per plate that `unstir pairs` matches.
+# Candidate references per plate that `unstir match` matches.
 top_k = 20
