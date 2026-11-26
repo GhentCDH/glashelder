@@ -1,6 +1,7 @@
 import functools
 import logging
 import threading
+import time
 import traceback
 from collections import defaultdict
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from PIL import Image as PILImage
 from rich.markup import escape, render
 
 from glaswacht.ledger import Ledger
+from glaswacht.metrics import RunMetrics, gpu_gib
 from glaswacht.models.safety_model import Rating, SafetyModel
 
 logger = logging.getLogger(__name__)
@@ -133,6 +135,7 @@ class Orchestrator:
         # the files of the latest run; results_csv is None until it is written
         self.log_path: Path | None = None
         self.results_csv: Path | None = None
+        self.metrics_json: Path | None = None
         self.ledger: Ledger | None = None
         self._run_name = ""
         # True when the latest run was aborted because a model failed to load
@@ -155,6 +158,7 @@ class Orchestrator:
             self._voters: dict[str, set[str]] = {}
             self.skips: list[Skip] = []
             self.summary = RunSummary()
+            self.metrics = RunMetrics()
 
     def request_stop(self) -> None:
         """Stop the run after the image being assessed now; what is done so
@@ -242,6 +246,8 @@ class Orchestrator:
             name, status=ModelStatus.LOADING, current_task=f"Loading {name} model..."
         )
         model = model_class(full_precision=self.full_precision)
+        memory_before = gpu_gib()
+        started = time.perf_counter()
         try:
             model.load_model()
         except Exception as exc:
@@ -254,6 +260,17 @@ class Orchestrator:
             except Exception:
                 logger.warning("%s: unloading after the failed load failed", name)
             raise ModelLoadError(str(exc)) from exc
+        metrics = self.metrics.model(name)
+        metrics.load_seconds = time.perf_counter() - started
+        memory_after = gpu_gib()
+        if memory_before is not None and memory_after is not None:
+            metrics.gpu_gib = memory_after - memory_before
+        logger.info(
+            "%s loaded in %.1f s%s",
+            name,
+            metrics.load_seconds,
+            f", {metrics.gpu_gib:.1f} GiB" if metrics.gpu_gib is not None else "",
+        )
         self.update_model_state(
             name, status=ModelStatus.PROCESSING, current_task="Processing images..."
         )
@@ -288,9 +305,14 @@ class Orchestrator:
             current_task=f"Processing image {number}/{count}",
             latest_image=key,
         )
+        metrics = self.metrics.model(name)
         try:
-            assessment = model.process_image(open_image(), key)
+            image = open_image()
+            started = time.perf_counter()
+            assessment = model.process_image(image, key)
+            seconds = time.perf_counter() - started
         except Exception as exc:
+            metrics.failures += 1
             logger.warning("%s skipped %s: %s", name, key, exc, exc_info=True)
             # CUDA errors span many lines, the first one says what went wrong
             error = f"{type(exc).__name__}: {next(iter(str(exc).splitlines()), '')}"
@@ -304,17 +326,19 @@ class Orchestrator:
             )
             return
 
-        self.ledger.record_done(name, assessment, **context)
+        metrics.assess_seconds.append(seconds)
+        self.ledger.record_done(name, assessment, seconds=round(seconds, 2), **context)
         self.assessments[name].append(assessment)
         # Rich markup for a bold rating; the log file gets it plain
         logger.info(
-            "%s \\[%d/%d] %s → [bold]%s[/bold] | %s\n    %s",
+            "%s \\[%d/%d] %s → [bold]%s[/bold] | %s (%.1f s)\n    %s",
             name,
             number,
             count,
             escape(key),
             escape(assessment.rating),
             escape(assessment.category),
+            seconds,
             escape(_excerpt(assessment.rationale)),
             extra={"markup": True},
         )
@@ -346,12 +370,18 @@ class Orchestrator:
             done = False
             try:
                 logger.info("%s: processing %d images", name, len(mine))
-                for number, w in enumerate(mine, start=1):
-                    if self._stop.is_set():
-                        break
-                    self._assess(model, self._opener(w.file), w.key, number, len(mine))
-                else:
-                    done = True
+                started = time.perf_counter()
+                try:
+                    for number, w in enumerate(mine, start=1):
+                        if self._stop.is_set():
+                            break
+                        self._assess(
+                            model, self._opener(w.file), w.key, number, len(mine)
+                        )
+                    else:
+                        done = True
+                finally:
+                    self.metrics.processing_seconds += time.perf_counter() - started
             except Exception as exc:
                 logger.error("%s runtime error:\n%s", name, traceback.format_exc())
                 self.update_model_state(
@@ -379,17 +409,21 @@ class Orchestrator:
                         status=ModelStatus.DONE,
                         current_task="Nothing to do",
                     )
-            for w in work:
-                if self._stop.is_set():
-                    break
-                open_image = self._opener(w.file)
-                for name in w.models:
-                    numbers[name] += 1
-                    self._assess(
-                        loaded[name], open_image, w.key, numbers[name], counts[name]
-                    )
-            else:
-                finished = True
+            started = time.perf_counter()
+            try:
+                for w in work:
+                    if self._stop.is_set():
+                        break
+                    open_image = self._opener(w.file)
+                    for name in w.models:
+                        numbers[name] += 1
+                        self._assess(
+                            loaded[name], open_image, w.key, numbers[name], counts[name]
+                        )
+                else:
+                    finished = True
+            finally:
+                self.metrics.processing_seconds += time.perf_counter() - started
         finally:
             for model in loaded.values():
                 self._unload(model, finished)
@@ -433,6 +467,7 @@ class Orchestrator:
         results_csv, self.log_path = run_files(output_dir, datetime.now())
         self._run_name = results_csv.stem
         self.results_csv = None
+        self.metrics_json = None
         self.ledger = Ledger(
             output_folder(ledger_path) if ledger_path else output_dir / LEDGER_NAME
         )
@@ -481,6 +516,13 @@ class Orchestrator:
                 self.aborted = True
 
             self._finish_summary(path, recursive)
+            self.metrics.finish(self.summary.finished)
+            for line in self.metrics.report():
+                logger.info(line)
+            self.metrics_json = results_csv.with_name(
+                f"{results_csv.stem}_metrics.json"
+            )
+            self.metrics.write(self.metrics_json)
             if self.aborted:
                 return None
             self._write_results(results_csv, [w.key for w in work])

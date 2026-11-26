@@ -124,7 +124,7 @@ class Ledger:
         """Every model the ledger has a line for, in the order first seen."""
         return list(dict.fromkeys(model for _, model in self._entries))
 
-    def record_done(self, model: str, rating: Rating, **context: str) -> None:
+    def record_done(self, model: str, rating: Rating, **context: object) -> None:
         """Record that `model` assessed `rating.image`. An answer of "Error"
         or "Unknown" is still an assessment: the model ran, so it is not
         asked again."""
@@ -139,7 +139,9 @@ class Ledger:
             **context,
         )
 
-    def record_failure(self, image: str, model: str, error: str, **context) -> None:
+    def record_failure(
+        self, image: str, model: str, error: str, **context: object
+    ) -> None:
         """Record that `model` raised an exception on `image`; it is tried
         again in a later run, up to MAX_ATTEMPTS times."""
         entry = self._entries.setdefault((image, model), _Entry())

@@ -270,3 +270,22 @@ def test_the_precision_reaches_the_models_and_the_ledger(
     (line,) = _ledger_lines(out)
     assert line["model_id"] == "org/quantizable"
     assert line["precision"] == ("bf16" if full_precision else "nf4")
+
+
+@pytest.mark.parametrize("load_all", [False, True])
+def test_metrics_time_loading_and_every_assessment(images, tmp_path, load_all):
+    (images / "bad.jpg").write_bytes((images / "a.jpg").read_bytes())
+    out = tmp_path / "out"
+    orchestrator = _run(images, out, models=[Alpha, Broken], load_all=load_all)
+
+    metrics = json.loads(orchestrator.metrics_json.read_text())
+    assert metrics["images_finished"] == 5
+    assert set(metrics["models"]) == {"alpha", "broken"}
+    assert metrics["models"]["alpha"]["assessed"] == 6
+    assert metrics["models"]["broken"]["assessed"] == 5
+    assert metrics["models"]["broken"]["failed"] == 1
+    assert metrics["models"]["alpha"]["load_seconds"] is not None
+    assert metrics["seconds_per_image"] is not None
+    assert any(line.startswith("Time:") for line in orchestrator.metrics.report())
+    done = [line for line in _ledger_lines(out) if line["status"] == "done"]
+    assert all(isinstance(line["seconds"], float) for line in done)

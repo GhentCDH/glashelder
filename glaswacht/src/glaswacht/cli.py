@@ -234,6 +234,8 @@ def run(
     if orchestrator.aborted:
         raise click.ClickException(f"run aborted, see {orchestrator.log_path}")
     summary = orchestrator.summary
+    for line in orchestrator.metrics.report() if summary.selected else []:
+        click.echo(line)
     click.echo(
         f"{summary.finished} images finished this run, {summary.remaining} of "
         f"{summary.total} left for a later run"

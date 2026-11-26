@@ -63,6 +63,11 @@ uv run glashelder glaswacht export --output $VSC_DATA/glaswacht_output
 - A model that raises on an image (out of memory, an unreadable file) is tried again in
   later runs, up to 3 times, then gives up on that image. An answer of `Error` or
   `Unknown` counts as assessed.
+- Every run ends with its timings, in the job output, the log and
+  `glaswacht_<date>_<time>_metrics.json`: load time and GPU memory per model, seconds
+  per image per model (mean, median, min, max), images per hour and peak GPU memory.
+  Each ledger line also has the `seconds` the model took. Use them to size
+  `--max-images` to the job's time limit.
 - On SIGTERM or SIGUSR1 a run stops after the image at hand and still writes its CSV.
   To get that signal some minutes before the time limit, add
   `#SBATCH --signal=B:USR1@600` to the job script and start the run with `exec uv run ...`,
