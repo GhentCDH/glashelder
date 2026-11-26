@@ -21,6 +21,13 @@ def cluster_ids(ctx, param, values: tuple[str, ...]) -> frozenset[int]:
         raise click.BadParameter("cluster ids are numbers, such as 53,60,61") from error
 
 
+def names(ctx, param, values: tuple[str, ...]) -> frozenset[str]:
+    """`--group a,b --group c` as {a, b, c}."""
+    return frozenset(
+        part.strip() for value in values for part in value.split(",") if part.strip()
+    )
+
+
 def band(ctx, param, value: str) -> tuple[int, int]:
     try:
         low, high = (int(part) for part in value.split(","))
@@ -88,10 +95,31 @@ rule_options = options(
     "none for every plate [unstir.cluster_ids]",
 )
 @click.option(
+    "--group",
+    multiple=True,
+    callback=names,
+    help="Cluster groups from the clustering's annotations (`cluster serve`) "
+    "whose plates are used, comma separated or repeated [unstir.groups]",
+)
+@click.option(
+    "--without-group",
+    multiple=True,
+    callback=names,
+    help="Groups whose clusters are left out, also when --cluster or --group "
+    "names them [unstir.without_groups]",
+)
+@click.option(
+    "--soft/--no-soft",
+    default=False,
+    show_default=True,
+    help="Also use the noise plates whose strongest soft cluster is chosen "
+    "[unstir.soft]",
+)
+@click.option(
     "--clusters",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=None,
-    help="Clustering result the --cluster ids belong to [paths.clusters]",
+    help="Clustering result the clusters and groups belong to [paths.clusters]",
 )
 @click.option(
     "--plate-embeddings",
@@ -118,9 +146,16 @@ rule_options = options(
 )
 @click.option(
     "--batch",
-    default=500,
+    default=2000,
     show_default=True,
-    help="Plates per commit to the store; a stopped run loses at most one batch",
+    help="References per commit to the store; a stopped run loses at most one batch",
+)
+@click.option(
+    "--chunk",
+    default=10_000,
+    show_default=True,
+    help="Plates kept on the GPU at once, about 0.5 MB each; more plates than "
+    "this read the references again for every chunk",
 )
 @click.option(
     "--rescore",
@@ -145,6 +180,9 @@ rule_options = options(
 def match(
     store: Path | None,
     cluster: frozenset[int],
+    group: frozenset[str],
+    without_group: frozenset[str],
+    soft: bool,
     clusters: Path | None,
     plate_embeddings: Path | None,
     reference_embeddings: Path | None,
@@ -156,6 +194,7 @@ def match(
     margin: int,
     plates: int,
     batch: int,
+    chunk: int,
     rescore: bool,
     seed: int,
     resize: int,
@@ -178,7 +217,7 @@ def match(
     """
     from .decide import Rule
     from .match import Settings
-    from .pipeline import Options, run
+    from .pipeline import Options, Selection, run
 
     required(
         store=store,
@@ -192,8 +231,13 @@ def match(
     run(
         Options(
             store=Path(store),
-            clusters=Path(clusters) if clusters else None,
-            cluster_ids=cluster,
+            selection=Selection(
+                clusters=Path(clusters) if clusters else None,
+                ids=cluster,
+                groups=group,
+                without=without_group,
+                soft=soft,
+            ),
             plate_embeddings=Path(plate_embeddings),
             plate_images=Path(plate_images),
             reference_embeddings=Path(reference_embeddings),
@@ -201,6 +245,7 @@ def match(
             top_k=top_k,
             plates=plates,
             batch=batch,
+            chunk=chunk,
             seed=seed,
             rescore=rescore,
             settings=Settings(

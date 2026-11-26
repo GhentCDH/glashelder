@@ -129,8 +129,18 @@ concurrency = 1
 # store = "glashelder/matches/onroerend-kerken.matches"
 
 # Clusters of `paths.clusters` whose plates `unstir match` uses, comma
-# separated. Unset: every plate.
+# separated. Unset, and no `groups`: every plate.
 # cluster_ids = "53,60,61,74,84,85"
+
+# Cluster groups (from `cluster serve`) whose plates `unstir match` uses,
+# comma separated, together with `cluster_ids`.
+# groups = "architectuur,topografie"
+
+# Groups whose clusters `unstir match` leaves out, comma separated.
+# without_groups = "interieur"
+
+# Also match the noise plates whose strongest soft cluster is chosen.
+soft = false
 
 # Embeddings of the glass plates that `unstir match` uses to find candidate
 # references. Use a model that is good at the same place from another view (DINOv2).

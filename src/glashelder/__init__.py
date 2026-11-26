@@ -138,6 +138,11 @@ def cli_defaults() -> dict:
         ),
     }
     unstir = defaults_for(settings.unstir)
+    lists = {
+        "cluster_ids": "cluster",
+        "groups": "group",
+        "without_groups": "without_group",
+    }
     unstir_images = given(
         store=settings.unstir.store,
         plate_images=paths.images.glashelder,
@@ -208,13 +213,14 @@ def cli_defaults() -> dict:
         },
         "unstir": {
             "match": {
-                **{k: v for k, v in unstir.items() if k != "cluster_ids"},
+                **{k: v for k, v in unstir.items() if k not in lists},
                 **given(clusters=paths.clusters, plate_images=paths.images.glashelder),
-                **(
-                    {"cluster": [settings.unstir.cluster_ids]}
-                    if settings.unstir.cluster_ids
-                    else {}
-                ),
+                # comma separated settings, for options that can be repeated
+                **{
+                    flag: [value]
+                    for name, flag in lists.items()
+                    if (value := unstir.get(name))
+                },
             },
             "decide": unstir_images,
             "sample": unstir_images,

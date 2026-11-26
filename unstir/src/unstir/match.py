@@ -56,6 +56,16 @@ class Matcher:
         tensor = torch.from_numpy(image).to(self.device).float().div(255)
         return self.extractor.extract(tensor[None].repeat(3, 1, 1), resize=None)
 
+    @staticmethod
+    def compact(features: dict) -> dict:
+        """`features` with float16 descriptors: half the memory, to keep many."""
+        return {**features, "descriptors": features["descriptors"].half()}
+
+    @staticmethod
+    def expand(features: dict) -> dict:
+        """Compacted `features` as LightGlue takes them."""
+        return {**features, "descriptors": features["descriptors"].float()}
+
     @torch.inference_mode()
     def match(self, a: dict, b: dict) -> tuple[np.ndarray, np.ndarray]:
         """Matched keypoints in `a` and in `b`, as two `(n, 2)` arrays."""

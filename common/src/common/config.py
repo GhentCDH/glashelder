@@ -178,7 +178,14 @@ class Unstir:
     """Match store of `unstir match`: every score, and the last decisions."""
     cluster_ids: str | None = unset(example="53,60,61,74,84,85")
     """Clusters of `paths.clusters` whose plates `unstir match` uses, comma
-    separated. Unset: every plate."""
+    separated. Unset, and no `groups`: every plate."""
+    groups: str | None = unset(example="architectuur,topografie")
+    """Cluster groups (from `cluster serve`) whose plates `unstir match` uses,
+    comma separated, together with `cluster_ids`."""
+    without_groups: str | None = unset(example="interieur")
+    """Groups whose clusters `unstir match` leaves out, comma separated."""
+    soft: bool = False
+    """Also match the noise plates whose strongest soft cluster is chosen."""
     plate_embeddings: Path | None = unset(
         example="glashelder/embeddings/glashelder-dino.store"
     )
