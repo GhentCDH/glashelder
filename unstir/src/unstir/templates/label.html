@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Label · {{ name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="h-screen flex flex-col overflow-hidden bg-neutral-900 text-neutral-100">
+    <header class="flex items-center gap-4 px-4 py-2 bg-neutral-800 text-sm">
+      <h1 class="font-semibold truncate" title="{{ labels_file }}">{{ name }}</h1>
+      <span id="progress" class="text-neutral-400"></span>
+      <div class="flex-1 h-1.5 bg-neutral-700 rounded">
+        <div id="bar" class="h-full bg-emerald-500 rounded" style="width: 0"></div>
+      </div>
+      <span id="position" class="tabular-nums text-neutral-400"></span>
+    </header>
+
+    <main class="flex-1 min-h-0 grid grid-cols-2 gap-2 p-2">
+      <figure class="min-h-0 flex flex-col">
+        <figcaption id="plate-name" class="text-xs text-neutral-400 pb-1 truncate"></figcaption>
+        <a id="plate-link" target="_blank" class="flex-1 min-h-0 flex items-center justify-center bg-black rounded">
+          <img id="plate" class="max-w-full max-h-full object-contain" alt="plate" />
+        </a>
+      </figure>
+      <figure class="min-h-0 flex flex-col">
+        <figcaption id="reference-name" class="text-xs text-neutral-400 pb-1 truncate"></figcaption>
+        <a id="reference-link" target="_blank" class="flex-1 min-h-0 flex items-center justify-center bg-black rounded">
+          <img id="reference" class="max-w-full max-h-full object-contain" alt="reference" />
+        </a>
+      </figure>
+    </main>
+
+    <pre id="info" class="hidden px-4 text-xs text-neutral-400 whitespace-pre-wrap"></pre>
+
+    <footer class="flex items-center justify-center gap-3 px-4 py-3 bg-neutral-800">
+      <button id="prev" class="px-3 py-2 rounded bg-neutral-700 hover:bg-neutral-600">← back</button>
+      <button id="no_match" class="px-6 py-2 rounded font-semibold bg-neutral-700 hover:bg-rose-700">
+        <kbd>n</kbd> no match
+      </button>
+      <button id="match" class="px-6 py-2 rounded font-semibold bg-neutral-700 hover:bg-emerald-700">
+        <kbd>m</kbd> match
+      </button>
+      <button id="clear" class="px-3 py-2 rounded bg-neutral-700 hover:bg-neutral-600"><kbd>x</kbd> clear</button>
+      <button id="next" class="px-3 py-2 rounded bg-neutral-700 hover:bg-neutral-600">next →</button>
+      <button id="todo" class="px-3 py-2 rounded bg-neutral-700 hover:bg-neutral-600">
+        <kbd>space</kbd> next without label
+      </button>
+    </footer>
+
+    <script>
+      const COLOURS = { match: "bg-emerald-700", no_match: "bg-rose-700" };
+      const $ = (id) => document.getElementById(id);
+      let pairs = [];
+      let current = 0;
+
+      // pixels the image box has on screen, so the server sends no more than that
+      const size = () =>
+        Math.min(4096, Math.max(128, Math.round(
+          Math.max(innerWidth / 2, innerHeight) * devicePixelRatio,
+        )));
+      const src = (side, i) => `image/${side}/${i}?size=${size()}`;
+
+      function nextTodo(from) {
+        for (let step = 1; step <= pairs.length; step++) {
+          const i = (from + step) % pairs.length;
+          if (pairs[i].label === null) return i;
+        }
+        return null;
+      }
+
+      function show(i) {
+        if (!pairs.length) return;
+        current = (i + pairs.length) % pairs.length;
+        const pair = pairs[current];
+        for (const side of ["plate", "reference"]) {
+          $(side).src = src(side, current);
+          $(`${side}-link`).href = `full/${side}/${current}`;
+          $(`${side}-name`).textContent = `${side}: ${pair[side]}`;
+        }
+        const info = Object.keys(pair.info).length ? JSON.stringify(pair.info, null, 1) : "";
+        $("info").textContent = info;
+        $("info").classList.toggle("hidden", !info);
+        for (const label of ["match", "no_match"]) {
+          $(label).classList.toggle(COLOURS[label], pair.label === label);
+          $(label).classList.toggle("bg-neutral-700", pair.label !== label);
+        }
+        $("position").textContent = `${current + 1} / ${pairs.length}`;
+        const done = pairs.filter((p) => p.label !== null);
+        const matches = done.filter((p) => p.label === "match").length;
+        $("progress").textContent =
+          `${done.length} labelled: ${matches} match, ${done.length - matches} no match`;
+        $("bar").style.width = `${(100 * done.length) / pairs.length}%`;
+        // load the next pair while this one is looked at
+        const after = nextTodo(current);
+        if (after !== null) for (const side of ["plate", "reference"]) new Image().src = src(side, after);
+      }
+
+      async function give(label) {
+        const response = await fetch(`label/${current}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label }),
+        });
+        if (!response.ok) {
+          alert(`Not saved: ${await response.text()}`);
+          return;
+        }
+        pairs[current].label = label;
+        const after = label === null ? null : nextTodo(current);
+        show(after ?? current);
+      }
+
+      $("match").onclick = () => give("match");
+      $("no_match").onclick = () => give("no_match");
+      $("clear").onclick = () => give(null);
+      $("prev").onclick = () => show(current - 1);
+      $("next").onclick = () => show(current + 1);
+      $("todo").onclick = () => show(nextTodo(current) ?? current);
+
+      addEventListener("keydown", (event) => {
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        const action = {
+          m: () => give("match"),
+          n: () => give("no_match"),
+          x: () => give(null),
+          ArrowLeft: () => show(current - 1),
+          ArrowRight: () => show(current + 1),
+          " ": () => show(nextTodo(current) ?? current),
+        }[event.key];
+        if (action) {
+          event.preventDefault();
+          action();
+        }
+      });
+
+      fetch("pairs")
+        .then((response) => response.json())
+        .then((data) => {
+          pairs = data.pairs;
+          if (!pairs.length) {
+            $("progress").textContent = "no pairs in the file";
+            return;
+          }
+          show(pairs[0].label === null ? 0 : nextTodo(0) ?? 0);
+        });
+    </script>
+  </body>
+</html>

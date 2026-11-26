@@ -18,6 +18,7 @@ members = [
     "glaswacht",
     "ocr",
     "preprocessing",
+    "unstir",
 ]
 
 [[package]]
@@ -692,6 +693,7 @@ dependencies = [
     { name = "preprocessing" },
     { name = "python-dotenv" },
     { name = "rich" },
+    { name = "unstir" },
 ]
 
 [package.dev-dependencies]
@@ -720,6 +722,7 @@ requires-dist = [
     { name = "preprocessing", editable = "preprocessing" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "rich", specifier = ">=13.9.4" },
+    { name = "unstir", editable = "unstir" },
 ]
 
 [package.metadata.requires-dev]
@@ -1331,12 +1334,57 @@ wheels = [
 ]
 
 [[package]]
+name = "kornia"
+version = "0.9.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "kornia-rs" },
+    { name = "numpy" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/23/7b/6cd75c23261745a8d574ed7cc33c9d470de746a61717ec5e9ae380efd3cc/kornia-0.9.2.tar.gz", hash = "sha256:d94362a4f57d4d86eb4ae656c6cef4911f577bfe09b098e8c3c69da43b45445b", size = 1708697, upload-time = "2026-11-16T19:21:15.083Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/07/274fef1f0d8e230ef1049a1a1fe89651d090bf5de52a40e4d5e402738290/kornia-0.9.2-py3-none-any.whl", hash = "sha256:3b0340c196106fbdd4cbcd2186abe02e4f16c76c2b5e1a3c5e219c849fdd18db", size = 2214099, upload-time = "2026-11-16T19:21:12.812Z" },
+]
+
+[[package]]
+name = "kornia-rs"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/58/99fe962c2935e2ca05c3f57672797f242d30beaf9f7892dfcbc2ec9c2e08/kornia_rs-0.2.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:ef04e0c95dec1f4367ced2197c6884848d4c0fec18fbc4e03426520f50c08843", size = 4471713, upload-time = "2026-09-26T20:07:26.442Z" },
+    { url = "https://files.pythonhosted.org/packages/83/15/5e4cae0356d1d32de4d3f6f70ae711b5bb8687fd877ce8967da0aa44b312/kornia_rs-0.2.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:712a76c0e163c86f646188c4aa3ded6079894a4a570ee8847627a500e1353a7e", size = 4023258, upload-time = "2026-09-26T20:07:07.634Z" },
+    { url = "https://files.pythonhosted.org/packages/00/04/b64d07637c09d23f1020f77b25e44681b0fd639291272aab55dc1b528436/kornia_rs-0.2.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7ea1a91d30abf6b057b75be8816f635f82eec60c23e1e766ba044f242f5a91de", size = 4644303, upload-time = "2026-09-26T20:06:32.588Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/4c/b7f9a36a6fe174069c9a6f2f6debea49e7c992dcbb8a768a217303ef1b49/kornia_rs-0.2.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f8b71a0c0bc54ba7fc76f184d66a8f600c19754495313d245e8b28e847ef902e", size = 5340640, upload-time = "2026-09-26T20:06:49.904Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/30/f97091dc19144e415aac6d3e2c44f803e72f247dc0aa2cf86450c77b04c3/kornia_rs-0.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:568dcbe7f4a352d73ed628383a085e772cd7576f6740eed0b75b15a815b19b73", size = 4341624, upload-time = "2026-09-26T20:07:52.537Z" },
+    { url = "https://files.pythonhosted.org/packages/83/9b/d662cb56901112d2fda83261340a24a307770aff31b7465c104b2a18315b/kornia_rs-0.2.0-cp313-cp313-win_arm64.whl", hash = "sha256:fa77412c0167bf75e06b7f6bbd764618f99d6be2e2391f6d41ca116e4d382b09", size = 3792667, upload-time = "2026-09-26T20:07:42.951Z" },
+    { url = "https://files.pythonhosted.org/packages/28/b0/bd9050a8f737925251841940e550570fe3e11e13a2b3c91bef41e0b263e4/kornia_rs-0.2.0-cp313-cp313t-macosx_10_12_x86_64.whl", hash = "sha256:b1f1483adfa5fb415ecb0318a42e26e91b7e269bcaae983a7587ebfb89a65e8e", size = 4459147, upload-time = "2026-09-26T20:07:28.622Z" },
+    { url = "https://files.pythonhosted.org/packages/60/18/a4325016ad98017abaed1558189670340106d71a301f96c355e5d1af9652/kornia_rs-0.2.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:9b10498e5661f222c334f659f8db4606ec5d6eb0343710ebda67b9e49914566a", size = 4008916, upload-time = "2026-09-26T20:07:09.78Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/c0/0d8a5fbd971678a95c8646573573de1128f6ef28aba9cb2d6d8d6aa16649/kornia_rs-0.2.0-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:17ff32b28f440f86b4e33a41629c4c186d48fe36c293816fae9389de5eed6f6c", size = 4635935, upload-time = "2026-09-26T20:06:34.669Z" },
+    { url = "https://files.pythonhosted.org/packages/59/0d/104cf127214d2e2f94142b64286f2159475e786442cb18f572ce8164c1d3/kornia_rs-0.2.0-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0f851abc425eab7745b75ed890f8215af1105adbaf709713027898e19e20bf32", size = 5330359, upload-time = "2026-09-26T20:06:51.767Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/56/f71b476c770f525ab7c232a90868c0fa3081e4a1b071c693feee073cc773/kornia_rs-0.2.0-cp313-cp313t-win_amd64.whl", hash = "sha256:98d0f6a17d114304755dd922d0fbf5e917db59a2602dbc1aad63c1ae051ce7b1", size = 4334374, upload-time = "2026-09-26T20:07:54.548Z" },
+]
+
+[[package]]
 name = "lark"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/da/34/28fff3ab31ccff1fd4f6c7c7b0ceb2b6968d8ea4950663eadcb5720591a0/lark-1.3.1.tar.gz", hash = "sha256:b426a7a6d6d53189d318f2b6236ab5d6429eaf09259f1ca33eb716eed10d2905", size = 382732, upload-time = "2025-10-27T18:25:56.653Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/3d/14ce75ef66813643812f3093ab17e46d3a206942ce7376d31ec2d36229e7/lark-1.3.1-py3-none-any.whl", hash = "sha256:c629b661023a014c37da873b4ff58a817398d12635d3bbb2c5a03be7fe5d1e12", size = 113151, upload-time = "2025-10-27T18:25:54.882Z" },
+]
+
+[[package]]
+name = "lightglue"
+version = "0.0"
+source = { git = "https://github.com/cvg/LightGlue?rev=5a650c444718caffc2669dc0094cde908f42dd73#5a650c444718caffc2669dc0094cde908f42dd73" }
+dependencies = [
+    { name = "kornia" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "opencv-python" },
+    { name = "torch" },
+    { name = "torchvision" },
 ]
 
 [[package]]
@@ -3035,6 +3083,37 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/94/9a/a1e4a257a9aa979dac4f6d5781dac929cbb0949959e2003ed82657d10b0f/umap_learn-0.5.11.tar.gz", hash = "sha256:31566ffd495fbf05d7ab3efcba703861c0f5e6fc6998a838d0e2becdd00e54f5", size = 96409, upload-time = "2026-01-12T20:44:47.553Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/43/d2/fcf7192dd1cd8c090b6cfd53fa223c4fb2887a17c47e06bc356d44f40dfb/umap_learn-0.5.11-py3-none-any.whl", hash = "sha256:cb17adbde9d544ba79481b3ab4d81ac222e940f3d9219307bea6044f869af3cc", size = 90890, upload-time = "2026-01-12T20:44:46.511Z" },
+]
+
+[[package]]
+name = "unstir"
+version = "0.1.0"
+source = { editable = "unstir" }
+dependencies = [
+    { name = "click" },
+    { name = "cluster" },
+    { name = "common" },
+    { name = "embed" },
+    { name = "flask" },
+    { name = "lightglue" },
+    { name = "numpy" },
+    { name = "opencv-python" },
+    { name = "pyarrow" },
+    { name = "torch" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.3.1" },
+    { name = "cluster", editable = "cluster" },
+    { name = "common", editable = "common" },
+    { name = "embed", editable = "embed" },
+    { name = "flask", specifier = ">=3.1.2" },
+    { name = "lightglue", git = "https://github.com/cvg/LightGlue?rev=5a650c444718caffc2669dc0094cde908f42dd73" },
+    { name = "numpy", specifier = ">=2.2.3" },
+    { name = "opencv-python", specifier = ">=4.11.0.86" },
+    { name = "pyarrow", specifier = ">=23.0.0" },
+    { name = "torch", specifier = ">=2.6.0" },
 ]
 
 [[package]]

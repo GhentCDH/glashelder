@@ -173,6 +173,23 @@ class Artscraper:
 
 
 @dataclass(slots=True)
+class Unstir:
+    plate_embeddings: Path | None = unset(
+        example="glashelder/embeddings/glashelder-dino.store"
+    )
+    """Embeddings of the glass plates that `unstir pairs` uses to find candidate
+    references. Use a model that is good at the same place from another view (DINOv2)."""
+    reference_embeddings: Path | None = unset(
+        example="glashelder/embeddings/onroerend-dino.store"
+    )
+    """Embeddings of the reference photos, made with the same model as the plates."""
+    reference_images: Path | None = unset(example="glashelder/onroerend/kerken")
+    """Directory holding the reference photos."""
+    top_k: int = 20
+    """Candidate references per plate that `unstir pairs` matches."""
+
+
+@dataclass(slots=True)
 class Config:
     secret: str | None = None
     """Secret for the serve commands' authentication. Unset means a random one
@@ -185,6 +202,7 @@ class Config:
     glaswacht: Glaswacht = field(default_factory=Glaswacht)
     ocr: Ocr = field(default_factory=Ocr)
     artscraper: Artscraper = field(default_factory=Artscraper)
+    unstir: Unstir = field(default_factory=Unstir)
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":

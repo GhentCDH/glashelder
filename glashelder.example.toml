@@ -123,3 +123,17 @@ concurrency = 1
 [artscraper]
 # Louvre export CSV, or a directory of them.
 # louvre_export = "data/louvre"
+
+[unstir]
+# Embeddings of the glass plates that `unstir pairs` uses to find candidate
+# references. Use a model that is good at the same place from another view (DINOv2).
+# plate_embeddings = "glashelder/embeddings/glashelder-dino.store"
+
+# Embeddings of the reference photos, made with the same model as the plates.
+# reference_embeddings = "glashelder/embeddings/onroerend-dino.store"
+
+# Directory holding the reference photos.
+# reference_images = "glashelder/onroerend/kerken"
+
+# Candidate references per plate that `unstir pairs` matches.
+top_k = 20

@@ -1,0 +1,24 @@
+[project]
+name = "unstir"
+version = "0.1.0"
+description = "Match glass plates to reference photos of the same building with local features."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "common",
+  "cluster",
+  "embed",
+  "click>=8.3.1",
+  "flask>=3.1.2",
+  "numpy>=2.2.3",
+  "opencv-python>=4.11.0.86",
+  "pyarrow>=23.0.0",
+  "torch>=2.6.0",
+  "lightglue",
+]
+
+[tool.uv.sources]
+lightglue = { git = "https://github.com/cvg/LightGlue", rev = "5a650c444718caffc2669dc0094cde908f42dd73" }
+
+[build-system]
+requires = ["uv_build>=0.9.14,<0.13"]
+build-backend = "uv_build"

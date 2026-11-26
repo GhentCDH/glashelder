@@ -67,6 +67,10 @@ COMMANDS: dict[str, tuple[str, str]] = {
         "glashelder.setup:setup",
         "Answer a few questions and write glashelder.toml.",
     ),
+    "unstir": (
+        "unstir.cli:unstir",
+        "Match glass plates to reference photos of the same building.",
+    ),
 }
 
 
@@ -195,6 +199,12 @@ def cli_defaults() -> dict:
                 csv_path=settings.glaswacht.results,
                 images_dir=settings.glaswacht.images,
             ),
+        },
+        "unstir": {
+            "pairs": {
+                **defaults_for(settings.unstir),
+                **given(clusters=paths.clusters, plate_images=paths.images.glashelder),
+            },
         },
         "ocr": {
             "one": ocr_no_concurrency,
