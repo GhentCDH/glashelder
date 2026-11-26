@@ -40,6 +40,10 @@ class Source:
     title: str
     embeddings: Path
     images: Path
+    many: bool = False
+    """The collection can hold several images of one building (the plates).
+    Then every candidate that passes `min_f` and `min_ratio` is a match, and the
+    margin is not used: a second plate of the same church is no look-alike."""
 
 
 @dataclass
@@ -56,8 +60,19 @@ class Collection:
         return {"file": name, **self.known.get(name, {})}
 
 
-def reason(best: dict, rule: Rule) -> str:
-    """Why the best candidate is, or is not, a match, in words."""
+def passes(candidate: dict, rule: Rule) -> bool:
+    return candidate["f_inliers"] >= rule.min_f and candidate["ratio"] >= rule.min_ratio
+
+
+def reason(best: dict, rule: Rule, *, many: int | None = None) -> str:
+    """Why the best candidate is, or is not, a match, in words. `many` is the
+    number of matches in a collection that can hold several per building."""
+    if many:
+        images = "image shows" if many == 1 else "images show"
+        return (
+            f"{many} {images} this building: at least {rule.min_f} matched points "
+            f"and {rule.min_ratio:.0%} of them fit one 3D geometry"
+        )
     if best["decision"] == "match":
         return (
             f"{best['f_inliers']} matched points fit one 3D geometry, "
@@ -170,20 +185,27 @@ class Lookup:
             )
 
         top = sorted(scored, key=lambda s: -s["f_inliers"])[: self.show]
-        best = decide(scored, self.rule)[0] if scored else None
-        matched = best is not None and best["decision"] == "match"
+        if not scored:
+            matches, explained = set(), "no candidate could be read"
+        elif collection.source.many:
+            matches = {s["reference"] for s in scored if passes(s, self.rule)}
+            best = decide(scored, self.rule)[0]
+            explained = reason(best, self.rule, many=len(matches))
+        else:
+            best = decide(scored, self.rule)[0]
+            matches = {best["reference"]} if best["decision"] == "match" else set()
+            explained = reason(best, self.rule)
         return {
             "key": collection.source.key,
             "title": collection.source.title,
-            "match": matched,
-            "reason": reason(best, self.rule) if best else "no candidate could be read",
+            "match": bool(matches),
+            "matches": len(matches),
+            "reason": explained,
             "top": [
                 {
                     **s,
                     **collection.describe(s["row"]),
-                    "is_match": matched
-                    and best is not None
-                    and s["reference"] == best["reference"],
+                    "is_match": s["reference"] in matches,
                 }
                 for s in top
             ],

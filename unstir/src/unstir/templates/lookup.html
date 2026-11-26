@@ -70,8 +70,9 @@
           const node = $("collection").content.cloneNode(true);
           const verdict = node.querySelector(".verdict");
           verdict.classList.add(collection.match ? "bg-emerald-700" : "bg-neutral-600");
+          const count = collection.matches > 1 ? ` (${collection.matches} images)` : "";
           node.querySelector("h2").textContent =
-            `${collection.title}: ${collection.match ? "MATCH" : "NO MATCH"}`;
+            `${collection.title}: ${collection.match ? "MATCH" + count : "NO MATCH"}`;
           node.querySelector(".reason").textContent = collection.reason;
           const list = node.querySelector("ol");
           collection.top.forEach((c, i) => {

@@ -421,7 +421,11 @@ def lookup(
             Path(reference_images),
         ),
         Source(
-            "plates", "the glass plates", Path(plate_embeddings), Path(plate_images)
+            "plates",
+            "the glass plates",
+            Path(plate_embeddings),
+            Path(plate_images),
+            many=True,
         ),
     ]
     found = Lookup(
