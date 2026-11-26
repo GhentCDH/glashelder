@@ -382,6 +382,14 @@ def sample(
 @click.option(
     "--show", default=5, show_default=True, help="Images shown per collection"
 )
+@click.option(
+    "--feedback",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("feedback"),
+    show_default=True,
+    help="Directory for what visitors say about the results (feedback.jsonl, "
+    "photos/), kept apart from verified labels",
+)
 @rule_options
 @serve_options(5005)
 def lookup(
@@ -391,6 +399,7 @@ def lookup(
     reference_images: Path | None,
     top_k: int,
     show: int,
+    feedback: Path,
     min_f: int,
     min_ratio: float,
     margin: int,
@@ -402,7 +411,7 @@ def lookup(
     the glass plates, and the page says per collection if there is a match.
     """
     from .decide import Rule
-    from .lookup import Lookup, Source, create_app
+    from .lookup import Feedback, Lookup, Source, create_app
     from .match import Settings
 
     required(
@@ -435,7 +444,7 @@ def lookup(
         rule=Rule(min_f=min_f, min_ratio=min_ratio, margin=margin),
         settings=Settings(),
     )
-    run_app(create_app(found), **server)
+    run_app(create_app(found, Feedback(feedback)), **server)
 
 
 @unstir.command()

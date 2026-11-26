@@ -7,11 +7,15 @@ and `decide.decide` says if the best one is a match.
 """
 
 import io
+import json
 import logging
+import secrets
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -21,9 +25,11 @@ from flask import Flask, Response, render_template, request, send_file
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from common import images
+from common.fs import atomic_write
 
 from .decide import Rule, decide, provenance, ratio
 from .match import Matcher, Settings, geometry, grayscale, prepare
+from .store import relative
 
 THREADS = 16
 SIZES = range(64, 2049)
@@ -92,6 +98,89 @@ def reason(best: dict, rule: Rule, *, many: int | None = None) -> str:
         f"the best candidate is only {best['margin']} points ahead of the next, "
         f"a match needs {rule.margin}: two buildings look alike"
     )
+
+
+VERDICTS = ("same", "different")
+KEEP = 50
+"""Recent uploads kept in memory, so feedback on them can store the photo."""
+STORED_SIDE = 2048
+
+
+class Feedback:
+    """What visitors say about the candidates: `same` or `different` building.
+
+    Not verified, so it is kept apart from the labels of `unstir serve`:
+    `feedback.jsonl` (one line per click, the last click for a candidate counts)
+    and `photos/<query>.jpg`. A photo is only written when someone gives
+    feedback on it, scaled down and without its EXIF data (which can hold the
+    place it was taken).
+    """
+
+    def __init__(self, folder: Path):
+        self.folder = folder
+        self.lock = threading.Lock()
+        self.recent: OrderedDict[str, tuple[bytes, dict]] = OrderedDict()
+
+    def remember(self, picture: Image.Image, result: dict) -> str:
+        small = picture.copy()
+        small.thumbnail((STORED_SIDE, STORED_SIDE))
+        buffer = io.BytesIO()
+        small.save(buffer, "JPEG", quality=90)
+        query = secrets.token_hex(8)
+        with self.lock:
+            self.recent[query] = (buffer.getvalue(), result)
+            while len(self.recent) > KEEP:
+                self.recent.popitem(last=False)
+        return query
+
+    def give(
+        self, lookup: "Lookup", query: str, key: str, row: int, verdict: str
+    ) -> str | None:
+        """Store one click. The reason it was refused, or None."""
+        if verdict not in VERDICTS:
+            return f"a verdict is one of {', '.join(VERDICTS)}"
+        with self.lock:
+            if query not in self.recent:
+                return "this photo is too old, upload it again"
+            photo, result = self.recent[query]
+            collection = next(
+                (c for c in result["collections"] if c["key"] == key), None
+            )
+            candidate = next(
+                (c for c in (collection or {}).get("top", []) if c["row"] == row),
+                None,
+            )
+            if collection is None or candidate is None:
+                return "that image was not among the results"
+            source = lookup.collections[key]
+            (self.folder / "photos").mkdir(parents=True, exist_ok=True)
+            stored = self.folder / "photos" / f"{query}.jpg"
+            if not stored.exists():
+                atomic_write(stored, photo)
+            line = {
+                "time": datetime.now(UTC).isoformat(timespec="seconds"),
+                "query": query,
+                "collection": key,
+                "reference": relative(source.refs[row], source.source.images),
+                "verdict": verdict,
+                "page_said_match": candidate["is_match"],
+                "collection_match": collection["match"],
+                **{
+                    name: candidate[name]
+                    for name in (
+                        "rank",
+                        "similarity",
+                        "matches",
+                        "f_inliers",
+                        "h_inliers",
+                        "cells",
+                        "ratio",
+                    )
+                },
+            }
+            with (self.folder / "feedback.jsonl").open("a", encoding="utf-8") as file:
+                file.write(json.dumps(line) + "\n")
+        return None
 
 
 class Lookup:
@@ -226,7 +315,7 @@ def upload(data: bytes) -> Image.Image:
     return ImageOps.exif_transpose(picture).convert("RGB")
 
 
-def create_app(lookup: Lookup) -> Flask:
+def create_app(lookup: Lookup, feedback: Feedback) -> Flask:
     app = Flask(__name__, template_folder=Path(__file__).parent / "templates")
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD
 
@@ -260,10 +349,29 @@ def create_app(lookup: Lookup) -> Flask:
         except (UnidentifiedImageError, OSError) as error:
             return {"error": f"that is not a photo this page can read ({error})"}, 400
         try:
-            return lookup.query(picture)
+            result = lookup.query(picture)
         except Exception as error:
             logger.exception("lookup failed")
             return {"error": f"matching failed: {error}"}, 500
+        return {**result, "query": feedback.remember(picture, result)}
+
+    @app.route("/feedback", methods=["POST"])
+    def give_feedback():
+        body = request.get_json(silent=True) or {}
+        try:
+            row = int(str(body.get("row")))
+        except ValueError:
+            return {"error": "row must be a number"}, 400
+        refused = feedback.give(
+            lookup,
+            str(body.get("query", "")),
+            str(body.get("collection", "")),
+            row,
+            str(body.get("verdict", "")),
+        )
+        if refused:
+            return {"error": refused}, 400
+        return {"ok": True}
 
     @app.route("/thumb/<key>/<int:row>")
     def thumb(key: str, row: int):

@@ -33,6 +33,12 @@
       </section>
 
       <div id="results" class="space-y-6"></div>
+
+      <p id="feedback-note" class="hidden text-xs text-neutral-500">
+        Is an image the same building as yours? Tell us with the buttons under it:
+        that helps to make the matching better. Your photo is only stored when you
+        use these buttons, made smaller and without its location data.
+      </p>
     </main>
 
     <template id="collection">
@@ -56,6 +62,10 @@
           <p class="place text-neutral-600"></p>
           <p class="scores text-neutral-500"></p>
           <a class="uri text-blue-700 underline hidden" target="_blank">Onroerend Erfgoed</a>
+        </div>
+        <div class="mt-auto grid grid-cols-2 border-t text-xs">
+          <button data-verdict="same" class="py-2 hover:bg-emerald-50">Same building</button>
+          <button data-verdict="different" class="py-2 border-l hover:bg-rose-50">Different</button>
         </div>
       </li>
     </template>
@@ -94,10 +104,52 @@
               uri.href = c.uri;
               uri.classList.remove("hidden");
             }
+            for (const button of item.querySelectorAll("button[data-verdict]")) {
+              button.addEventListener("click", () =>
+                judge(li, button, result.query, collection.key, c.row),
+              );
+            }
             list.appendChild(item);
           });
           results.appendChild(node);
         }
+        $("feedback-note").classList.remove("hidden");
+      }
+
+      const CHOSEN = { same: "bg-emerald-600", different: "bg-rose-600" };
+
+      async function judge(li, button, query, collection, row) {
+        const verdict = button.dataset.verdict;
+        try {
+          await request("feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, collection, row, verdict }),
+          });
+        } catch (error) {
+          alert(`Not saved: ${error.message}`);
+          return;
+        }
+        for (const other of li.querySelectorAll("button[data-verdict]")) {
+          const chosen = other === button;
+          other.classList.toggle(CHOSEN[other.dataset.verdict], chosen);
+          other.classList.toggle("text-white", chosen);
+        }
+      }
+
+      // the JSON answer, or an error that says what came back instead
+      async function request(url, options) {
+        const response = await fetch(url, options);
+        const text = await response.text();
+        let body;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          const what = text.trim() ? text.trim().slice(0, 200) : "an empty answer";
+          throw new Error(`HTTP ${response.status} ${response.statusText}: ${what}`);
+        }
+        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        return body;
       }
 
       async function send(file) {
@@ -108,10 +160,9 @@
         $("status").textContent = "Comparing, this can take a while…";
         const body = new FormData();
         body.append("image", file);
+        $("feedback-note").classList.add("hidden");
         try {
-          const response = await fetch("lookup", { method: "POST", body });
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.error || response.statusText);
+          const result = await request("lookup", { method: "POST", body });
           $("status").textContent = `Done in ${result.seconds} s.`;
           show(result);
         } catch (error) {
