@@ -7,11 +7,11 @@ MODEL_ID = "facebook/sam3"
 
 
 @click.group()
-def architecture_identifier():
+def archstil():
     """Find and segment buildings in images."""
 
 
-@architecture_identifier.command()
+@archstil.command()
 @click.argument("source", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "-o",

@@ -1,4 +1,4 @@
-# architecture_identifier
+# archstil
 
 Segments buildings in images with [SAM3](https://huggingface.co/facebook/sam3)
 (text-prompted "promptable concept segmentation").
@@ -7,7 +7,7 @@ Segments buildings in images with [SAM3](https://huggingface.co/facebook/sam3)
 `hf auth login` (or set `HF_TOKEN`) before the first run.
 
 ```sh
-uv run glashelder architecture_identifier segment IMAGES_DIR -o OUTPUT_DIR
+uv run glashelder archstil segment IMAGES_DIR -o OUTPUT_DIR
 # options: -p building -p church --threshold 0.5 --device cuda
 ```
 

@@ -1,5 +1,5 @@
 [project]
-name = "architecture-identifier"
+name = "archstil"
 version = "0.1.0"
 description = "Detect and segment buildings in glass plate images with SAM3"
 readme = "README.md"
