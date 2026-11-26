@@ -1,0 +1,8 @@
+# build output
+/target
+# downloaded photos (a symlink to the share on the Spark)
+/imgs
+# local copies, screenshots and generated documents
+*.tar.gz
+*.png
+*.pdf
