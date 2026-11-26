@@ -224,6 +224,13 @@ def cli_defaults() -> dict:
             },
             "decide": unstir_images,
             "sample": unstir_images,
+            "lookup": {
+                **unstir_images,
+                **given(
+                    plate_embeddings=settings.unstir.plate_embeddings,
+                    reference_embeddings=settings.unstir.reference_embeddings,
+                ),
+            },
         },
         "ocr": {
             "one": ocr_no_concurrency,

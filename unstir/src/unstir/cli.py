@@ -360,6 +360,81 @@ def sample(
 
 
 @unstir.command()
+@click.option(
+    "--plate-embeddings",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Plate embeddings [unstir.plate_embeddings]",
+)
+@click.option(
+    "--reference-embeddings",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Reference embeddings, same model as the plates [unstir.reference_embeddings]",
+)
+@image_options
+@click.option(
+    "--top-k",
+    default=10,
+    show_default=True,
+    help="Nearest images per collection that are checked point by point",
+)
+@click.option(
+    "--show", default=5, show_default=True, help="Images shown per collection"
+)
+@rule_options
+@serve_options(5005)
+def lookup(
+    plate_embeddings: Path | None,
+    reference_embeddings: Path | None,
+    plate_images: Path | None,
+    reference_images: Path | None,
+    top_k: int,
+    show: int,
+    min_f: int,
+    min_ratio: float,
+    margin: int,
+    **server,
+):
+    """A web page that finds the building in an uploaded photo.
+
+    The photo is matched like `unstir match` against the reference photos and
+    the glass plates, and the page says per collection if there is a match.
+    """
+    from .decide import Rule
+    from .lookup import Lookup, Source, create_app
+    from .match import Settings
+
+    required(
+        plate_embeddings=plate_embeddings,
+        plate_images=plate_images,
+        reference_embeddings=reference_embeddings,
+        reference_images=reference_images,
+    )
+    assert plate_embeddings and plate_images
+    assert reference_embeddings and reference_images
+    sources = [
+        Source(
+            "references",
+            "Onroerend Erfgoed",
+            Path(reference_embeddings),
+            Path(reference_images),
+        ),
+        Source(
+            "plates", "the glass plates", Path(plate_embeddings), Path(plate_images)
+        ),
+    ]
+    found = Lookup(
+        sources,
+        top_k=top_k,
+        show=show,
+        rule=Rule(min_f=min_f, min_ratio=min_ratio, margin=margin),
+        settings=Settings(),
+    )
+    run_app(create_app(found), **server)
+
+
+@unstir.command()
 @click.argument("pairs", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option(
     "--labels",

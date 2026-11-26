@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Which building is this?</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-100 text-neutral-900">
+    <main class="max-w-5xl mx-auto p-4 space-y-6">
+      <header class="space-y-1">
+        <h1 class="text-2xl font-semibold">Which building is this?</h1>
+        <p class="text-sm text-neutral-600">
+          Take or choose a photo of a building. It is compared with
+          {{ collections | join(" and ") }}: the {{ top_k }} most similar images of
+          each are checked point by point.
+        </p>
+      </header>
+
+      <section class="bg-white rounded-lg shadow p-4 flex flex-col sm:flex-row gap-4 items-start">
+        <div class="flex flex-col gap-2 w-full sm:w-auto">
+          <label class="cursor-pointer text-center px-4 py-3 rounded bg-neutral-900 text-white font-medium">
+            Take a photo
+            <input id="camera" type="file" accept="image/*" capture="environment" class="hidden" />
+          </label>
+          <label class="cursor-pointer text-center px-4 py-3 rounded bg-neutral-200 font-medium">
+            Choose a file
+            <input id="file" type="file" accept="image/*" class="hidden" />
+          </label>
+        </div>
+        <img id="preview" class="hidden max-h-64 rounded object-contain" alt="your photo" />
+        <p id="status" class="text-sm text-neutral-600"></p>
+      </section>
+
+      <div id="results" class="space-y-6"></div>
+    </main>
+
+    <template id="collection">
+      <section class="bg-white rounded-lg shadow overflow-hidden">
+        <div class="verdict px-4 py-3 text-white">
+          <h2 class="text-lg font-semibold"></h2>
+          <p class="reason text-sm opacity-90"></p>
+        </div>
+        <ol class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4"></ol>
+      </section>
+    </template>
+
+    <template id="candidate">
+      <li class="rounded border overflow-hidden flex flex-col">
+        <a target="_blank" class="block bg-black aspect-square">
+          <img class="w-full h-full object-contain" loading="lazy" />
+        </a>
+        <div class="p-2 text-xs space-y-0.5">
+          <p class="badge font-semibold"></p>
+          <p class="name font-medium break-words"></p>
+          <p class="place text-neutral-600"></p>
+          <p class="scores text-neutral-500"></p>
+          <a class="uri text-blue-700 underline hidden" target="_blank">Onroerend Erfgoed</a>
+        </div>
+      </li>
+    </template>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      function show(result) {
+        const results = $("results");
+        results.replaceChildren();
+        for (const collection of result.collections) {
+          const node = $("collection").content.cloneNode(true);
+          const verdict = node.querySelector(".verdict");
+          verdict.classList.add(collection.match ? "bg-emerald-700" : "bg-neutral-600");
+          node.querySelector("h2").textContent =
+            `${collection.title}: ${collection.match ? "MATCH" : "NO MATCH"}`;
+          node.querySelector(".reason").textContent = collection.reason;
+          const list = node.querySelector("ol");
+          collection.top.forEach((c, i) => {
+            const item = $("candidate").content.cloneNode(true);
+            const li = item.querySelector("li");
+            if (c.is_match) li.classList.add("ring-4", "ring-emerald-600");
+            item.querySelector("a").href = `full/${collection.key}/${c.row}`;
+            item.querySelector("img").src = `thumb/${collection.key}/${c.row}?size=400`;
+            const badge = item.querySelector(".badge");
+            badge.textContent = c.is_match ? "✓ match" : `#${i + 1}`;
+            if (c.is_match) badge.classList.add("text-emerald-700");
+            item.querySelector(".name").textContent = c.name || c.file;
+            item.querySelector(".place").textContent = c.location || "";
+            item.querySelector(".scores").textContent =
+              `${c.f_inliers} points fit (${Math.round(c.ratio * 100)}%), ` +
+              `similarity ${c.similarity.toFixed(2)}`;
+            if (c.uri) {
+              const uri = item.querySelector(".uri");
+              uri.href = c.uri;
+              uri.classList.remove("hidden");
+            }
+            list.appendChild(item);
+          });
+          results.appendChild(node);
+        }
+      }
+
+      async function send(file) {
+        if (!file) return;
+        $("preview").src = URL.createObjectURL(file);
+        $("preview").classList.remove("hidden");
+        $("results").replaceChildren();
+        $("status").textContent = "Comparing, this can take a while…";
+        const body = new FormData();
+        body.append("image", file);
+        try {
+          const response = await fetch("lookup", { method: "POST", body });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || response.statusText);
+          $("status").textContent = `Done in ${result.seconds} s.`;
+          show(result);
+        } catch (error) {
+          $("status").textContent = `Something went wrong: ${error.message}`;
+        }
+      }
+
+      for (const id of ["camera", "file"]) {
+        $(id).addEventListener("change", (event) => {
+          send(event.target.files[0]);
+          event.target.value = "";
+        });
+      }
+    </script>
+  </body>
+</html>

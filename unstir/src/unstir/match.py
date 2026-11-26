@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 import torch
+from PIL import Image
 
 from common.images import load
 
@@ -33,7 +34,12 @@ class Settings:
 
 def prepare(ref: str, resize: int) -> np.ndarray:
     """`ref` as a grayscale image with a long side of `resize`."""
-    image = np.asarray(load(ref).convert("L"))
+    return grayscale(load(ref), resize)
+
+
+def grayscale(picture: Image.Image, resize: int) -> np.ndarray:
+    """`picture` as a grayscale array with a long side of `resize`."""
+    image = np.asarray(picture.convert("L"))
     scale = resize / max(image.shape)
     interpolation = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
     return cv2.resize(image, None, fx=scale, fy=scale, interpolation=interpolation)
