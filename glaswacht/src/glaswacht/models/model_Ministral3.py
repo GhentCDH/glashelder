@@ -45,20 +45,30 @@ class Ministral3(TransformersSafetyModel):
     # tower, projector and lm_head in bfloat16, so no quantization config is
     # passed here.
     MODEL_ID = "mistralai/Ministral-3-8B-Instruct-2512"
+    # the same model with every weight in bfloat16 (16.6 GiB), for --full-precision
+    MODEL_ID_FULL = "mistralai/Ministral-3-8B-Instruct-2512-BF16"
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, full_precision: bool = False):
+        super().__init__(full_precision)
         self.prompt = None
 
+    @property
+    def model_id(self) -> str:
+        return self.MODEL_ID_FULL if self.full_precision else self.MODEL_ID
+
+    @property
+    def precision(self) -> str:
+        return "bf16" if self.full_precision else "fp8"
+
     def load_model(self) -> None:
-        logger.info("Downloading/loading Ministral 3 model: %s", self.MODEL_ID)
+        logger.info("Downloading/loading Ministral 3 model: %s", self.model_id)
         self.model = Mistral3ForConditionalGeneration.from_pretrained(
-            self.MODEL_ID,
+            self.model_id,
             # the unquantized parts are stored in bfloat16
             dtype=torch.bfloat16,
             device_map="cuda",
         ).eval()
-        self.processor = AutoProcessor.from_pretrained(self.MODEL_ID)
+        self.processor = AutoProcessor.from_pretrained(self.model_id)
         self.processor.chat_template = _without_default_system_prompt(
             self.processor.chat_template
         )

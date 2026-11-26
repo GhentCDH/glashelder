@@ -45,12 +45,18 @@ class Pixtral(TransformersSafetyModel):
     # vision tower too and misreads images badly.
     MODEL_ID = "unsloth/Pixtral-12B-2409-unsloth-bnb-4bit"
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, full_precision: bool = False):
+        super().__init__(full_precision)
         self.prompt = None
+
+    @property
+    def precision(self) -> str:
+        return "nf4"
 
     def load_model(self) -> None:
         logger.info("Downloading/loading Pixtral model: %s", self.MODEL_ID)
+        if self.full_precision:
+            logger.warning("Pixtral has no full-precision version here, it stays 4-bit")
         config = AutoConfig.from_pretrained(self.MODEL_ID)
         quantization = config.quantization_config
         quantization["llm_int8_skip_modules"] = _current_module_names(

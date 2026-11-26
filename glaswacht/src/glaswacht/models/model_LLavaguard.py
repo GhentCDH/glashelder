@@ -15,12 +15,14 @@ class LavaGuard(TransformersSafetyModel):
     PARSE_MODEL_TYPE = "lava"
     enabled_by_default = False
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, full_precision: bool = False):
+        super().__init__(full_precision)
         self.message = None
 
+    MODEL_ID = "AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf"
+
     def load_model(self):
-        model_id = "AIML-TUDA/LlavaGuard-v1.2-7B-OV-hf"
+        model_id = self.MODEL_ID
         logger.info("Downloading/loading LavaGuard model: %s", model_id)
         # full precision: 15.0 GiB of bfloat16 weights, which fits the 4090
         self.model = LlavaOnevisionForConditionalGeneration.from_pretrained(

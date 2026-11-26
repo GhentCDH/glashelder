@@ -14,8 +14,8 @@ class Qwen3(TransformersSafetyModel):
     name = "qwen3"
     PARSE_MODEL_TYPE = "qwen"
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, full_precision: bool = False):
+        super().__init__(full_precision)
         self.prompt = None
 
     MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"

@@ -49,7 +49,8 @@ class TransformersSafetyModel(SafetyModel):
     # which images came before it
     SEED: ClassVar[int] = 0
 
-    def __init__(self):
+    def __init__(self, full_precision: bool = False):
+        super().__init__(full_precision)
         self.model = None
         self.processor = None
         self._grammar: xgr.CompiledGrammar | None = None

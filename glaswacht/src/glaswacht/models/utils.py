@@ -74,20 +74,32 @@ def show_prompt(prompt_file=None):
     print(prompt)
 
 
-def get_images(image_path):
-    """Get a list of images from a folder or a single image path."""
-    if os.path.isdir(image_path):
-        images = []
-        for file in os.listdir(image_path):
-            if file.lower().endswith(
-                (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")
-            ):
-                images.append(os.path.join(image_path, file))
-        return images
-    elif os.path.isfile(image_path):
-        return [image_path]
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif")
+
+
+def get_images(image_path, recursive: bool = False) -> list[str]:
+    """The images in a folder, sorted so every run takes them in the same
+    order, or a single image file. `recursive` includes subfolders."""
+    root = Path(image_path)
+    if root.is_dir():
+        found = root.rglob("*") if recursive else root.iterdir()
+        return sorted(
+            str(p) for p in found if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES
+        )
+    elif root.is_file():
+        return [str(root)]
     else:
         raise ValueError(f"Invalid image path: {image_path}")
+
+
+def image_key(image_path: str | Path, image_file: str | Path) -> str:
+    """How an image is named in the results and the ledger: its path relative
+    to the assessed folder, with forward slashes; just the file name when a
+    single file was assessed."""
+    root, file = Path(image_path), Path(image_file)
+    if root.is_dir():
+        return file.relative_to(root).as_posix()
+    return file.name
 
 
 def parse_output(output_text, model_type="lava"):

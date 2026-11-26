@@ -83,6 +83,21 @@ class SafetyModel(ABC):
         ):
             raise TypeError(f"{cls.__name__} must define class attribute 'name: str'")
 
+    def __init__(self, full_precision: bool = False):
+        # load without quantization where the model has a full-precision
+        # version, for a GPU with room for it
+        self.full_precision = full_precision
+
+    @property
+    def model_id(self) -> str:
+        """The checkpoint this model loads."""
+        return getattr(self, "MODEL_ID", "")
+
+    @property
+    def precision(self) -> str:
+        """How the language model's weights are stored once loaded."""
+        return "bf16"
+
     @abstractmethod
     def load_model(self) -> None:
         pass

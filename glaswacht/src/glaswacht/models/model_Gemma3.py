@@ -20,28 +20,39 @@ class Gemma3(TransformersSafetyModel):
 
     MODEL_ID = "google/gemma-3-12b-it"
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, full_precision: bool = False):
+        super().__init__(full_precision)
         self.prompt = None
 
+    @property
+    def precision(self) -> str:
+        return "bf16" if self.full_precision else "nf4"
+
     def load_model(self) -> None:
-        logger.info("Downloading/loading Gemma3 model: %s", self.MODEL_ID)
+        logger.info(
+            "Downloading/loading Gemma3 model: %s (%s)", self.MODEL_ID, self.precision
+        )
         # 22.7 GiB in full precision does not fit the 4090 with room to run,
         # so the language model is 4-bit NF4. 8-bit was tried: about three
         # times slower per image, and it computes in float16, which Gemma can
         # overflow in. The vision tower and projector stay in bfloat16:
         # quantizing those hurts how well a model sees.
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            # the name is historical: bitsandbytes uses it for 4-bit as well
-            llm_int8_skip_modules=[
-                "model.vision_tower",
-                "model.multi_modal_projector",
-                "lm_head",
-            ],
+        # With --full-precision, for a GPU with room for it, it loads as is.
+        bnb_config = (
+            None
+            if self.full_precision
+            else BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                # the name is historical: bitsandbytes uses it for 4-bit as well
+                llm_int8_skip_modules=[
+                    "model.vision_tower",
+                    "model.multi_modal_projector",
+                    "lm_head",
+                ],
+            )
         )
         self.model = Gemma3ForConditionalGeneration.from_pretrained(
             self.MODEL_ID,

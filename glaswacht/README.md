@@ -29,6 +29,45 @@ started: `glaswacht_<YYYYMMDD_HHMMSS>.csv` with the results and a `.log` next to
 Choose another folder with `--output`, the TUI's OUTPUT box, or `output` under
 `[glaswacht]` in `glashelder.toml`; a relative folder is also in the glashelder folder.
 
+## Long runs and HPC jobs
+
+`run` never sends an image to a model that already assessed it. Every assessment
+goes, the moment it is made, to a ledger: `ledger.jsonl` in the output folder, one
+JSON line per attempt with the rating, categories, rationale, model id, time and HPC
+job id. A run that is cut off loses at most the image it was busy with; the next run
+continues from there.
+
+```bash
+# at most 2000 images not finished earlier, all models unquantized in GPU memory at once
+uv run glashelder glaswacht run --path $VSC_DATA/images --load-all --full-precision \
+    --max-images 2000 --output $VSC_DATA/glaswacht_output
+
+# one CSV with everything in the ledger, which `serve` then shows as the newest run
+uv run glashelder glaswacht export --output $VSC_DATA/glaswacht_output
+```
+
+- `--max-images N` takes the first N images (in name order) that some model still has
+  to assess; an image counts once, however many models still need it.
+- `--load-all` loads every model at once and assesses the images one by one with all of
+  them, so a stopped run leaves no image half done. Qwen3, Ministral 3 and Gemma 3
+  together take about 34 GB, more than a 4090 holds: there, leave it off and the models
+  load one after another as before.
+- `--full-precision` loads Gemma 3 in bfloat16 instead of 4-bit, and Ministral 3 from
+  Mistral's bfloat16 checkpoint (`Ministral-3-8B-Instruct-2512-BF16`) instead of the FP8
+  one. With Qwen3 that is about 56 GB of weights: for a large GPU such as an H100, not a
+  4090. Download the BF16 checkpoint beforehand if the compute nodes have no internet.
+  Each ledger line records the model id and precision used.
+- Images are keyed by their path relative to `--path`, so keep one ledger per image
+  folder: pass `--ledger` to give another folder its own. `--recursive` includes
+  subfolders.
+- A model that raises on an image (out of memory, an unreadable file) is tried again in
+  later runs, up to 3 times, then gives up on that image. An answer of `Error` or
+  `Unknown` counts as assessed.
+- On SIGTERM or SIGUSR1 a run stops after the image at hand and still writes its CSV.
+  To get that signal some minutes before the time limit, add
+  `#SBATCH --signal=B:USR1@600` to the job script and start the run with `exec uv run ...`,
+  so the signal reaches it.
+
 ## Comparing with the annotations
 
 `glaswacht labelstudio` scores runs against the human ratings in the Label Studio export

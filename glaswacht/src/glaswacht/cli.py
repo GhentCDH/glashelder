@@ -126,13 +126,77 @@ def tui(path, output_dir, model_names, enabled):
     app._stop_webviewer()
 
 
+def ledger_option(func):
+    """Add the --ledger option: the track record of which model assessed
+    which image."""
+    return click.option(
+        "--ledger",
+        "ledger_path",
+        default=None,
+        type=click.Path(dir_okay=False, path_type=Path),
+        help="Ledger of every image each model assessed, so no image is "
+        "assessed twice; ledger.jsonl in --output by default. Images are "
+        "keyed by their path relative to --path: keep one ledger per image "
+        "folder.",
+    )(func)
+
+
 @glaswacht.command()
 @path_option(required=True, help="Image folder or single image file to assess.")
 @output_option
 @model_options
-def run(path, output_dir, model_names, enabled):
-    """Run selected vision-language models on images."""
+@ledger_option
+@click.option(
+    "--max-images",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Assess at most this many images not finished in earlier runs, "
+    "then stop; the next run continues with the ones after. No limit by "
+    "default.",
+)
+@click.option(
+    "--load-all/--one-at-a-time",
+    default=False,
+    show_default=True,
+    help="Load every model into GPU memory at once and assess the images one "
+    "by one with all of them, or load the models one after another (for a GPU "
+    "that holds only one).",
+)
+@click.option(
+    "--full-precision/--quantized",
+    default=False,
+    show_default=True,
+    help="Load Gemma 3 and Ministral 3 in bfloat16 instead of 4-bit and FP8, "
+    "for a GPU with room for it (all three default models: about 56 GB of "
+    "weights). Qwen3 and LLavaGuard are bfloat16 either way; Pixtral stays "
+    "4-bit.",
+)
+@click.option(
+    "--recursive/--no-recursive",
+    default=False,
+    show_default=True,
+    help="Also assess the images in subfolders of --path.",
+)
+def run(
+    path,
+    output_dir,
+    model_names,
+    enabled,
+    ledger_path,
+    max_images,
+    load_all,
+    full_precision,
+    recursive,
+):
+    """Run selected vision-language models on images.
+
+    Every assessment goes to the ledger as soon as it is made, and images a
+    model already assessed are skipped, so a run cut off by a time limit is
+    simply continued by the next one. On SIGTERM or SIGUSR1 the run stops
+    after the current image and still writes its CSV.
+    """
     import logging
+    import signal
 
     from glaswacht.orchestrator import Orchestrator
 
@@ -146,9 +210,69 @@ def run(path, output_dir, model_names, enabled):
         )
 
     model_classes = _model_classes_from_names(model_names, enabled)
-    orchestrator = Orchestrator(model_classes)
-    if orchestrator.run_all(str(path), output_dir) is None:
+    orchestrator = Orchestrator(model_classes, full_precision=full_precision)
+
+    # the scheduler's warning before the time limit: finish the image at hand
+    def stop(signum, frame):
+        logging.getLogger(__name__).warning(
+            "%s received, stopping after the current image",
+            signal.Signals(signum).name,
+        )
+        orchestrator.request_stop()
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGUSR1, stop)
+
+    orchestrator.run_all(
+        str(path),
+        output_dir,
+        max_images=max_images,
+        load_all=load_all,
+        ledger_path=ledger_path,
+        recursive=recursive,
+    )
+    if orchestrator.aborted:
         raise click.ClickException(f"run aborted, see {orchestrator.log_path}")
+    summary = orchestrator.summary
+    click.echo(
+        f"{summary.finished} images finished this run, {summary.remaining} of "
+        f"{summary.total} left for a later run"
+        + (" (stopped early)" if summary.stopped else "")
+    )
+    if summary.given_up and orchestrator.ledger is not None:
+        click.echo(
+            f"{len(summary.given_up)} images given up on after repeated "
+            f"failures, see {orchestrator.ledger.path}"
+        )
+
+
+@glaswacht.command()
+@output_option
+@ledger_option
+def export(output_dir, ledger_path):
+    """Write one results CSV with everything in the ledger.
+
+    It goes to --output, named as a run that ended now, so `serve` and
+    `labelstudio compare` take it as the newest results.
+    """
+    from datetime import datetime
+
+    from glaswacht.ledger import Ledger
+    from glaswacht.models.utils import run_files, write_combined_csv
+    from glaswacht.orchestrator import LEDGER_NAME
+
+    path = output_folder(ledger_path) if ledger_path else output_dir / LEDGER_NAME
+    if not path.exists():
+        raise click.UsageError(f"no ledger at {path}")
+    ledger = Ledger(path)
+    images = ledger.images()
+    assessments = {
+        model: [r for image in images if (r := ledger.rating(image, model))]
+        for model in ledger.models()
+    }
+    results_csv, _ = run_files(output_dir, datetime.now())
+    results_csv = results_csv.with_name(f"{results_csv.stem}_all.csv")
+    write_combined_csv(assessments, results_csv)
 
 
 @glaswacht.command()
