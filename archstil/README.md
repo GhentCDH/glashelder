@@ -82,7 +82,8 @@ hovering a building shows it lightly.
 | --- | --- |
 | click, or `1`–`9` | select that one segment (replaces the selection) |
 | `Shift` + click, or `Shift` + `1`–`9` | add or remove a segment, for an object SAM3 split in parts |
-| `A` / `C` | select all / clear |
+| right-click, `Ctrl` + click, or the `−` on a segment's row | cut that segment out of the selection (shown black), e.g. a neighbour inside a larger mask; again to undo |
+| `A` / `C` | select all / clear (also the cut-outs) |
 | `S` | switch class among the object's styles |
 | `Enter` | verify and go to the next unchecked photo |
 | `X` | no segment fits: reject |
@@ -113,8 +114,13 @@ to put it elsewhere), with all metadata and the label of every checked photo:
 }
 ```
 
-The annotation is the union of the chosen segments, so one instance per photo: its
-box and outline in pixels. An outline can be several polygons when something stands
+The annotation is the union of the chosen segments minus the cut-out ones
+(`removed_segments`), so one instance per photo: its box and outline in pixels. The
+cut is made on the mask pixels before the outline is traced, so box and polygons
+leave the removed parts out. A cut-out inside the object leaves a hole; polygon
+formats like YOLO's have no holes, so it is joined to the outline by a zero-width
+cut and every polygon stays one simple ring. Specks (parts under 1% of the largest)
+are dropped, and outlines are simplified to within 1 pixel. An outline can be several polygons when something stands
 in front of the building, like trees. `class_id` follows the sorted `classes`, so it
 can shift while new classes come in. Choices themselves live in
 `segments/selections.json`; `archstil master archstil_references/segments` writes the

@@ -28,6 +28,7 @@
       .stage .overlay { position: absolute; inset: 0; width: 100%; height: 100%;
                         pointer-events: none; opacity: 0; transition: opacity 0.12s; }
       .stage .overlay.selected { opacity: 0.55; }
+      .stage .overlay.removed { opacity: 0.7; filter: brightness(0); }
       .stage .overlay.hover { opacity: 0.35; }
       .stage.bare .overlay { opacity: 0 !important; }
 
@@ -53,6 +54,12 @@
       .segment { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 2px solid #e5e5e5;
                  border-radius: 6px; cursor: pointer; font-size: 13px; background: #fafafa; }
       .segment.selected { border-color: #333; background: #fff; }
+      .segment.removed { border-color: #333; border-style: dashed; background: #f3f3f3;
+                         text-decoration: line-through; color: #888; }
+      .minus { border: 1px solid #bbb; background: white; border-radius: 4px; width: 24px; height: 22px;
+               font-family: inherit; font-weight: 700; cursor: pointer; color: #555; }
+      .minus:hover { border-color: #333; color: #000; }
+      .segment.removed .minus { background: #333; color: white; border-color: #333; }
       .swatch { width: 14px; height: 14px; border-radius: 3px; flex: none; }
       .key { font-weight: 700; width: 18px; }
       .grow { flex: 1; }
@@ -116,7 +123,7 @@
           {% endif %}
 
           <div>
-            <div class="label">Segments — click the photo or press the number; Shift adds more</div>
+            <div class="label">Segments — click or number selects; Shift adds; right-click or − removes</div>
             <div class="segments" id="segments">
               {% for b in buildings %}
                 <div class="segment" data-id="{{ b.id }}">
@@ -124,6 +131,7 @@
                   <span class="swatch" style="background: {{ b.colour }}"></span>
                   <span class="grow">{{ b.prompt }} {{ '%.2f' | format(b.score) }}</span>
                   <span class="muted">{{ '%.1f' | format(100 * b.mask_area_frac) }}%</span>
+                  <button class="minus" title="Cut this segment out of the selection">−</button>
                 </div>
               {% else %}
                 <div class="muted">SAM3 found no building here: reject it.</div>
@@ -133,7 +141,7 @@
 
           {% if saved %}
             <div class="status {{ saved.status }}">
-              {{ saved.status }}{% if saved.class %} as {{ saved.class }}{% endif %}{% if saved.selected %}: segment {{ saved.selected | join(', ') }}{% endif %}
+              {{ saved.status }}{% if saved.class %} as {{ saved.class }}{% endif %}{% if saved.selected %}: segment {{ saved.selected | join(', ') }}{% endif %}{% if saved.removed %} minus {{ saved.removed | join(', ') }}{% endif %}
               {% if saved.annotation %}<br>box {{ saved.annotation.bbox_xyxy | join(', ') }} · {{ saved.annotation.polygons | length }} polygon(s){% endif %}
             </div>
           {% else %}
@@ -175,6 +183,7 @@
           <div class="keys">
             click or <kbd>1</kbd>–<kbd>9</kbd> select one segment ·
             <kbd>Shift</kbd> + click or number: add/remove a segment ·
+            right-click, <kbd>Ctrl</kbd> + click or <b>−</b>: cut a segment out ·
             <kbd>A</kbd> all · <kbd>C</kbd> clear ·
             <kbd>S</kbd> next class · <kbd>H</kbd> hold to hide masks · <kbd>←</kbd>/<kbd>→</kbd> browse
           </div>
@@ -185,6 +194,7 @@
     <script>
       const ids = {{ buildings | map(attribute='id') | list | tojson }};
       const selected = new Set({{ selected | tojson }});
+      const removed = new Set({{ removed | tojson }});
       let chosenClass = {{ chosen_class | tojson }};
       const hitUrl = {{ url_for('hit', stem=stem) | tojson }};
       const saveUrl = {{ url_for('save', stem=stem) | tojson }};
@@ -197,17 +207,34 @@
       const classChips = [...document.querySelectorAll('#classes .chip')];
 
       function draw() {
-        overlays.forEach(o => o.classList.toggle('selected', selected.has(+o.dataset.id)));
-        rows.forEach(r => r.classList.toggle('selected', selected.has(+r.dataset.id)));
+        overlays.forEach(o => {
+          o.classList.toggle('selected', selected.has(+o.dataset.id));
+          o.classList.toggle('removed', removed.has(+o.dataset.id));
+        });
+        rows.forEach(r => {
+          r.classList.toggle('selected', selected.has(+r.dataset.id));
+          r.classList.toggle('removed', removed.has(+r.dataset.id));
+        });
         classChips.forEach(c => c.classList.toggle('chosen', c.dataset.class === chosenClass));
       }
       // one segment by default; with Shift held, add or remove segments instead
       function pick(id, add) {
+        removed.delete(id);
         if (add) {
           selected.has(id) ? selected.delete(id) : selected.add(id);
         } else {
           selected.clear();
           selected.add(id);
+        }
+        draw();
+      }
+      // cut a segment out of the selection, e.g. a neighbour inside a larger mask
+      function cut(id) {
+        if (removed.has(id)) {
+          removed.delete(id);
+        } else {
+          removed.add(id);
+          selected.delete(id);
         }
         draw();
       }
@@ -237,7 +264,13 @@
 
       stage.addEventListener('click', async e => {
         const hits = await under(e);
-        if (hits.length) pick(hits[0], e.shiftKey);
+        if (!hits.length) return;
+        (e.ctrlKey || e.metaKey) ? cut(hits[0]) : pick(hits[0], e.shiftKey);
+      });
+      stage.addEventListener('contextmenu', async e => {
+        e.preventDefault();
+        const hits = await under(e);
+        if (hits.length) cut(hits[0]);
       });
       let pending = null;
       stage.addEventListener('mousemove', e => {
@@ -247,6 +280,10 @@
       stage.addEventListener('mouseleave', () => { clearTimeout(pending); hover(null); });
       rows.forEach(r => {
         r.addEventListener('click', e => pick(+r.dataset.id, e.shiftKey));
+        r.querySelector('.minus').addEventListener('click', e => {
+          e.stopPropagation();
+          cut(+r.dataset.id);
+        });
         r.addEventListener('mouseenter', () => hover(+r.dataset.id));
         r.addEventListener('mouseleave', () => hover(null));
       });
@@ -260,7 +297,7 @@
         const response = await fetch(saveUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status, selected: [...selected], class: chosenClass }),
+          body: JSON.stringify({ status, selected: [...selected], removed: [...removed], class: chosenClass }),
         });
         if (!response.ok) { error.textContent = `Not saved: ${response.status}`; return; }
         window.location.href = after;
@@ -282,7 +319,7 @@
           case 'enter': e.preventDefault(); save('verified'); break;
           case 'x': save('rejected'); break;
           case 'a': ids.forEach(id => selected.add(id)); draw(); break;
-          case 'c': selected.clear(); draw(); break;
+          case 'c': selected.clear(); removed.clear(); draw(); break;
           case 's': cycleClass(); break;
           case 'h': stage.classList.add('bare'); break;
           case 'u': go('open'); break;

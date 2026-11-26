@@ -7,8 +7,9 @@ sources by image stem (the Beeldbank image id):
 - the `<stem>.json` of `segment`: image size and the SAM3 segments;
 - `selections.json` of `verify`: the chosen segments, class and annotation.
 
-Per verified photo the annotation is the union of the chosen segments: the object
-as one instance, with a box and its outline as polygons in pixels.
+Per verified photo the annotation is the union of the chosen segments minus the
+segments marked as removed: the object as one instance, with a box and its outline
+as polygons in pixels.
 """
 
 import json
@@ -22,29 +23,77 @@ import numpy as np
 MASTER = "master.json"
 SELECTIONS = "selections.json"
 MIN_PART = 0.01
-"""Polygons smaller than this fraction of the largest one are dropped as specks."""
-SIMPLIFY = 0.002
-"""Douglas-Peucker tolerance, as a fraction of the outline's length."""
+"""Parts smaller than this fraction of the largest one are dropped as specks."""
+MIN_HOLE = 0.001
+"""Holes smaller than this fraction of their part are ignored as mask noise."""
+SIMPLIFY = 1.0
+"""Douglas-Peucker tolerance in pixels. Fixed, not relative to the outline's length:
+outlines broken up by trees are so long that a relative tolerance cuts corners."""
 
 
-def annotation(masks: list[np.ndarray]) -> dict | None:
-    """Box and polygons of the union of `masks`, in pixels; `None` when empty."""
-    union = np.logical_or.reduce(masks).astype(np.uint8)
+def simplify(contour: np.ndarray) -> np.ndarray:
+    """The contour with fewer points, as an (n, 2) array."""
+    return cv2.approxPolyDP(contour, SIMPLIFY, closed=True).reshape(-1, 2)
+
+
+def bridge(ring: np.ndarray, holes: list[np.ndarray]) -> np.ndarray:
+    """One ring that leaves out `holes`, joined to the outline by zero-width cuts.
+
+    YOLO polygons (and most polygon formats) cannot have holes. Walking from the
+    nearest outline point into each hole, around it and back gives the same area as
+    one simple ring.
+    """
+    for hole in sorted(holes, key=lambda h: -cv2.contourArea(h)):
+        distances = ((ring[:, None, :] - hole[None, :, :]) ** 2).sum(-1)
+        i, j = np.unravel_index(int(distances.argmin()), distances.shape)
+        around = np.concatenate([hole[j:], hole[: j + 1]])
+        ring = np.concatenate([ring[: i + 1], around, ring[i:]])
+    return ring
+
+
+def annotation(
+    masks: list[np.ndarray], removed: list[np.ndarray] | None = None
+) -> dict | None:
+    """Box and polygons of the union of `masks` minus the union of `removed`, in
+    pixels; `None` when nothing is left.
+
+    A removed segment inside the selected ones leaves a hole; it is bridged into the
+    outline (see `bridge`), so every polygon is one simple ring without the hole.
+    """
+    union = np.logical_or.reduce(masks)
+    if removed:
+        union &= ~np.logical_or.reduce(removed)
+    union = union.astype(np.uint8)
     if not union.any():
         return None
-    ys, xs = np.nonzero(union)
-    contours, _ = cv2.findContours(union, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted(contours, key=lambda c: float(cv2.contourArea(c)), reverse=True)
-    largest = cv2.contourArea(contours[0]) if contours else 0
-    polygons = []
-    for contour in contours:
-        if cv2.contourArea(contour) < MIN_PART * largest:
+
+    # two levels: outlines of the parts, and the holes inside each of them
+    contours, hierarchy = cv2.findContours(
+        union, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
+    )
+    links = hierarchy[0]
+    parts = [i for i, link in enumerate(links) if link[3] < 0]
+    area = {i: float(cv2.contourArea(contours[i])) for i in range(len(contours))}
+    largest = max(area[i] for i in parts)
+
+    polygons, kept = [], np.zeros_like(union)
+    for i in sorted(parts, key=lambda i: -area[i]):
+        if area[i] < MIN_PART * largest:
             break
-        simple = cv2.approxPolyDP(
-            contour, SIMPLIFY * cv2.arcLength(contour, closed=True), closed=True
-        )
-        if len(simple) >= 3:
-            polygons.append(simple.reshape(-1).astype(int).tolist())
+        holes = [
+            simplify(contours[h])
+            for h, link in enumerate(links)
+            if link[3] == i and area[h] >= MIN_HOLE * area[i]
+        ]
+        ring = bridge(simplify(contours[i]), [h for h in holes if len(h) >= 3])
+        if len(ring) >= 3:
+            polygons.append(ring.reshape(-1).astype(int).tolist())
+            cv2.fillPoly(kept, [ring.astype(np.int32)], 1)
+
+    # the box of what the polygons keep, so dropped specks cannot stretch it
+    ys, xs = np.nonzero(kept & union)
+    if not len(xs):
+        ys, xs = np.nonzero(union)
     return {
         "bbox_xyxy": [
             int(xs.min()),
@@ -109,6 +158,7 @@ def entry(
         "class": selection.get("class"),
         "annotation": selection.get("annotation"),
         "segments": selection.get("selected", []),
+        "removed_segments": selection.get("removed", []),
         "name": ref.get("name"),
         "location": ref.get("location"),
         "styles": [s["label"] for s in ref.get("styles", [])],

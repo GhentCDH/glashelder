@@ -154,6 +154,7 @@ def create_app(segments: Path, references: Path | None, master_path: Path) -> Fl
             ref=ref,
             saved=saved,
             selected=saved["selected"] if saved else default_selection(buildings),
+            removed=(saved or {}).get("removed", []),
             chosen_class=(saved or {}).get("class") or default_class(ref),
             checked=len(selections),
             verified=sum(s["status"] == "verified" for s in selections.values()),
@@ -220,6 +221,11 @@ def create_app(segments: Path, references: Path | None, master_path: Path) -> Fl
             abort(400)
         known = {b["id"] for b in segment(stem)["buildings"]}
         selected = sorted(int(i) for i in body.get("selected", []) if int(i) in known)
+        removed = sorted(
+            int(i)
+            for i in body.get("removed", [])
+            if int(i) in known and int(i) not in selected
+        )
         if status == "verified" and not selected:
             abort(400, "select at least one segment, or reject the photo")
 
@@ -232,12 +238,17 @@ def create_app(segments: Path, references: Path | None, master_path: Path) -> Fl
         entry: dict = {
             "status": status,
             "selected": selected if status == "verified" else [],
+            "removed": removed if status == "verified" else [],
             "class": chosen if status == "verified" else None,
             "annotation": None,
             "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         if status == "verified":
-            entry["annotation"] = annotation([mask(stem, i) for i in selected])
+            entry["annotation"] = annotation(
+                [mask(stem, i) for i in selected], [mask(stem, i) for i in removed]
+            )
+            if entry["annotation"] is None:
+                abort(400, "the removed segments cover all of the selected ones")
         # kept here so the master file can be rebuilt without opening every segment
         data = segment(stem)
         entry |= {k: data[k] for k in ("image", "width", "height")}
