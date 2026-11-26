@@ -37,9 +37,9 @@ logging.basicConfig(
 # in torch and transformers at import time, which costs hundreds of megabytes and
 # seconds of startup for every command, including the ones that never touch a model.
 COMMANDS: dict[str, tuple[str, str]] = {
-    "architecture_identifier": (
-        "architecture_identifier.cli:architecture_identifier",
-        "Segment buildings in images with SAM3.",
+    "archstil": (
+        "archstil.cli:archstil",
+        "Segment buildings with SAM3 and collect styled reference photos.",
     ),
     "artmatcher": (
         "artmatcher.cli:artmatcher",

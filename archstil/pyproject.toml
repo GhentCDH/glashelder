@@ -1,15 +1,20 @@
 [project]
 name = "archstil"
 version = "0.1.0"
-description = "Detect and segment buildings in glass plate images with SAM3"
+description = "Segment buildings with SAM3 and collect styled reference photos from Onroerend Erfgoed"
 readme = "README.md"
 authors = [
     { name = "LBT-H", email = "basvercruysse@gmail.com" }
 ]
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "artscraper",
     "click>=8.3.1",
+    "common",
+    "flask>=3.0.0",
+    "httpx>=0.27",
     "numpy>=2.0",
+    "opencv-python>=4.11.0.86",
     "pillow>=12.1.1",
     "rich>=14.3.2",
     "torch>=2.6.0",
@@ -19,3 +24,7 @@ dependencies = [
 [build-system]
 requires = ["uv_build>=0.9.13,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+artscraper = { workspace = true }
+common = { workspace = true }

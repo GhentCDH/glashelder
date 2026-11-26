@@ -20,7 +20,7 @@ dependencies = [
     "click>=8.3.1",
     "python-dotenv>=1.1.0",
     "rich>=13.9.4",
-    "architecture-identifier",
+    "archstil",
 ]
 
 [project.scripts]
@@ -38,7 +38,7 @@ artmatcher = { workspace = true }
 embed = { workspace = true }
 ocr = { workspace = true }
 artscraper = { workspace = true }
-architecture-identifier = { workspace = true }
+archstil = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -50,7 +50,7 @@ members = [
     "embed",
     "ocr",
     "artscraper",
-    "architecture_identifier",
+    "archstil",
 ]
 
 [tool.ruff]
@@ -92,7 +92,7 @@ known-first-party = [
     "glaswacht",
     "ocr",
     "artscraper",
-    "architecture_identifier",
+    "archstil",
 ]
 
 [tool.ty.environment]
@@ -105,7 +105,7 @@ root = [
     "embed",
     "ocr",
     "artscraper",
-    "architecture_identifier",
+    "archstil",
 ]
 
 [build-system]

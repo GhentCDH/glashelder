@@ -9,7 +9,7 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "architecture-identifier",
+    "archstil",
     "artmatcher",
     "artscraper",
     "cluster",
@@ -109,12 +109,17 @@ wheels = [
 ]
 
 [[package]]
-name = "architecture-identifier"
+name = "archstil"
 version = "0.1.0"
-source = { editable = "architecture_identifier" }
+source = { editable = "archstil" }
 dependencies = [
+    { name = "artscraper" },
     { name = "click" },
+    { name = "common" },
+    { name = "flask" },
+    { name = "httpx" },
     { name = "numpy" },
+    { name = "opencv-python" },
     { name = "pillow" },
     { name = "rich" },
     { name = "torch" },
@@ -123,8 +128,13 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "artscraper", editable = "artscraper" },
     { name = "click", specifier = ">=8.3.1" },
+    { name = "common", editable = "common" },
+    { name = "flask", specifier = ">=3.0.0" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "numpy", specifier = ">=2.0" },
+    { name = "opencv-python", specifier = ">=4.11.0.86" },
     { name = "pillow", specifier = ">=12.1.1" },
     { name = "rich", specifier = ">=14.3.2" },
     { name = "torch", specifier = ">=2.6.0" },
@@ -730,7 +740,7 @@ name = "glashelder"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "architecture-identifier" },
+    { name = "archstil" },
     { name = "artmatcher" },
     { name = "artscraper" },
     { name = "click" },
@@ -759,7 +769,7 @@ notebooks = [
 
 [package.metadata]
 requires-dist = [
-    { name = "architecture-identifier", editable = "architecture_identifier" },
+    { name = "archstil", editable = "archstil" },
     { name = "artmatcher", editable = "artmatcher" },
     { name = "artscraper", editable = "artscraper" },
     { name = "click", specifier = ">=8.3.1" },

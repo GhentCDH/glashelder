@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Archstil Verify</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: 'JetBrains Mono', monospace; background: #f5f5f5; padding: 20px; color: #333; }
+      .container { max-width: 1600px; margin: 0 auto; background: white; border-radius: 8px;
+                   box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }
+      .header { background: #333; color: white; padding: 16px 20px; display: flex;
+                justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+      .header h1 { font-size: 20px; font-weight: 500; }
+      .counter { font-size: 14px; opacity: 0.9; }
+      .progress { height: 4px; background: #555; }
+      .progress div { height: 100%; background: #22c55e; }
+      .content { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 24px; padding: 24px; }
+      @media (max-width: 1000px) { .content { grid-template-columns: 1fr; } }
+
+      .stage { position: relative; align-self: start; justify-self: center; width: fit-content;
+               max-width: 100%; background: #111; border-radius: 6px; overflow: hidden;
+               cursor: crosshair; user-select: none; }
+      .stage img { display: block; max-width: 100%; max-height: calc(100vh - 150px); width: auto; height: auto; }
+      .stage .overlay { position: absolute; inset: 0; width: 100%; height: 100%;
+                        pointer-events: none; opacity: 0; transition: opacity 0.12s; }
+      .stage .overlay.selected { opacity: 0.55; }
+      .stage .overlay.hover { opacity: 0.35; }
+      .stage.bare .overlay { opacity: 0 !important; }
+
+      .panel { display: flex; flex-direction: column; gap: 16px; max-height: calc(100vh - 150px);
+               overflow-y: auto; padding-right: 4px; }
+      .label { font-weight: 600; color: #666; font-size: 11px; text-transform: uppercase;
+               letter-spacing: 0.5px; margin-bottom: 6px; }
+      .name { font-size: 18px; font-weight: 700; line-height: 1.3; }
+      .muted { color: #666; font-size: 13px; line-height: 1.5; }
+      .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip { background: #eee; color: #333; border-radius: 12px; padding: 3px 10px; font-size: 13px;
+              border: 2px solid transparent; font-family: inherit; }
+      button.chip { cursor: pointer; }
+      button.chip:hover { border-color: #999; }
+      .chip.chosen { background: #333; color: white; }
+      a { color: #0369a1; }
+
+      .meta { display: grid; grid-template-columns: 120px 1fr; gap: 4px 10px; font-size: 12px; line-height: 1.5; }
+      .meta dt { color: #777; }
+      .meta dd { word-break: break-word; }
+
+      .segments { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+      .segment { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 2px solid #e5e5e5;
+                 border-radius: 6px; cursor: pointer; font-size: 13px; background: #fafafa; }
+      .segment.selected { border-color: #333; background: #fff; }
+      .swatch { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+      .key { font-weight: 700; width: 18px; }
+      .grow { flex: 1; }
+
+      .status { padding: 10px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; line-height: 1.5; }
+      .status.verified { background: #dcfce7; color: #166534; }
+      .status.rejected { background: #fee2e2; color: #991b1b; }
+      .status.open { background: #f3f4f6; color: #555; }
+
+      .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .btn { padding: 11px 14px; font-size: 14px; font-weight: 500; border: none; border-radius: 4px;
+             cursor: pointer; text-decoration: none; text-align: center; font-family: inherit;
+             background: #333; color: white; }
+      .btn:hover:not(:disabled) { background: #555; }
+      .btn.go { background: #16a34a; } .btn.go:hover { background: #15803d; }
+      .btn.no { background: #dc2626; } .btn.no:hover { background: #b91c1c; }
+      .btn.light { background: #e5e5e5; color: #333; } .btn.light:hover { background: #d4d4d4; }
+      a.btn.light:not([href]) { opacity: 0.4; cursor: not-allowed; }
+      .wide { grid-column: span 2; }
+      .keys { font-size: 12px; color: #777; line-height: 1.7; }
+      kbd { background: #eee; color: #333; border-radius: 3px; padding: 0 5px; font-family: inherit; }
+      .btn kbd { background: rgba(255,255,255,0.25); color: inherit; }
+      .error { color: #b91c1c; font-size: 13px; min-height: 1em; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Archstil Verify</h1>
+        <div class="counter">
+          {{ index + 1 }} / {{ total }} · {{ checked }} checked ({{ verified }} verified)
+        </div>
+      </div>
+      <div class="progress"><div style="width: {{ (100 * checked / total) | round(1) }}%"></div></div>
+
+      <div class="content">
+        <div class="stage" id="stage">
+          <img src="{{ url_for('original', stem=stem) }}" alt="{{ data.original }}" id="photo" draggable="false">
+          {% for b in buildings %}
+            <img class="overlay" data-id="{{ b.id }}" alt=""
+                 src="{{ url_for('mask_png', stem=stem, mask_id=b.id) }}">
+          {% endfor %}
+        </div>
+
+        <div class="panel">
+          <div>
+            <div class="label">Object</div>
+            <div class="name">{{ ref.name if ref else data.original }}</div>
+            <div class="muted">{{ (ref.location or '') if ref else 'No reference record for this photo.' }}</div>
+          </div>
+
+          {% if ref and ref.styles %}
+            <div>
+              <div class="label">Class — the style to train on{% if ref.styles | length > 1 %} (click or <kbd>S</kbd>){% endif %}</div>
+              <div class="chips" id="classes">
+                {% for s in ref.styles %}
+                  <button class="chip{% if s.label == chosen_class %} chosen{% endif %}" data-class="{{ s.label }}">{{ s.label }}</button>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          <div>
+            <div class="label">Segments — click the photo or press the number; Shift adds more</div>
+            <div class="segments" id="segments">
+              {% for b in buildings %}
+                <div class="segment" data-id="{{ b.id }}">
+                  <span class="key">{{ loop.index if loop.index < 10 else '' }}</span>
+                  <span class="swatch" style="background: {{ b.colour }}"></span>
+                  <span class="grow">{{ b.prompt }} {{ '%.2f' | format(b.score) }}</span>
+                  <span class="muted">{{ '%.1f' | format(100 * b.mask_area_frac) }}%</span>
+                </div>
+              {% else %}
+                <div class="muted">SAM3 found no building here: reject it.</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          {% if saved %}
+            <div class="status {{ saved.status }}">
+              {{ saved.status }}{% if saved.class %} as {{ saved.class }}{% endif %}{% if saved.selected %}: segment {{ saved.selected | join(', ') }}{% endif %}
+              {% if saved.annotation %}<br>box {{ saved.annotation.bbox_xyxy | join(', ') }} · {{ saved.annotation.polygons | length }} polygon(s){% endif %}
+            </div>
+          {% else %}
+            <div class="status open">not checked yet{% if buildings %} · largest segment preselected{% endif %}</div>
+          {% endif %}
+
+          <div class="actions">
+            <button class="btn go" id="verify">Verify <kbd>Enter</kbd></button>
+            <button class="btn no" id="reject">None fits <kbd>X</kbd></button>
+            <a class="btn light" {% if prev %}href="{{ url_for('show', stem=prev) }}"{% endif %} id="prev">&#8592; Prev</a>
+            <a class="btn light" {% if next %}href="{{ url_for('show', stem=next) }}"{% endif %} id="next">Next &#8594;</a>
+            {% if next_open %}
+              <a class="btn wide light" href="{{ url_for('show', stem=next_open) }}" id="open">Next unchecked <kbd>U</kbd></a>
+            {% endif %}
+          </div>
+          <div class="error" id="error"></div>
+
+          <div>
+            <div class="label">Metadata</div>
+            <dl class="meta">
+              {% if ref %}
+                <dt>styles</dt><dd>{{ ref.styles | map(attribute='label') | join(', ') or '—' }}</dd>
+                <dt>dating</dt><dd>{{ ref.datings | map(attribute='label') | join(', ') or '—' }}</dd>
+                <dt>type</dt><dd>{{ ref.types | map(attribute='label') | join(', ') or '—' }}</dd>
+                <dt>location</dt><dd>{{ ref.location or '—' }}</dd>
+                <dt>object</dt><dd><a href="{{ ref.object_uri }}" target="_blank" rel="noopener">{{ ref.object_id }}</a> {{ ref.name }}</dd>
+                <dt>photo</dt><dd><a href="{{ ref.image_uri }}" target="_blank" rel="noopener">{{ ref.image_id }}</a> {{ ref.image_title or '' }}</dd>
+                <dt>photo date</dt><dd>{{ (ref.image_date or '—')[:10] }}</dd>
+                <dt>attribution</dt><dd>{{ ref.attribution or '—' }}</dd>
+                <dt>licences</dt><dd>{% for l in ref.licenses %}<a href="{{ l }}" target="_blank" rel="noopener">{{ l.rstrip('/').rsplit('/', 2)[-2:] | join('/') }}</a>{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</dd>
+                <dt>found with</dt><dd>{% for k, v in (ref.query or {}).items() %}{{ k }}={{ v.rsplit('/', 1)[-1] }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</dd>
+              {% endif %}
+              <dt>image size</dt><dd>{{ data.width }} × {{ data.height }}</dd>
+              <dt>file</dt><dd>{{ data.original }}</dd>
+              <dt>segments</dt><dd>{{ buildings | length }}</dd>
+            </dl>
+          </div>
+
+          <div class="keys">
+            click or <kbd>1</kbd>–<kbd>9</kbd> select one segment ·
+            <kbd>Shift</kbd> + click or number: add/remove a segment ·
+            <kbd>A</kbd> all · <kbd>C</kbd> clear ·
+            <kbd>S</kbd> next class · <kbd>H</kbd> hold to hide masks · <kbd>←</kbd>/<kbd>→</kbd> browse
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const ids = {{ buildings | map(attribute='id') | list | tojson }};
+      const selected = new Set({{ selected | tojson }});
+      let chosenClass = {{ chosen_class | tojson }};
+      const hitUrl = {{ url_for('hit', stem=stem) | tojson }};
+      const saveUrl = {{ url_for('save', stem=stem) | tojson }};
+      const after = {{ (url_for('show', stem=next_open) if next_open else url_for('index')) | tojson }};
+
+      const stage = document.getElementById('stage');
+      const photo = document.getElementById('photo');
+      const overlays = [...document.querySelectorAll('.overlay')];
+      const rows = [...document.querySelectorAll('.segment')];
+      const classChips = [...document.querySelectorAll('#classes .chip')];
+
+      function draw() {
+        overlays.forEach(o => o.classList.toggle('selected', selected.has(+o.dataset.id)));
+        rows.forEach(r => r.classList.toggle('selected', selected.has(+r.dataset.id)));
+        classChips.forEach(c => c.classList.toggle('chosen', c.dataset.class === chosenClass));
+      }
+      // one segment by default; with Shift held, add or remove segments instead
+      function pick(id, add) {
+        if (add) {
+          selected.has(id) ? selected.delete(id) : selected.add(id);
+        } else {
+          selected.clear();
+          selected.add(id);
+        }
+        draw();
+      }
+      function hover(id) {
+        overlays.forEach(o => o.classList.toggle('hover', +o.dataset.id === id));
+      }
+      function cycleClass() {
+        if (!classChips.length) return;
+        const names = classChips.map(c => c.dataset.class);
+        chosenClass = names[(names.indexOf(chosenClass) + 1) % names.length];
+        draw();
+      }
+      classChips.forEach(c => c.addEventListener('click', () => { chosenClass = c.dataset.class; draw(); }));
+
+      function point(e) {
+        const box = photo.getBoundingClientRect();
+        return {
+          x: Math.floor((e.clientX - box.left) * photo.naturalWidth / box.width),
+          y: Math.floor((e.clientY - box.top) * photo.naturalHeight / box.height),
+        };
+      }
+      async function under(e) {
+        const { x, y } = point(e);
+        const response = await fetch(`${hitUrl}?x=${x}&y=${y}`);
+        return response.ok ? response.json() : [];
+      }
+
+      stage.addEventListener('click', async e => {
+        const hits = await under(e);
+        if (hits.length) pick(hits[0], e.shiftKey);
+      });
+      let pending = null;
+      stage.addEventListener('mousemove', e => {
+        clearTimeout(pending);
+        pending = setTimeout(async () => { const hits = await under(e); hover(hits[0]); }, 60);
+      });
+      stage.addEventListener('mouseleave', () => { clearTimeout(pending); hover(null); });
+      rows.forEach(r => {
+        r.addEventListener('click', e => pick(+r.dataset.id, e.shiftKey));
+        r.addEventListener('mouseenter', () => hover(+r.dataset.id));
+        r.addEventListener('mouseleave', () => hover(null));
+      });
+
+      async function save(status) {
+        const error = document.getElementById('error');
+        if (status === 'verified' && !selected.size) {
+          error.textContent = 'Select a segment, or press X if none fits.';
+          return;
+        }
+        const response = await fetch(saveUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, selected: [...selected], class: chosenClass }),
+        });
+        if (!response.ok) { error.textContent = `Not saved: ${response.status}`; return; }
+        window.location.href = after;
+      }
+      document.getElementById('verify').addEventListener('click', () => save('verified'));
+      document.getElementById('reject').addEventListener('click', () => save('rejected'));
+
+      function go(id) { const a = document.getElementById(id); if (a && a.href) window.location.href = a.href; }
+      document.addEventListener('keydown', e => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        // e.code, not e.key: Shift+1 types "!" (or "1" on AZERTY without Shift)
+        const digit = /^(Digit|Numpad)([1-9])$/.exec(e.code);
+        if (digit) {
+          const n = +digit[2];
+          if (n <= ids.length) pick(ids[n - 1], e.shiftKey);
+          return;
+        }
+        switch (e.key.toLowerCase()) {
+          case 'enter': e.preventDefault(); save('verified'); break;
+          case 'x': save('rejected'); break;
+          case 'a': ids.forEach(id => selected.add(id)); draw(); break;
+          case 'c': selected.clear(); draw(); break;
+          case 's': cycleClass(); break;
+          case 'h': stage.classList.add('bare'); break;
+          case 'u': go('open'); break;
+          case 'arrowleft': go('prev'); break;
+          case 'arrowright': go('next'); break;
+        }
+      });
+      document.addEventListener('keyup', e => { if (e.key.toLowerCase() === 'h') stage.classList.remove('bare'); });
+
+      draw();
+    </script>
+  </body>
+</html>

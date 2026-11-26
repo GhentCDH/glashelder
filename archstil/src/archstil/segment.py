@@ -3,9 +3,9 @@
 import json
 import random
 import shutil
+import time
 from pathlib import Path
 
-import click
 import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageOps
@@ -150,7 +150,10 @@ def save_results(
                 "mask": f"{mask_dir.name}/{i}.png",
             }
         )
-    (output / f"{stem}.json").write_text(
+    # written last and in one go: its presence means the image is done, which
+    # `--watch` and the verify viewer rely on
+    tmp = output / f"{stem}.json.part"
+    tmp.write_text(
         json.dumps(
             {
                 "image": str(path),
@@ -162,6 +165,12 @@ def save_results(
             indent=2,
         )
     )
+    tmp.replace(output / f"{stem}.json")
+
+
+def todo(source: Path, output: Path) -> list[Path]:
+    """Images in `source` that have no result in `output` yet."""
+    return [p for p in find_images(source) if not (output / f"{p.stem}.json").exists()]
 
 
 def run(
@@ -175,32 +184,52 @@ def run(
     model_id: str = MODEL_ID,
     limit: int | None = None,
     seed: int = 0,
+    watch: float | None = None,
 ) -> None:
-    """Segment buildings in `source` (an image file or a directory of images)."""
+    """Segment buildings in `source` (an image file or a directory of images).
+
+    Images that already have a result in `output` are skipped. With `watch`, keep
+    looking for new images every `watch` seconds, e.g. while `scrape` downloads
+    them, until interrupted.
+    """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
+    output.mkdir(parents=True, exist_ok=True)
 
-    images = find_images(source)
-    if not images:
-        raise click.ClickException(f"No images found in {source}")
+    images = todo(source, output)
+    if not images and not watch:
+        console.print(f"Nothing to do: every image in {source} is segmented")
+        return
     if limit is not None and limit < len(images):
         images = sorted(random.Random(seed).sample(images, limit))
-    output.mkdir(parents=True, exist_ok=True)
 
     console.print(f"Loading [bold]{model_id}[/] on {device} ({dtype})")
     segmenter = BuildingSegmenter(device, dtype, model_id)
 
-    total = 0
-    for path in track(images, description="Segmenting", console=console):
-        try:
-            image = load_image(path)
-        except OSError as e:
-            console.print(f"[yellow]Skipping {path}: {e}")
-            continue
-        instances = segmenter.segment(image, prompts, threshold, mask_threshold)
-        if len(prompts) > 1:
-            instances = deduplicate(instances, dedup_iou)
-        save_results(path, image, instances, output)
-        total += len(instances)
+    def segment_all(images: list[Path]) -> int:
+        found = 0
+        for path in track(images, description="Segmenting", console=console):
+            try:
+                image = load_image(path)
+            except OSError as e:
+                console.print(f"[yellow]Skipping {path}: {e}")
+                continue
+            instances = segmenter.segment(image, prompts, threshold, mask_threshold)
+            if len(prompts) > 1:
+                instances = deduplicate(instances, dedup_iou)
+            save_results(path, image, instances, output)
+            found += len(instances)
+        console.print(f"Found {found} building(s) in {len(images)} image(s) → {output}")
+        return found
 
-    console.print(f"Found {total} building(s) in {len(images)} image(s) → {output}")
+    segment_all(images)
+    if not watch:
+        return
+    console.print(f"Watching {source} for new images, Ctrl+C to stop")
+    try:
+        while True:
+            time.sleep(watch)
+            if new := todo(source, output):
+                segment_all(new)
+    except KeyboardInterrupt:
+        console.print("Stopped watching")
