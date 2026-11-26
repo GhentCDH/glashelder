@@ -4,13 +4,14 @@ use std::{
         Arc, LazyLock,
         atomic::{AtomicU64, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
+use anyhow::Context as _;
 use governor::{DefaultKeyedRateLimiter, Quota};
 use reqwest::{
-    Client, ClientBuilder, RequestBuilder, Response,
-    header::{ACCEPT, HeaderMap, HeaderName, HeaderValue, USER_AGENT as UA},
+    Client, ClientBuilder, Request, RequestBuilder, Response, StatusCode,
+    header::{ACCEPT, HeaderMap, HeaderName, HeaderValue, RANGE, USER_AGENT as UA},
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::Semaphore;
@@ -22,6 +23,29 @@ const USER_AGENT: &str = "Ghent Centre for Digital Humanities <sysadmin.ghentcdh
 
 static REQUESTS: AtomicU64 = AtomicU64::new(0);
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+/// A request that takes longer fails, and is tried again.
+const TIMEOUT: Duration = Duration::from_secs(60);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Tries of one request, with a wait of 2, 4, 8, ... seconds in between.
+const ATTEMPTS: u32 = 5;
+
+/// Whether trying again can help: a timeout, a dropped connection, a server
+/// error or too many requests. A 404 or a body that is not JSON will not change.
+fn retryable(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<reqwest::Error>())
+        .any(|e| {
+            e.is_timeout()
+                || e.is_connect()
+                || e.is_request()
+                || e.is_body()
+                || e.status().is_some_and(|status| {
+                    status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS
+                })
+        })
+}
 
 pub struct UnstirClientConfig {
     concurrency: usize,
@@ -95,7 +119,11 @@ impl<'a> UnstirClient {
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
         headers.insert(UA, HeaderValue::from_static(USER_AGENT));
 
-        let client = ClientBuilder::new().default_headers(headers).build()?;
+        let client = ClientBuilder::new()
+            .default_headers(headers)
+            .timeout(TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()?;
 
         Ok(Self {
             client,
@@ -113,23 +141,62 @@ impl<'a> UnstirClient {
         }
     }
 
+    /// `req`, read with `read`, tried again on errors that can pass (see
+    /// [`retryable`]). The permit is given back while waiting to try again.
     async fn limited<T, F, Fut>(&self, req: RequestBuilder, read: F) -> anyhow::Result<T>
     where
-        F: FnOnce(Response) -> Fut,
+        F: Fn(Response) -> Fut,
         Fut: Future<Output = anyhow::Result<T>>,
     {
         let req = req.build()?;
+        let count = REQUESTS.fetch_add(1, Ordering::Relaxed);
+        let mut attempt = 1;
+        loop {
+            let this = req.try_clone().context("a request with a stream body")?;
+            match self.attempt(this, count, &read).await {
+                Err(error) if attempt < ATTEMPTS && retryable(&error) => {
+                    let wait = Duration::from_secs(2u64.pow(attempt));
+                    eprintln!(
+                        "\tretrying request {count} in {wait:?}, attempt {} of {ATTEMPTS}: {error:#}",
+                        attempt + 1
+                    );
+                    tokio::time::sleep(wait).await;
+                    attempt += 1;
+                }
+                result => return result.with_context(|| format!("GET {}", req.url())),
+            }
+        }
+    }
+
+    async fn attempt<T, F, Fut>(&self, req: Request, count: u64, read: &F) -> anyhow::Result<T>
+    where
+        F: Fn(Response) -> Fut,
+        Fut: Future<Output = anyhow::Result<T>>,
+    {
         let host = req.url().host_str().unwrap_or_default().to_owned();
         let _permit = self.permits.acquire().await?;
         self.rate.until_key_ready(&host).await;
-        let count = REQUESTS.fetch_add(1, Ordering::Relaxed);
+        let range = req
+            .headers()
+            .get(RANGE)
+            .and_then(|range| range.to_str().ok())
+            .map(|range| format!(" ({range})"))
+            .unwrap_or_default();
         eprintln!(
-            "starting request {count} at {:.3?} ({host})",
-            START.elapsed()
+            "starting request {count} at {:.3?} {}{range}",
+            START.elapsed(),
+            req.url()
         );
-        let result = read(self.client.execute(req).await?.error_for_status()?).await;
+        let result = match self.client.execute(req).await {
+            Ok(response) => match response.error_for_status() {
+                Ok(response) => read(response).await,
+                Err(error) => Err(error.into()),
+            },
+            Err(error) => Err(error.into()),
+        };
+        let outcome = if result.is_ok() { "finished" } else { "failed" };
         eprintln!(
-            "\tfinished request {count} at {:.3?} ({host})",
+            "\t{outcome} request {count} at {:.3?} ({host})",
             START.elapsed()
         );
         result
