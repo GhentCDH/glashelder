@@ -28,6 +28,58 @@ def required(**values) -> None:
         raise click.UsageError(f"give {flags}, or set it in glashelder.toml")
 
 
+@unstir.command()
+@click.argument("scores", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Directory for decisions.csv, matches.jsonl and meta.json",
+)
+@click.option("--min-f", default=150, show_default=True, help="Least f_inliers")
+@click.option(
+    "--min-ratio",
+    default=0.8,
+    show_default=True,
+    help="Least share of the matches that are F inliers",
+)
+@click.option(
+    "--margin",
+    default=50,
+    show_default=True,
+    help="Least f_inliers more than the next best reference of the plate",
+)
+@click.option(
+    "--reference-images",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Directory of the reference photos; its provenance.jsonl adds names "
+    "[unstir.reference_images]",
+)
+def decide(
+    scores: Path,
+    output: Path,
+    min_f: int,
+    min_ratio: float,
+    margin: int,
+    reference_images: Path | None,
+):
+    """Decide per plate which reference it shows, if any.
+
+    SCORES is the scores.parquet of an `unstir pairs` run, or its directory. The
+    best reference of a plate is a match when it passes --min-f and --min-ratio,
+    and beats the next best reference by --margin. Check the matches with
+    `unstir serve OUTPUT/matches.jsonl`.
+    """
+    from .decide import Rule, run
+
+    if scores.is_dir():
+        scores = scores / "scores.parquet"
+    rule = Rule(min_f=min_f, min_ratio=min_ratio, margin=margin)
+    run(scores, output, rule, Path(reference_images) if reference_images else None)
+
+
 def band(ctx, param, value: str) -> tuple[int, int]:
     try:
         low, high = (int(part) for part in value.split(","))

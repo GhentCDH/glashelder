@@ -205,6 +205,7 @@ def cli_defaults() -> dict:
                 **defaults_for(settings.unstir),
                 **given(clusters=paths.clusters, plate_images=paths.images.glashelder),
             },
+            "decide": given(reference_images=settings.unstir.reference_images),
         },
         "ocr": {
             "one": ocr_no_concurrency,
