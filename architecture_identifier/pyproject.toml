@@ -1,0 +1,21 @@
+[project]
+name = "architecture-identifier"
+version = "0.1.0"
+description = "Detect and segment buildings in glass plate images with SAM3"
+readme = "README.md"
+authors = [
+    { name = "LBT-H", email = "basvercruysse@gmail.com" }
+]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "click>=8.3.1",
+    "numpy>=2.0",
+    "pillow>=12.1.1",
+    "rich>=14.3.2",
+    "torch>=2.6.0",
+    "transformers>=5.1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.13,<0.10.0"]
+build-backend = "uv_build"

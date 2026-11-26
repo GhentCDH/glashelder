@@ -49,3 +49,4 @@ plots/
 # Label Studio export and the archive images selected from it
 glaswacht/src/labelstudio/
 glaswacht_output/
+architecture_identifier_output/

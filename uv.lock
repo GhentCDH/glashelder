@@ -9,6 +9,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "architecture-identifier",
     "artmatcher",
     "artscraper",
     "cluster",
@@ -105,6 +106,29 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/35/5d/752690df9ef5b76e169e68d6a129fa6d08a7100ca7f754c89495db3c6019/appnope-0.1.4.tar.gz", hash = "sha256:1de3860566df9caf38f01f86f65e0e13e379af54f9e4bee1e66b48f2efffd1ee", size = 4170, upload-time = "2024-02-06T09:43:11.258Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/29/5ecc3a15d5a33e31b26c11426c45c501e439cb865d0bff96315d86443b78/appnope-0.1.4-py2.py3-none-any.whl", hash = "sha256:502575ee11cd7a28c0205f379b525beefebab9d161b7c964670864014ed7213c", size = 4321, upload-time = "2024-02-06T09:43:09.663Z" },
+]
+
+[[package]]
+name = "architecture-identifier"
+version = "0.1.0"
+source = { editable = "architecture_identifier" }
+dependencies = [
+    { name = "click" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "rich" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.3.1" },
+    { name = "numpy", specifier = ">=2.0" },
+    { name = "pillow", specifier = ">=12.1.1" },
+    { name = "rich", specifier = ">=14.3.2" },
+    { name = "torch", specifier = ">=2.6.0" },
+    { name = "transformers", specifier = ">=5.1.0" },
 ]
 
 [[package]]
@@ -706,6 +730,7 @@ name = "glashelder"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "architecture-identifier" },
     { name = "artmatcher" },
     { name = "artscraper" },
     { name = "click" },
@@ -734,6 +759,7 @@ notebooks = [
 
 [package.metadata]
 requires-dist = [
+    { name = "architecture-identifier", editable = "architecture_identifier" },
     { name = "artmatcher", editable = "artmatcher" },
     { name = "artscraper", editable = "artscraper" },
     { name = "click", specifier = ">=8.3.1" },
