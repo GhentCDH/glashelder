@@ -1,5 +1,6 @@
 """A page to label pairs as `match` or `no_match`, one pair at a time."""
 
+import hashlib
 import io
 import logging
 import random
@@ -16,6 +17,13 @@ from .labels import LABELS, Labels, Pair, read_pairs, resolve
 SIZES = range(128, 4097)
 
 logger = logging.getLogger(__name__)
+
+
+def version(ref: str) -> str:
+    """Part of every image URL, so a URL names one image, also across runs on
+    the same address. Without it the browser cache can show the image of
+    another pairs file at the same index."""
+    return hashlib.sha1(ref.encode()).hexdigest()[:12]
 
 
 def jpeg(ref: str, size: int) -> bytes:
@@ -64,16 +72,24 @@ def create_app(
                     "reference": Path(p.reference).name,
                     "info": p.info if show_info else {},
                     "label": labels.get(p),
+                    "versions": {
+                        "plate": version(p.plate),
+                        "reference": version(p.reference),
+                    },
                 }
                 for p in pairs
             ]
         }
 
-    @app.route("/image/<side>/<int:index>")
-    def image(side: str, index: int):
+    @app.route("/image/<side>/<int:index>/<tag>")
+    def image(side: str, index: int, tag: str):
         ref = find(index, side)
         size = request.args.get("size", 1600, type=int)
-        if ref is None or size not in SIZES:
+        if (
+            ref is None
+            or size not in SIZES
+            or tag != version(getattr(pairs[index], side))
+        ):
             return "No such image", 404
         try:
             data = cached(ref, size)
@@ -84,10 +100,12 @@ def create_app(
         response.cache_control.max_age = 86400
         return response
 
-    @app.route("/full/<side>/<int:index>")
-    def full(side: str, index: int):
+    @app.route("/full/<side>/<int:index>/<tag>")
+    def full(side: str, index: int, tag: str):
         ref = find(index, side)
-        if ref is None or not (is_url(ref) or Path(ref).is_file()):
+        if ref is None or tag != version(getattr(pairs[index], side)):
+            return "No such image", 404
+        if not (is_url(ref) or Path(ref).is_file()):
             return "No such image", 404
         return redirect(ref) if is_url(ref) else send_file(ref)
 

@@ -59,7 +59,7 @@
         Math.min(4096, Math.max(128, Math.round(
           Math.max(innerWidth / 2, innerHeight) * devicePixelRatio,
         )));
-      const src = (side, i) => `image/${side}/${i}?size=${size()}`;
+      const src = (side, i) => `image/${side}/${i}/${pairs[i].versions[side]}?size=${size()}`;
 
       function nextTodo(from) {
         for (let step = 1; step <= pairs.length; step++) {
@@ -75,7 +75,7 @@
         const pair = pairs[current];
         for (const side of ["plate", "reference"]) {
           $(side).src = src(side, current);
-          $(`${side}-link`).href = `full/${side}/${current}`;
+          $(`${side}-link`).href = `full/${side}/${current}/${pair.versions[side]}`;
           $(`${side}-name`).textContent = `${side}: ${pair[side]}`;
         }
         const info = Object.keys(pair.info).length ? JSON.stringify(pair.info, null, 1) : "";
