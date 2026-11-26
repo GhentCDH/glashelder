@@ -28,6 +28,88 @@ def required(**values) -> None:
         raise click.UsageError(f"give {flags}, or set it in glashelder.toml")
 
 
+def band(ctx, param, value: str) -> tuple[int, int]:
+    try:
+        low, high = (int(part) for part in value.split(","))
+    except ValueError as error:
+        raise click.BadParameter("two numbers, such as 100,300") from error
+    if low >= high:
+        raise click.BadParameter("the first number must be the lower one")
+    return low, high
+
+
+@unstir.command()
+@click.argument("scores", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Directory for the new pairs.jsonl and meta.json",
+)
+@click.option(
+    "--labels",
+    "label_files",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    multiple=True,
+    help="Labels files whose pairs are skipped [default: every *.labels.jsonl "
+    "in the directories next to the one SCORES is in]",
+)
+@click.option("--size", default=100, show_default=True, help="Pairs to write")
+@click.option(
+    "--multi",
+    default=40,
+    show_default=True,
+    help="At most this many pairs of plates with more than one strong reference",
+)
+@click.option(
+    "--strong",
+    default=150,
+    show_default=True,
+    help="f_inliers of a strong reference",
+)
+@click.option(
+    "--band",
+    "band_",
+    default="100,300",
+    show_default=True,
+    callback=band,
+    help="f_inliers range the other pairs come from, low,high",
+)
+@click.option(
+    "--step",
+    default=25,
+    show_default=True,
+    help="The band pairs are spread evenly over f_inliers steps of this size",
+)
+@click.option("--seed", default=0, show_default=True)
+def sample(
+    scores: Path,
+    output: Path,
+    label_files: tuple[Path, ...],
+    size: int,
+    multi: int,
+    strong: int,
+    band_: tuple[int, int],
+    step: int,
+    seed: int,
+):
+    """Take a next round of pairs to label from an earlier `unstir pairs` run.
+
+    SCORES is its scores.parquet, or its directory. Pairs that have a label are
+    skipped. No matching runs again. Then `unstir serve OUTPUT/pairs.jsonl`.
+    """
+    from .rounds import Plan, run
+
+    if scores.is_dir():
+        scores = scores / "scores.parquet"
+    labels = list(label_files) or sorted(
+        scores.resolve().parent.parent.glob("*/*.labels.jsonl")
+    )
+    plan = Plan(size=size, multi=multi, strong=strong, band=band_, step=step, seed=seed)
+    run(scores, labels, output, plan)
+
+
 @unstir.command()
 @click.option(
     "-o",

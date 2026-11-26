@@ -189,12 +189,17 @@ def score(
         ]
 
 
-def sample(rows: list[dict], n: int, rng: random.Random) -> list[dict]:
-    """`n` pairs, taken in turn from every `cells` value, highest first."""
-    by_cells: dict[int, list[dict]] = defaultdict(list)
+def sample(
+    rows: list[dict],
+    n: int,
+    rng: random.Random,
+    key: Callable[[dict], int] = lambda row: row["cells"],
+) -> list[dict]:
+    """`n` pairs, taken in turn from every value of `key`, highest first."""
+    groups_by: dict[int, list[dict]] = defaultdict(list)
     for row in rows:
-        by_cells[row["cells"]].append(row)
-    groups = [rng.sample(g, len(g)) for _, g in sorted(by_cells.items(), reverse=True)]
+        groups_by[key(row)].append(row)
+    groups = [rng.sample(g, len(g)) for _, g in sorted(groups_by.items(), reverse=True)]
     turns = (row for turn in zip_longest(*groups) for row in turn if row is not None)
     return list(islice(turns, n))
 
