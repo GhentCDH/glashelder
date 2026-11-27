@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 HASH_FLUSH = 1024
 """Hashes recorded without embedding are written in groups of this many."""
 
+SHORTEST = 512
+"""Images are scaled down to this shortest side as they are read. The models take
+224 px crops (of a 256 px shortest side for DINOv2), so this loses nothing, and a
+batch of 10 MP photos no longer takes gigabytes before the processor resizes it."""
+
 
 async def encode_stream(
     embedder: EmbeddingModel,
@@ -60,6 +65,7 @@ async def encode_stream(
         per_host=per_host,
         rate=rate,
         buffer=batch_size,
+        shortest=SHORTEST,
         on_error=on_error,
     )
     async for ref, image, digest in fetched:

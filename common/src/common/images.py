@@ -82,8 +82,13 @@ def cache_path(url: str, cache_dir: Path | None = None) -> Path:
     return directory / cache_name(url)
 
 
-def decode(raw: bytes) -> Image.Image:
+def decode(raw: bytes, shortest: int | None = None) -> Image.Image:
+    """`raw` as an RGB image, scaled down to a shortest side of `shortest` if it
+    is larger. Never scales up. A JPEG is decoded straight at a smaller scale."""
     image = Image.open(io.BytesIO(raw))
+    if shortest is not None and (scale := shortest / min(image.size)) < 1:
+        width, height = image.size
+        image.thumbnail((max(1, round(width * scale)), max(1, round(height * scale))))
     image.load()  # decode now, while we still hold the bytes
     return image.convert("RGB")
 
@@ -201,6 +206,7 @@ async def stream(
     rate: float | None = None,
     cache: bool | None = None,
     buffer: int | None = None,
+    shortest: int | None = None,
     on_error: Callable[[str, Exception], None] | None = None,
 ) -> AsyncIterator[tuple[str, Image.Image, str]]:
     """Yield `(reference, image, digest)` as they become available.
@@ -212,7 +218,9 @@ async def stream(
     caps the connections over all hosts, and the workers for local files.
 
     At most `buffer` decoded images are held, so memory does not grow with the size
-    of the input. References that fail to load are skipped, the same way the
+    of the input. With `shortest`, each image is scaled down to that shortest side
+    as it is decoded, so a large photo costs no more than a small one. The digest
+    is always of the original bytes. References that fail to load are skipped, the same way the
     dataloader drops unreadable images: handed to `on_error` when given (`reason`
     says why), logged as a warning otherwise.
     """
@@ -236,7 +244,7 @@ async def stream(
                 return
             try:
                 raw = await _read_async(client, ref, caching, throttle)
-                image, hashed = await asyncio.to_thread(_decode_hashed, raw)
+                image, hashed = await asyncio.to_thread(_decode_hashed, raw, shortest)
             except Exception as e:  # one bad image must not kill the run
                 if on_error is not None:
                     on_error(str(ref), e)
@@ -283,8 +291,8 @@ async def stream(
         runner.cancel()
 
 
-def _decode_hashed(raw: bytes) -> tuple[Image.Image, str]:
-    return decode(raw), digest(raw)
+def _decode_hashed(raw: bytes, shortest: int | None) -> tuple[Image.Image, str]:
+    return decode(raw, shortest), digest(raw)
 
 
 async def _read_async(
