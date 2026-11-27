@@ -157,6 +157,21 @@
         "same-spot": " (taken from about the same place as yours)",
       };
       const label = (i) => (i === 0 ? "you" : String(i));
+      const picture = (c) =>
+        c.key === null ? $("preview").src : `thumb/${c.key}/${c.row}?size=256`;
+
+      // the image plane of a camera at `depth`: its centre and half extents,
+      // as [x, y, z] arrays
+      function imagePlane(c, depth) {
+        const [f, u] = [c.forward, c.up];
+        const right = [f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]];
+        const half = depth * Math.tan((c.fov * Math.PI) / 360);
+        return {
+          centre: c.position.map((p, k) => p + f[k] * depth),
+          right: right.map((r) => (r * half * c.aspect)),
+          up: u.map((v) => v * half),
+        };
+      }
       let poses = null;
 
       function showPoses(data) {
@@ -212,19 +227,43 @@
         });
         data.cameras.forEach((c, i) => {
           const [x, , z] = c.position;
-          const length = Math.hypot(c.forward[0], c.forward[2]) || 1;
-          const reach = side / 10 / length;
           const colour = COLOURS[c.status];
-          svg(plan, "line", {
-            x1: x,
-            y1: z,
-            x2: x + c.forward[0] * reach,
-            y2: z + c.forward[2] * reach,
+          // seen from above, the field of view is a wedge and the image plane
+          // its far edge; the photo is shown upright at that edge
+          const plane = imagePlane(c, side / 8);
+          const [a, b] = [1, -1].map((s) => [
+            plane.centre[0] + s * plane.right[0],
+            plane.centre[2] + s * plane.right[2],
+          ]);
+          svg(plan, "path", {
+            d: `M${x} ${z}L${a[0]} ${a[1]}L${b[0]} ${b[1]}Z`,
+            fill: colour,
+            "fill-opacity": 0.12,
             stroke: colour,
-            "stroke-width": side / 250,
+            "stroke-width": side / 400,
             "stroke-dasharray": c.status === "unscaled" ? `${side / 80}` : "none",
           });
-          svg(plan, "circle", { cx: x, cy: z, r: side / 80, fill: colour });
+          const width = side / 9;
+          const height = width / c.aspect;
+          const [px, pz] = [plane.centre[0], plane.centre[2]];
+          svg(plan, "image", {
+            href: picture(c),
+            x: px - width / 2,
+            y: pz - height / 2,
+            width,
+            height,
+            preserveAspectRatio: "xMidYMid slice",
+          });
+          svg(plan, "rect", {
+            x: px - width / 2,
+            y: pz - height / 2,
+            width,
+            height,
+            fill: "none",
+            stroke: colour,
+            "stroke-width": side / 400,
+          });
+          svg(plan, "circle", { cx: x, cy: z, r: side / 100, fill: colour });
           const text = svg(plan, "text", {
             x: x + side / 50,
             y: z - side / 50,
@@ -269,25 +308,20 @@
           ),
         );
 
+        const textures = new THREE.TextureLoader();
         for (const c of data.cameras) {
           const at = new THREE.Vector3(...c.position);
-          const forward = new THREE.Vector3(...c.forward);
-          const up = new THREE.Vector3(...c.up);
-          const right = forward.clone().cross(up);
-          const depth = size / 8;
-          const height = 2 * depth * Math.tan((c.fov * Math.PI) / 360);
-          const width = height * c.aspect;
+          const plane = imagePlane(c, size / 5);
+          const centre = new THREE.Vector3(...plane.centre);
+          const right = new THREE.Vector3(...plane.right);
+          const up = new THREE.Vector3(...plane.up);
           const corners = [
             [-1, -1],
             [1, -1],
             [1, 1],
             [-1, 1],
           ].map(([sx, sy]) =>
-            at
-              .clone()
-              .addScaledVector(forward, depth)
-              .addScaledVector(right, (sx * width) / 2)
-              .addScaledVector(up, (sy * height) / 2),
+            centre.clone().addScaledVector(right, sx).addScaledVector(up, sy),
           );
           const lines = corners.flatMap((corner, k) => [
             at,
@@ -295,17 +329,27 @@
             corner,
             corners[(k + 1) % 4],
           ]);
-          // a tick on the top edge, to show which way is up
-          lines.push(at.clone().addScaledVector(forward, depth).addScaledVector(up, height / 2));
-          lines.push(
-            at.clone().addScaledVector(forward, depth).addScaledVector(up, height * 0.8),
-          );
           scene.add(
             new THREE.LineSegments(
               new THREE.BufferGeometry().setFromPoints(lines),
               new THREE.LineBasicMaterial({ color: COLOURS[c.status] }),
             ),
           );
+
+          // the photo on the image plane, facing the camera: local x is the
+          // camera's right, y its up, and z (the plane's normal) points back
+          const texture = textures.load(picture(c));
+          texture.colorSpace = THREE.SRGBColorSpace;
+          const photo = new THREE.Mesh(
+            new THREE.PlaneGeometry(2 * right.length(), 2 * up.length()),
+            new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+          );
+          const back = new THREE.Vector3(...c.forward).negate();
+          photo.quaternion.setFromRotationMatrix(
+            new THREE.Matrix4().makeBasis(right.clone().normalize(), up.clone().normalize(), back),
+          );
+          photo.position.copy(centre);
+          scene.add(photo);
         }
 
         const camera = new THREE.PerspectiveCamera(
