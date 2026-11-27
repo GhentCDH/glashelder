@@ -6,7 +6,7 @@ a lookup takes on a CPU. Only images the store has no features for yet are done.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from itertools import batched
 from pathlib import Path
@@ -37,7 +37,9 @@ def run(store: Path, collections: list[Collection], settings: Settings, batch: i
     device = get_device()
     matcher = Matcher(settings, device)
     read = readable(settings.resize)
-    with ThreadPoolExecutor(IO_THREADS) as pool:
+    # one batch is written while the next is extracted, so the GPU does not
+    # wait for the share; one writer keeps the batches in order
+    with ThreadPoolExecutor(IO_THREADS) as pool, ThreadPoolExecutor(1) as commits:
         for collection in collections:
             path = location(store, collection.key)
             writer = Writer(path, settings)
@@ -54,6 +56,7 @@ def run(store: Path, collections: list[Collection], settings: Settings, batch: i
                 f"on {device}"
             )
             failed = 0
+            writing: Future | None = None
             with progress(stderr=True) as bar:
                 task = bar.add_task(collection.key, total=len(todo))
                 images = prefetch(pool, lambda item: read(item[0]), todo)
@@ -64,8 +67,12 @@ def run(store: Path, collections: list[Collection], settings: Settings, batch: i
                             failed += 1
                             continue
                         rows.append((key, matcher.extract(image), image.shape[:2]))
-                    writer.add(rows)
+                    if writing is not None:
+                        writing.result()
+                    writing = commits.submit(writer.add, rows)
                     bar.update(task, advance=len(chunk))
+                if writing is not None:
+                    writing.result()
             logger.info(
                 f"{path}: features of {len(writer.refs):,} images"
                 + (
