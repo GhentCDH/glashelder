@@ -1,10 +1,12 @@
 from .base import EmbeddingModel, NoImagesError
 from .clip import CLIP_MODEL_ID, CLIPEmbedder
 from .dinov2 import DINOv2Embedder
+from .megaloc import MegaLocEmbedder
 
 EMBEDDING_MODELS: dict[str, type[EmbeddingModel]] = {
     "clip": CLIPEmbedder,
     "dinov2": DINOv2Embedder,
+    "megaloc": MegaLocEmbedder,
 }
 
 
@@ -12,7 +14,7 @@ def get_embedder(model_name: str = "clip") -> EmbeddingModel:
     """Get an embedding model instance by name.
 
     Args:
-        model_name: Name of the model ('clip' or 'dinov2').
+        model_name: Name of the model ('clip', 'dinov2' or 'megaloc').
 
     Returns:
         An EmbeddingModel instance (not yet loaded).
@@ -34,6 +36,7 @@ __all__ = [
     "CLIPEmbedder",
     "DINOv2Embedder",
     "EmbeddingModel",
+    "MegaLocEmbedder",
     "NoImagesError",
     "get_embedder",
 ]
