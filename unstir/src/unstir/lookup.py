@@ -29,7 +29,9 @@ from common.fs import atomic_write
 
 from .decide import Rule, decide, provenance, ratio
 from .features import Features, location
-from .match import Matcher, Settings, geometry, grayscale, prepare
+from .match import Matcher, Settings, geometry, grayscale, points, prepare
+from .poses import Pair, View, focal_35mm, scene
+from .poses import relative as pose
 from .store import relative
 
 THREADS = 16
@@ -245,7 +247,8 @@ class Lookup:
         self.matcher = Matcher(settings, self.device)
         logger.info(f"models loaded on {self.device}")
 
-    def query(self, picture: Image.Image) -> dict:
+    def query(self, picture: Image.Image, focal: float | None = None) -> dict:
+        """`focal` is the 35 mm equivalent focal length of the photo, from EXIF."""
         from embed.search import topk
 
         start = time.perf_counter()
@@ -253,16 +256,22 @@ class Lookup:
             vector = self.embedder.encode_pil_image(picture).reshape(1, -1)
             image = grayscale(picture, self.settings.resize)
             features = self.matcher.extract(image)
-            results = [
-                self.match(collection, vector, image, features, topk)
+            focal_px = focal_35mm(focal, image.shape)
+            found = [
+                self.match(collection, vector, image, features, topk, focal_px)
                 for collection in self.collections.values()
             ]
+        pairs = [pair for _, matched in found for pair in matched]
         return {
-            "collections": results,
+            "collections": [result for result, _ in found],
+            "poses": scene(pairs, image.shape, focal_px) if pairs else None,
             "seconds": round(time.perf_counter() - start, 1),
         }
 
-    def match(self, collection: Collection, vector, image, features, topk) -> dict:
+    def match(
+        self, collection: Collection, vector, image, features, topk, focal: float
+    ) -> tuple[dict, list[Pair]]:
+        """The result for one collection, and the poses of its matched images."""
         similarities, indices = topk(vector, collection.vectors, self.top_k)
         rows = indices[0].tolist()
         stored = collection.feature_rows
@@ -275,6 +284,7 @@ class Lookup:
             )
         )
         scored: list[dict[str, Any]] = []
+        kept: dict[int, tuple] = {}
         for rank, (row, similarity) in enumerate(
             zip(rows, similarities[0].tolist(), strict=True)
         ):
@@ -284,7 +294,9 @@ class Lookup:
                 theirs, shape = self.matcher.extract(picture), picture.shape
             else:
                 continue
-            pts, pts_theirs = self.matcher.match(features, theirs)
+            found = self.matcher.pairs(features, theirs)
+            pts, pts_theirs = points(features, found[:, 0]), points(theirs, found[:, 1])
+            kept[row] = (pts, pts_theirs, found[:, 0], shape)
             scores = geometry(pts, pts_theirs, image.shape, shape, self.settings)
             scored.append(
                 {
@@ -309,7 +321,12 @@ class Lookup:
             best = decide(scored, self.rule)[0]
             matches = {best["reference"]} if best["decision"] == "match" else set()
             explained = reason(best, self.rule)
-        return {
+        poses = [
+            found
+            for reference in matches
+            if (found := self.pose(collection, int(reference), kept, image, focal))
+        ]
+        result = {
             "key": collection.source.key,
             "title": collection.source.title,
             "match": bool(matches),
@@ -324,6 +341,29 @@ class Lookup:
                 for s in top
             ],
         }
+        return result, poses
+
+    def pose(
+        self, collection: Collection, row: int, kept: dict, image, focal: float
+    ) -> Pair | None:
+        pts, pts_theirs, keypoints, shape = kept[row]
+        known = collection.describe(row)
+        view = View(
+            key=collection.source.key,
+            row=row,
+            name=known.get("name") or known["file"],
+            collection=collection.source.title,
+        )
+        return pose(
+            view,
+            pts,
+            pts_theirs,
+            keypoints,
+            image.shape,
+            shape,
+            focal,
+            self.settings.f_px,
+        )
 
     def read(self, ref: str) -> np.ndarray | None:
         try:
@@ -333,11 +373,18 @@ class Lookup:
             return None
 
 
-def upload(data: bytes) -> Image.Image:
+EXIF_IFD, FOCAL_35MM = 0x8769, 0xA405
+
+
+def upload(data: bytes) -> tuple[Image.Image, float | None]:
     """An uploaded photo, turned upright as its EXIF data says (phone cameras
-    often store the pixels sideways), in RGB."""
+    often store the pixels sideways), in RGB. And its 35 mm equivalent focal
+    length, when the EXIF data has one."""
     picture = Image.open(io.BytesIO(data))
-    return ImageOps.exif_transpose(picture).convert("RGB")
+    focal = picture.getexif().get_ifd(EXIF_IFD).get(FOCAL_35MM)
+    return ImageOps.exif_transpose(picture).convert("RGB"), float(
+        focal
+    ) if focal else None
 
 
 def create_app(lookup: Lookup, feedback: Feedback) -> Flask:
@@ -370,11 +417,11 @@ def create_app(lookup: Lookup, feedback: Feedback) -> Flask:
         if file is None or not file.filename:
             return {"error": "no photo was sent"}, 400
         try:
-            picture = upload(file.read())
+            picture, focal = upload(file.read())
         except (UnidentifiedImageError, OSError) as error:
             return {"error": f"that is not a photo this page can read ({error})"}, 400
         try:
-            result = lookup.query(picture)
+            result = lookup.query(picture, focal)
         except Exception as error:
             logger.exception("lookup failed")
             return {"error": f"matching failed: {error}"}, 500

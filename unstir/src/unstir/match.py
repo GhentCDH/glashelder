@@ -73,17 +73,23 @@ class Matcher:
         return {**features, "descriptors": features["descriptors"].float()}
 
     @torch.inference_mode()
-    def match(self, a: dict, b: dict) -> tuple[np.ndarray, np.ndarray]:
-        """Matched keypoints in `a` and in `b`, as two `(n, 2)` arrays."""
+    def pairs(self, a: dict, b: dict) -> np.ndarray:
+        """Indices of the matched keypoints, as an `(n, 2)` array: in `a`, in `b`."""
         from lightglue.utils import rbd
 
-        none = np.zeros((0, 2), dtype=np.float32)
         if a["keypoints"].shape[1] < 2 or b["keypoints"].shape[1] < 2:
-            return none, none
-        found = rbd(self.matcher({"image0": a, "image1": b}))["matches"]
-        pts_a = a["keypoints"][0][found[:, 0]]
-        pts_b = b["keypoints"][0][found[:, 1]]
-        return pts_a.cpu().numpy(), pts_b.cpu().numpy()
+            return np.zeros((0, 2), dtype=np.int64)
+        return rbd(self.matcher({"image0": a, "image1": b}))["matches"].cpu().numpy()
+
+    def match(self, a: dict, b: dict) -> tuple[np.ndarray, np.ndarray]:
+        """Matched keypoints in `a` and in `b`, as two `(n, 2)` arrays."""
+        found = self.pairs(a, b)
+        return points(a, found[:, 0]), points(b, found[:, 1])
+
+
+def points(features: dict, indices: np.ndarray) -> np.ndarray:
+    """The keypoints at `indices`, as an `(n, 2)` array."""
+    return features["keypoints"][0].cpu().numpy()[indices]
 
 
 def inliers(

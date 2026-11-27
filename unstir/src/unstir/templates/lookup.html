@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Which building is this?</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- only resolved when the 3D view is opened: nothing is downloaded before -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body class="min-h-screen bg-neutral-100 text-neutral-900">
     <main class="max-w-5xl mx-auto p-4 space-y-6">
@@ -30,6 +39,24 @@
         </div>
         <img id="preview" class="hidden max-h-64 rounded object-contain" alt="your photo" />
         <p id="status" class="text-sm text-neutral-600"></p>
+      </section>
+
+      <section id="poses" class="hidden bg-white rounded-lg shadow p-4 space-y-3">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-semibold">Where were the photos taken?</h2>
+            <p class="text-xs text-neutral-500">
+              Seen from above, from the matched points. A sketch: distances are
+              relative and the lenses are guessed.
+            </p>
+          </div>
+          <label class="flex items-center gap-2 text-sm whitespace-nowrap cursor-pointer">
+            <input id="view3d" type="checkbox" /> 3D view
+          </label>
+        </div>
+        <svg id="plan" class="w-full h-96 bg-neutral-50 rounded"></svg>
+        <div id="scene" class="hidden w-full h-96 bg-neutral-900 rounded"></div>
+        <ol id="cameras" class="text-xs space-y-0.5"></ol>
       </section>
 
       <div id="results" class="space-y-6"></div>
@@ -114,6 +141,204 @@
           results.appendChild(node);
         }
         $("feedback-note").classList.remove("hidden");
+        showPoses(result.poses);
+      }
+
+      const COLOURS = {
+        query: "#171717",
+        placed: "#047857",
+        unscaled: "#047857",
+        "same-spot": "#b45309",
+      };
+      const NOTES = {
+        query: "",
+        placed: "",
+        unscaled: " (direction known, distance a guess)",
+        "same-spot": " (taken from about the same place as yours)",
+      };
+      const label = (i) => (i === 0 ? "you" : String(i));
+      let poses = null;
+
+      function showPoses(data) {
+        poses = data && data.cameras.length > 1 ? data : null;
+        $("poses").classList.toggle("hidden", !poses);
+        if (!poses) return;
+        drawPlan(poses);
+        $("cameras").replaceChildren(
+          ...poses.cameras.map((c, i) => {
+            const li = document.createElement("li");
+            const where = c.collection ? `, ${c.collection}` : "";
+            li.innerHTML = `<span class="inline-block w-8 font-semibold"></span>`;
+            li.firstChild.textContent = label(i);
+            li.firstChild.style.color = COLOURS[c.status];
+            li.append(`${c.name}${where}${NOTES[c.status]}`);
+            return li;
+          }),
+        );
+        if ($("view3d").checked) openScene();
+      }
+
+      // centre and size of everything to draw
+      function extent(data) {
+        const all = [...data.points, ...data.cameras.map((c) => c.position)];
+        const low = [0, 1, 2].map((k) => Math.min(...all.map((p) => p[k])));
+        const high = [0, 1, 2].map((k) => Math.max(...all.map((p) => p[k])));
+        const size = Math.max(...high.map((h, k) => h - low[k])) || 1;
+        return { centre: low.map((l, k) => (l + high[k]) / 2), size };
+      }
+
+      function svg(parent, tag, attributes) {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+        parent.appendChild(node);
+        return node;
+      }
+
+      // top-down: x to the right, z down the page, so your photo looks up the page
+      function drawPlan(data) {
+        const plan = $("plan");
+        plan.replaceChildren();
+        const { centre, size } = extent(data);
+        const side = size * 1.2;
+        plan.setAttribute(
+          "viewBox",
+          `${centre[0] - side / 2} ${centre[2] - side / 2} ${side} ${side}`,
+        );
+        svg(plan, "path", {
+          d: data.points.map((p) => `M${p[0]} ${p[2]}h0`).join(""),
+          stroke: "#a3a3a3",
+          "stroke-width": side / 150,
+          "stroke-linecap": "round",
+        });
+        data.cameras.forEach((c, i) => {
+          const [x, , z] = c.position;
+          const length = Math.hypot(c.forward[0], c.forward[2]) || 1;
+          const reach = side / 10 / length;
+          const colour = COLOURS[c.status];
+          svg(plan, "line", {
+            x1: x,
+            y1: z,
+            x2: x + c.forward[0] * reach,
+            y2: z + c.forward[2] * reach,
+            stroke: colour,
+            "stroke-width": side / 250,
+            "stroke-dasharray": c.status === "unscaled" ? `${side / 80}` : "none",
+          });
+          svg(plan, "circle", { cx: x, cy: z, r: side / 80, fill: colour });
+          const text = svg(plan, "text", {
+            x: x + side / 50,
+            y: z - side / 50,
+            "font-size": side / 30,
+            fill: colour,
+          });
+          text.textContent = label(i);
+          svg(text, "title", {}).textContent = c.name;
+        });
+      }
+
+      let three = null;
+      let renderer = null;
+
+      // three.js is only downloaded the first time this runs
+      async function drawScene(data) {
+        three ??= await Promise.all([
+          import("three"),
+          import("three/addons/controls/OrbitControls.js"),
+        ]);
+        const [THREE, { OrbitControls }] = three;
+        const box = $("scene");
+        if (renderer) {
+          renderer.setAnimationLoop(null);
+          renderer.dispose();
+        }
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(box.clientWidth, box.clientHeight);
+        box.replaceChildren(renderer.domElement);
+
+        const { centre, size } = extent(data);
+        const scene = new THREE.Scene();
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(data.points.flat(), 3),
+        );
+        scene.add(
+          new THREE.Points(
+            geometry,
+            new THREE.PointsMaterial({ color: 0xd4d4d4, size: size / 150 }),
+          ),
+        );
+
+        for (const c of data.cameras) {
+          const at = new THREE.Vector3(...c.position);
+          const forward = new THREE.Vector3(...c.forward);
+          const up = new THREE.Vector3(...c.up);
+          const right = forward.clone().cross(up);
+          const depth = size / 8;
+          const height = 2 * depth * Math.tan((c.fov * Math.PI) / 360);
+          const width = height * c.aspect;
+          const corners = [
+            [-1, -1],
+            [1, -1],
+            [1, 1],
+            [-1, 1],
+          ].map(([sx, sy]) =>
+            at
+              .clone()
+              .addScaledVector(forward, depth)
+              .addScaledVector(right, (sx * width) / 2)
+              .addScaledVector(up, (sy * height) / 2),
+          );
+          const lines = corners.flatMap((corner, k) => [
+            at,
+            corner,
+            corner,
+            corners[(k + 1) % 4],
+          ]);
+          // a tick on the top edge, to show which way is up
+          lines.push(at.clone().addScaledVector(forward, depth).addScaledVector(up, height / 2));
+          lines.push(
+            at.clone().addScaledVector(forward, depth).addScaledVector(up, height * 0.8),
+          );
+          scene.add(
+            new THREE.LineSegments(
+              new THREE.BufferGeometry().setFromPoints(lines),
+              new THREE.LineBasicMaterial({ color: COLOURS[c.status] }),
+            ),
+          );
+        }
+
+        const camera = new THREE.PerspectiveCamera(
+          50,
+          box.clientWidth / box.clientHeight,
+          size / 1000,
+          size * 100,
+        );
+        camera.position.set(centre[0], centre[1] + size * 0.8, centre[2] + size * 1.2);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(...centre);
+        controls.update();
+        renderer.setAnimationLoop(() => renderer.render(scene, camera));
+      }
+
+      $("view3d").addEventListener("change", async (event) => {
+        const on = event.target.checked;
+        $("plan").classList.toggle("hidden", on);
+        $("scene").classList.toggle("hidden", !on);
+        if (!on) {
+          renderer?.setAnimationLoop(null);
+          return;
+        }
+        openScene();
+      });
+
+      async function openScene() {
+        if (!poses) return;
+        try {
+          await drawScene(poses);
+        } catch (error) {
+          $("scene").textContent = `The 3D view could not load: ${error.message}`;
+        }
       }
 
       const CHOSEN = { same: "bg-emerald-600", different: "bg-rose-600" };
@@ -157,6 +382,7 @@
         $("preview").src = URL.createObjectURL(file);
         $("preview").classList.remove("hidden");
         $("results").replaceChildren();
+        showPoses(null);
         $("status").textContent = "Comparing, this can take a while…";
         const body = new FormData();
         body.append("image", file);
