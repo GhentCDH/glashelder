@@ -7,8 +7,14 @@
 # The working directory is /work: mount a directory there that holds the
 # `glashelder.toml` to use, and that keeps what the servers write (labeling
 # sessions, ...). Model downloads go to /cache, mount a volume there to keep them.
+#
+# By default torch is the CPU build of the locked version, which leaves out about
+# 4 GB of CUDA libraries. For a host with an NVIDIA GPU, build with
+# `--build-arg TORCH=cuda` to get the locked CUDA build.
 
 FROM python:3.13-slim AS build
+
+ARG TORCH=cpu
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.8 /uv /bin/
 
@@ -36,8 +42,23 @@ COPY artmatcher/pyproject.toml artmatcher/README.md artmatcher/
 COPY artscraper/pyproject.toml artscraper/README.md artscraper/
 COPY ocr/pyproject.toml ocr/README.md ocr/
 COPY unstir/pyproject.toml unstir/README.md unstir/
+
+# for the CPU build: the locked torch, torchvision and CUDA packages are skipped,
+# then the CPU builds of the same torch and torchvision versions are installed
+RUN case "$TORCH" in \
+      cpu) grep -oE '^name = "(torch|torchvision|triton|nvidia-[a-z0-9-]+|cuda-[a-z-]+)"$' uv.lock \
+             | cut -d'"' -f2 | sed 's/^/--no-install-package /' > /skip ;; \
+      cuda) : > /skip ;; \
+      *) echo "TORCH is cpu or cuda, not $TORCH" >&2; exit 1 ;; \
+    esac
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-workspace
+    uv sync --frozen --no-dev --no-install-workspace $(cat /skip)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$TORCH" = cpu ]; then \
+      locked() { grep -A1 "^name = \"$1\"$" uv.lock | sed -n 's/^version = "\(.*\)"$/\1/p'; }; \
+      uv pip install --no-deps --index-url https://download.pytorch.org/whl/cpu \
+        "torch==$(locked torch)" "torchvision==$(locked torchvision)"; \
+    fi
 
 COPY src src
 COPY common/src common/src
@@ -50,7 +71,7 @@ COPY artscraper/src artscraper/src
 COPY ocr/src ocr/src
 COPY unstir/src unstir/src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable
+    uv sync --frozen --no-dev --no-editable --inexact $(cat /skip)
 
 FROM python:3.13-slim
 
