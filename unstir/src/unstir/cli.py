@@ -360,6 +360,78 @@ def sample(
 
 
 @unstir.command()
+@store_option
+@click.option(
+    "--plate-embeddings",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Plate embeddings; their images are the plates [unstir.plate_embeddings]",
+)
+@click.option(
+    "--reference-embeddings",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Reference embeddings; their images are the references "
+    "[unstir.reference_embeddings]",
+)
+@image_options
+@click.option(
+    "--collection",
+    "chosen",
+    type=click.Choice(["references", "plates"]),
+    multiple=True,
+    help="Which collections to do, repeated [default: both]",
+)
+@click.option(
+    "--batch",
+    default=500,
+    show_default=True,
+    help="Images per commit to the store; a stopped run loses at most one batch",
+)
+def precompute(
+    store: Path | None,
+    plate_embeddings: Path | None,
+    reference_embeddings: Path | None,
+    plate_images: Path | None,
+    reference_images: Path | None,
+    chosen: tuple[str, ...],
+    batch: int,
+):
+    """Extract the ALIKED features of every image once, into STORE/features.
+
+    `unstir lookup` then reads the features of its candidates instead of
+    reading and extracting each image, which is most of its time on a CPU.
+    About 0.5 MB per image. Only images without features yet are done.
+    """
+    from .match import Settings
+    from .precompute import Collection, run
+
+    chosen = chosen or ("references", "plates")
+    needs = {"store": store}
+    if "references" in chosen:
+        needs |= {
+            "reference_embeddings": reference_embeddings,
+            "reference_images": reference_images,
+        }
+    if "plates" in chosen:
+        needs |= {"plate_embeddings": plate_embeddings, "plate_images": plate_images}
+    required(**needs)
+    assert store
+    sources = {
+        "references": (reference_embeddings, reference_images),
+        "plates": (plate_embeddings, plate_images),
+    }
+    collections = [
+        Collection(key, Path(embeddings), Path(images))
+        for key in chosen
+        for embeddings, images in [sources[key]]
+        if embeddings and images
+    ]
+    run(Path(store), collections, Settings(), batch)
+
+
+@unstir.command()
+@store_option
 @click.option(
     "--plate-embeddings",
     type=click.Path(exists=True, path_type=Path),
@@ -393,6 +465,7 @@ def sample(
 @rule_options
 @serve_options(5005)
 def lookup(
+    store: Path | None,
     plate_embeddings: Path | None,
     reference_embeddings: Path | None,
     plate_images: Path | None,
@@ -409,6 +482,7 @@ def lookup(
 
     The photo is matched like `unstir match` against the reference photos and
     the glass plates, and the page says per collection if there is a match.
+    The features of `unstir precompute` in STORE are used where there are any.
     """
     from .decide import Rule
     from .lookup import Feedback, Lookup, Source, create_app
@@ -443,6 +517,7 @@ def lookup(
         show=show,
         rule=Rule(min_f=min_f, min_ratio=min_ratio, margin=margin),
         settings=Settings(),
+        store=Path(store) if store else None,
     )
     run_app(create_app(found, Feedback(feedback)), **server)
 

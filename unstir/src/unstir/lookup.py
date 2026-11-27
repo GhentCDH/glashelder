@@ -28,6 +28,7 @@ from common import images
 from common.fs import atomic_write
 
 from .decide import Rule, decide, provenance, ratio
+from .features import Features, location
 from .match import Matcher, Settings, geometry, grayscale, prepare
 from .store import relative
 
@@ -58,6 +59,9 @@ class Collection:
     refs: list[str]
     vectors: object
     """The embeddings, placed where searching them is fastest."""
+    features: Features | None = None
+    feature_rows: dict[int, int] = field(default_factory=dict)
+    """Row in `refs` to row in `features`, for the images that have them."""
     known: dict[str, dict] = field(default_factory=dict)
     """Names, places and URIs by file name, from `provenance.jsonl`."""
 
@@ -194,7 +198,9 @@ class Lookup:
         show: int,
         rule: Rule,
         settings: Settings,
+        store: Path | None = None,
     ):
+        """`store` is a match store with the features of `unstir precompute`."""
         from embed.device import get_device
         from embed.io import load_embeddings
         from embed.models import get_embedder
@@ -210,10 +216,24 @@ class Lookup:
         for source in sources:
             data = load_embeddings(source.embeddings, root=source.images)
             models.add(data["model_id"])
+            refs = data["images"]
+            features = (
+                Features.find(location(store, source.key), settings)
+                if store is not None
+                else None
+            )
             self.collections[source.key] = Collection(
                 source=source,
-                refs=data["images"],
+                refs=refs,
                 vectors=place(data["embeddings"], self.device, label=source.title),
+                features=features,
+                feature_rows={}
+                if features is None
+                else {
+                    row: features.rows[key]
+                    for row, ref in enumerate(refs)
+                    if (key := relative(ref, source.images)) in features.rows
+                },
                 known=provenance(source.images),
             )
             logger.info(f"{source.title}: {len(data['images']):,} images")
@@ -245,10 +265,12 @@ class Lookup:
     def match(self, collection: Collection, vector, image, features, topk) -> dict:
         similarities, indices = topk(vector, collection.vectors, self.top_k)
         rows = indices[0].tolist()
+        stored = collection.feature_rows
+        unread = [row for row in rows if row not in stored]
         candidates = dict(
             zip(
-                rows,
-                self.pool.map(lambda row: self.read(collection.refs[row]), rows),
+                unread,
+                self.pool.map(lambda row: self.read(collection.refs[row]), unread),
                 strict=True,
             )
         )
@@ -256,11 +278,14 @@ class Lookup:
         for rank, (row, similarity) in enumerate(
             zip(rows, similarities[0].tolist(), strict=True)
         ):
-            theirs = candidates[row]
-            if theirs is None:
+            if collection.features is not None and row in stored:
+                theirs, shape = collection.features.get(stored[row], self.device)
+            elif (picture := candidates[row]) is not None:
+                theirs, shape = self.matcher.extract(picture), picture.shape
+            else:
                 continue
-            pts, pts_theirs = self.matcher.match(features, self.matcher.extract(theirs))
-            scores = geometry(pts, pts_theirs, image.shape, theirs.shape, self.settings)
+            pts, pts_theirs = self.matcher.match(features, theirs)
+            scores = geometry(pts, pts_theirs, image.shape, shape, self.settings)
             scored.append(
                 {
                     "plate": "query",

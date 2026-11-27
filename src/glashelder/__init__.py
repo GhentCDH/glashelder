@@ -148,6 +148,13 @@ def cli_defaults() -> dict:
         plate_images=paths.images.glashelder,
         reference_images=settings.unstir.reference_images,
     )
+    unstir_collections = {
+        **unstir_images,
+        **given(
+            plate_embeddings=settings.unstir.plate_embeddings,
+            reference_embeddings=settings.unstir.reference_embeddings,
+        ),
+    }
     embedding = defaults_for(settings.embed)
     ocr_options = {k: v for k, v in defaults_for(settings.ocr).items() if k != "cache"}
     ocr_no_concurrency = {k: v for k, v in ocr_options.items() if k != "concurrency"}
@@ -224,13 +231,8 @@ def cli_defaults() -> dict:
             },
             "decide": unstir_images,
             "sample": unstir_images,
-            "lookup": {
-                **unstir_images,
-                **given(
-                    plate_embeddings=settings.unstir.plate_embeddings,
-                    reference_embeddings=settings.unstir.reference_embeddings,
-                ),
-            },
+            "precompute": unstir_collections,
+            "lookup": unstir_collections,
         },
         "ocr": {
             "one": ocr_no_concurrency,
